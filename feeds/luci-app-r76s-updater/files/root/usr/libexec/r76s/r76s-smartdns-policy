@@ -1,0 +1,68 @@
+#!/bin/sh
+set -e
+
+mkdir -p /etc/smartdns
+
+cat > /etc/smartdns/r76s-cn.conf <<'POLICY'
+domain-set -name r76s-cn -file /usr/share/passwall/rules/chnlist
+domain-rules /./ -nameserver foreign -address #6
+domain-rules /domain-set:r76s-cn/ -nameserver cn -address -6
+POLICY
+
+: > /etc/smartdns/domain-block.list
+
+if [ -f /etc/init.d/smartdns ]; then
+    sed -i 's#/usr/sbin/smartdns#/usr/libexec/r76s/smartdns-wrapper#g' /etc/init.d/smartdns || true
+fi
+
+if ! uci -q get smartdns.@smartdns[0] >/dev/null 2>&1; then
+    exit 0
+fi
+
+uci -q set smartdns.@smartdns[0].enabled='1'
+uci -q set smartdns.@smartdns[0].server_name='smartdns'
+uci -q set smartdns.@smartdns[0].port='6053'
+uci -q set smartdns.@smartdns[0].auto_set_dnsmasq='0'
+uci -q set smartdns.@smartdns[0].tcp_server='1'
+uci -q set smartdns.@smartdns[0].ipv6_server='1'
+uci -q set smartdns.@smartdns[0].dualstack_ip_selection='0'
+uci -q set smartdns.@smartdns[0].force_aaaa_soa='0'
+uci -q delete smartdns.@smartdns[0].dualstack_selection || true
+uci -q delete smartdns.@smartdns[0].force_https_soa || true
+uci -q set smartdns.@smartdns[0].serve_expired='1'
+uci -q set smartdns.@smartdns[0].cache_persist='1'
+uci -q set smartdns.@smartdns[0].resolve_local_hostnames='1'
+
+uci -q delete smartdns.@smartdns[0].conf_files || true
+uci -q add_list smartdns.@smartdns[0].conf_files='/etc/smartdns/r76s-cn.conf'
+
+while uci -q get smartdns.@server[0] >/dev/null 2>&1; do
+    uci -q delete smartdns.@server[0] || true
+done
+
+add_server() {
+    local ip="$1" type="$2" group="$3" sid
+    sid="$(uci -q add smartdns server)"
+    [ -n "$sid" ] || return 1
+    uci -q set smartdns."$sid".enabled='1'
+    uci -q set smartdns."$sid".ip="$ip"
+    uci -q set smartdns."$sid".port='53'
+    uci -q set smartdns."$sid".type="$type"
+    uci -q set smartdns."$sid".server_group="$group"
+    uci -q set smartdns."$sid".exclude_default_group='1'
+}
+
+add_server '223.5.5.5' 'udp' 'cn'
+add_server '119.29.29.29' 'udp' 'cn'
+add_server '1.1.1.1' 'tcp' 'foreign'
+add_server '8.8.8.8' 'tcp' 'foreign'
+
+uci -q commit smartdns
+
+if uci -q get dhcp.@dnsmasq[0] >/dev/null 2>&1; then
+    uci -q set dhcp.@dnsmasq[0].filter_aaaa='0'
+    uci -q set dhcp.@dnsmasq[0].filter_a='0'
+    uci -q commit dhcp
+fi
+
+exit 0

@@ -1,0 +1,252 @@
+<!-- R76S_UPDATER_UI_PATCH=3 -->
+<%+header%>
+<%
+local dsp = require "luci.dispatcher"
+local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
+%>
+
+<style>
+.r76s-wrap { max-width: 980px; }
+.r76s-card { margin-top: 12px; }
+.r76s-table { width: 100%; }
+.r76s-table .td:first-child { width: 180px; font-weight: 600; }
+.r76s-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 18px 0 16px; }
+.r76s-progress { width: 100%; height: 18px; border-radius: 9px; overflow: hidden; background: rgba(127,127,127,.18); position: relative; }
+.r76s-progress-bar { width: 0%; height: 100%; transition: width .35s ease; background: linear-gradient(90deg,#5e72e4,#825ee4); }
+.r76s-progress-text { margin-top: 7px; font-size: 12px; opacity: .8; }
+.r76s-pass { font-weight: 600; }
+.r76s-fail { font-weight: 600; }
+.r76s-muted { opacity: .7; }
+.r76s-install { margin-top: 22px; text-align: center; }
+.r76s-install .cbi-button { min-width: 150px; }
+.r76s-install .cbi-button:disabled { opacity: .45; cursor: not-allowed; filter: grayscale(1); }
+.r76s-safety { margin-top: 14px; font-size: 12px; opacity: .76; text-align: center; }
+.r76s-message { margin-top: 12px; white-space: pre-wrap; }
+</style>
+
+<div class="r76s-wrap">
+  <h2>R76S 固件升级</h2>
+
+  <div class="cbi-map r76s-card">
+    <div class="cbi-section">
+      <h3>固件升级</h3>
+
+      <table class="table r76s-table">
+        <tr class="tr">
+          <td class="td">当前版本</td>
+          <td class="td" id="r76s-current">读取中...</td>
+        </tr>
+        <tr class="tr">
+          <td class="td">最新版本</td>
+          <td class="td" id="r76s-latest">尚未检查</td>
+        </tr>
+        <tr class="tr">
+          <td class="td">状态</td>
+          <td class="td" id="r76s-status">读取中...</td>
+        </tr>
+      </table>
+
+      <div class="r76s-actions">
+        <button class="cbi-button cbi-button-action" id="r76s-check" type="button">检查更新</button>
+        <button class="cbi-button cbi-button-apply" id="r76s-download" type="button">下载固件</button>
+      </div>
+
+      <table class="table r76s-table">
+        <tr class="tr">
+          <td class="td">下载进度</td>
+          <td class="td">
+            <div class="r76s-progress"><div class="r76s-progress-bar" id="r76s-progress-bar"></div></div>
+            <div class="r76s-progress-text" id="r76s-progress-text">0%</div>
+          </td>
+        </tr>
+        <tr class="tr">
+          <td class="td">SHA256</td>
+          <td class="td" id="r76s-sha">— 未校验</td>
+        </tr>
+        <tr class="tr">
+          <td class="td">Sysupgrade</td>
+          <td class="td" id="r76s-sysupgrade">— 未校验</td>
+        </tr>
+      </table>
+
+      <div class="r76s-install">
+        <button class="cbi-button cbi-button-negative" id="r76s-install" type="button" disabled>安装更新</button>
+      </div>
+
+      <div class="r76s-safety" id="r76s-safety">升级目标将自动跟随当前启动盘，不硬编码 TF/eMMC。</div>
+      <pre class="r76s-message" id="r76s-message" style="display:none"></pre>
+    </div>
+  </div>
+</div>
+
+<script type="text/javascript">
+(function() {
+  'use strict';
+
+  var API = '<%=api_base%>';
+  var pollTimer = null;
+  var verifying = false;
+
+  function byId(id) { return document.getElementById(id); }
+
+  function request(action, method, done) {
+    var xhr = new XMLHttpRequest();
+    xhr.open(method || 'GET', API + '/' + action + '?_=' + Date.now(), true);
+    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState !== 4) return;
+      var data = null;
+      try { data = JSON.parse(xhr.responseText || '{}'); } catch (e) {}
+      if (!data) data = { ok:false, message:'返回数据解析失败' };
+      if (done) done(data, xhr.status);
+    };
+    xhr.send(null);
+  }
+
+  function verifyText(state, okText, failText) {
+    if (state === 'pass') return '<span class="r76s-pass">✓ ' + okText + '</span>';
+    if (state === 'fail') return '<span class="r76s-fail">✗ ' + failText + '</span>';
+    return '<span class="r76s-muted">— 未校验</span>';
+  }
+
+  function setBusy(button, busy, text) {
+    button.disabled = !!busy;
+    if (text) button.textContent = text;
+  }
+
+  function showMessage(text) {
+    var el = byId('r76s-message');
+    if (!text) {
+      el.style.display = 'none';
+      el.textContent = '';
+      return;
+    }
+    el.style.display = 'block';
+    el.textContent = text;
+  }
+
+  function render(s) {
+    if (!s) return;
+
+    byId('r76s-current').textContent = (s.current && s.current.revision) || '未知';
+    byId('r76s-latest').textContent = s.checked ? ((s.latest && s.latest.revision) || '未知') : '尚未检查';
+    byId('r76s-status').textContent = s.status_text || '未知';
+
+    var pct = (s.download && typeof s.download.percent === 'number') ? s.download.percent : 0;
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    byId('r76s-progress-bar').style.width = pct + '%';
+    byId('r76s-progress-text').textContent = pct.toFixed(pct % 1 ? 1 : 0) + '%' + (s.download && s.download.message ? ' · ' + s.download.message : '');
+
+    byId('r76s-sha').innerHTML = verifyText(s.verify && s.verify.sha256, '校验通过', '校验失败');
+    byId('r76s-sysupgrade').innerHTML = verifyText(s.verify && s.verify.sysupgrade, '镜像兼容', '镜像不兼容');
+
+    var boot = s.boot || {};
+    byId('r76s-safety').textContent = '当前启动盘：' + (boot.medium || '未知') + ' (' + (boot.path || '未知') + ')；安装更新只会交给 sysupgrade 写入当前启动盘。';
+
+    var installBtn = byId('r76s-install');
+    installBtn.disabled = !s.can_install;
+    if (s.can_install) {
+      installBtn.textContent = '安装更新';
+    } else if (s.checked && s.is_latest) {
+      installBtn.textContent = '已是最新版';
+    } else if (!s.checked) {
+      installBtn.textContent = '请先检查更新';
+    } else if (s.update_available) {
+      installBtn.textContent = '等待安全校验';
+    } else {
+      installBtn.textContent = '安装更新';
+    }
+
+    var downloading = s.download && s.download.state === 'downloading';
+    byId('r76s-download').disabled = downloading;
+    byId('r76s-download').textContent = downloading ? '正在下载...' : '下载固件';
+
+    if (downloading) {
+      startPolling();
+    } else if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+
+    if (s.download && s.download.state === 'done' && (!s.verify || s.verify.sysupgrade !== 'pass') && !verifying) {
+      verifyFirmware();
+    }
+  }
+
+  function refreshStatus() {
+    request('status', 'GET', function(data) {
+      if (data && data.status) render(data.status);
+    });
+  }
+
+  function startPolling() {
+    if (pollTimer) return;
+    pollTimer = setInterval(refreshStatus, 1000);
+  }
+
+  function verifyFirmware() {
+    if (verifying) return;
+    verifying = true;
+    byId('r76s-sha').textContent = '正在校验...';
+    byId('r76s-sysupgrade').textContent = '正在检查...';
+
+    request('verify', 'GET', function(data) {
+      verifying = false;
+      if (data && data.status) render(data.status);
+      if (!data || !data.ok) showMessage((data && data.verify && data.verify.message) || (data && data.message) || '固件校验失败');
+      else showMessage('固件安全校验完成：SHA256、metadata、sysupgrade -T 全部通过。');
+    });
+  }
+
+  byId('r76s-check').onclick = function() {
+    var btn = this;
+    showMessage('');
+    setBusy(btn, true, '检查中...');
+    request('check', 'GET', function(data) {
+      setBusy(btn, false, '检查更新');
+      if (data && data.status) render(data.status);
+      if (!data || !data.ok) showMessage((data && data.output) || '检查更新失败');
+    });
+  };
+
+  byId('r76s-download').onclick = function() {
+    var btn = this;
+    showMessage('');
+    setBusy(btn, true, '准备下载...');
+    request('download', 'GET', function(data) {
+      setBusy(btn, false, '下载固件');
+      if (data && data.status) render(data.status);
+      if (!data || !data.ok) {
+        showMessage((data && data.output) || '启动下载失败');
+        return;
+      }
+      startPolling();
+    });
+  };
+
+  byId('r76s-install').onclick = function() {
+    var boot = byId('r76s-safety').textContent;
+    if (!confirm('确认安装已经通过安全校验的新固件？\n\n' + boot + '\n\n升级过程中请勿断电。')) return;
+
+    this.disabled = true;
+    this.textContent = '正在启动升级...';
+    showMessage('正在重新校验镜像并启动 sysupgrade，请勿断电。');
+
+    request('install', 'POST', function(data) {
+      if (!data || !data.ok) {
+        byId('r76s-install').textContent = '安装更新';
+        refreshStatus();
+        showMessage((data && data.message) || '启动升级失败');
+        return;
+      }
+      showMessage(data.message || '升级已启动，设备即将重启。');
+      byId('r76s-install').textContent = '设备正在升级...';
+    });
+  };
+
+  refreshStatus();
+})();
+</script>
+
+<%+footer%>

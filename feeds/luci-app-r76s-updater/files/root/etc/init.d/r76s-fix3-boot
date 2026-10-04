@@ -1,0 +1,17 @@
+#!/bin/sh /etc/rc.common
+
+START=98
+STOP=10
+
+start() {
+    /usr/libexec/r76s/r76s-smartdns-policy >/tmp/r76s-fix3-smartdns-policy.log 2>&1 || true
+
+    if [ -e /etc/r76s-v2c-dns-ready ]; then
+        /etc/init.d/smartdns restart >/dev/null 2>&1 || true
+        sleep 2
+        [ -x /usr/libexec/r76s-passwall-dns-guard ] && \
+            /usr/libexec/r76s-passwall-dns-guard >/dev/null 2>&1 || true
+    fi
+}
+
+stop() { return 0; }

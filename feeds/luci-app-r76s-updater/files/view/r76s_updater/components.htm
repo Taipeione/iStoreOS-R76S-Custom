@@ -1,0 +1,27 @@
+<%+header%>
+<h2>R76S 组件升级</h2>
+<div class="cbi-map">
+  <div class="cbi-section">
+    <p>PassWall、SmartDNS、AdGuard Home、网易 UU 分开更新。网络关键组件不提供“一键全部升级”。</p>
+    <% if result and #result > 0 then %><pre><%=result%></pre><% end %>
+    <form method="post" action="<%=REQUEST_URI%>">
+      <input class="cbi-button cbi-button-action" type="submit" name="check" value="检查全部在线版本" />
+    </form>
+    <table class="table">
+      <tr class="tr table-titles"><th class="th">组件</th><th class="th">当前版本</th><th class="th">在线版本</th><th class="th">状态</th><th class="th">操作</th></tr>
+      <% for _, r in ipairs(rows or {}) do %>
+      <tr class="tr">
+        <td class="td"><strong><%=r.name%></strong><br/><small><%=r.message%></small></td>
+        <td class="td"><%=r.current%></td><td class="td"><%=r.remote%></td><td class="td"><%=r.update%></td>
+        <td class="td">
+          <form method="post" action="<%=REQUEST_URI%>">
+            <input type="hidden" name="action" value="update"/><input type="hidden" name="id" value="<%=r.id%>"/>
+            <input class="cbi-button cbi-button-apply" type="submit" value="更新该组件"/>
+          </form>
+        </td>
+      </tr>
+      <% end %>
+    </table>
+  </div>
+</div>
+<%+footer%>

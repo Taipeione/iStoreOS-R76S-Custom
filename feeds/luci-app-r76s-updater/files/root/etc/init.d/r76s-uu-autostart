@@ -1,0 +1,10 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+STOP=10
+
+start() {
+    /usr/libexec/r76s/r76s-uu-autostart >>/tmp/r76s-uu-autostart.log 2>&1 &
+}
+
+stop() { return 0; }

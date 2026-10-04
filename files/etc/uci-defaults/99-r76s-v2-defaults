@@ -1,0 +1,942 @@
+#!/bin/sh
+# R76S Custom v2.2.4 first-boot defaults.
+# Stable base: iStoreOS 24.10 / FriendlyElec NanoPi R76S / RK3576.
+#
+# IMPORTANT:
+# - Preserve board-detected interface/device mapping. Never hard-code eth0/eth1.
+# - Keep the verified DNS chain:
+#     dnsmasq:53 -> AdGuard Home 127.0.0.1:3053 -> SmartDNS :6053
+# - China domains keep IPv4 + IPv6; other domains return IPv4 only.
+# - PassWall keeps its routing / NFT / shunt machinery but must not replace
+#   the system dnsmasq upstream.
+# - No personal proxy/airport node is embedded in this firmware.
+# - R76S v2.2.4 is TF-first. This script does not touch eMMC.
+
+# -----------------------------------------------------------------------------
+# 1. System root password
+# -----------------------------------------------------------------------------
+if command -v passwd >/dev/null 2>&1; then
+    printf '%s\n%s\n' 'password' 'password' | passwd root >/dev/null 2>&1 || true
+fi
+
+# -----------------------------------------------------------------------------
+# 2. LAN: 192.168.50.1/24
+# -----------------------------------------------------------------------------
+if uci -q get network.lan >/dev/null 2>&1; then
+    uci -q set network.lan.proto='static'
+    uci -q set network.lan.ipaddr='192.168.50.1'
+    uci -q set network.lan.netmask='255.255.255.0'
+    uci -q commit network
+fi
+
+# -----------------------------------------------------------------------------
+# 3. DHCP on LAN
+# -----------------------------------------------------------------------------
+if uci -q get dhcp.lan >/dev/null 2>&1; then
+    uci -q set dhcp.lan.interface='lan'
+    uci -q set dhcp.lan.ignore='0'
+    uci -q set dhcp.lan.start='100'
+    uci -q set dhcp.lan.limit='150'
+    uci -q set dhcp.lan.leasetime='12h'
+    uci -q commit dhcp
+fi
+
+# -----------------------------------------------------------------------------
+# 4. Argon as the default LuCI theme
+# -----------------------------------------------------------------------------
+if [ -d /www/luci-static/argon ] && uci -q get luci.main >/dev/null 2>&1; then
+    uci -q set luci.main.mediaurlbase='/luci-static/argon'
+    uci -q commit luci
+fi
+
+# -----------------------------------------------------------------------------
+# 5. SmartDNS final policy (bundled Release48.4 runtime)
+# -----------------------------------------------------------------------------
+# The package-feed SmartDNS remains for LuCI/init integration. The real daemon
+# is /usr/libexec/r76s/smartdns.bin through the R76S wrapper.  The policy helper
+# is idempotent and owns the verified 6053 CN/foreign split.
+if [ -x /usr/libexec/r76s/r76s-smartdns-policy ]; then
+    /usr/libexec/r76s/r76s-smartdns-policy || true
+fi
+
+# -----------------------------------------------------------------------------
+# 6. PassWall final shunt framework (42 rules, no personal proxy nodes)
+# -----------------------------------------------------------------------------
+# uci-defaults can run before /etc/config/passwall exists. Seed only from the
+# package-owned ROM default when missing; never overwrite a retained config.
+if ! uci -q get passwall.@global[0] >/dev/null 2>&1; then
+    if [ -s /usr/share/passwall/0_default_config ]; then
+        cp -f /usr/share/passwall/0_default_config /etc/config/passwall
+    fi
+fi
+
+if uci -q get passwall.@global[0] >/dev/null 2>&1; then
+    PREV_TEMPLATE="$(uci -q get passwall.myshunt.r76s_template)"
+
+    # Rebuild the owned rule library only on first v2.2 adoption / factory reset.
+    # After that, later retained-config OTA upgrades keep the user's own edits
+    # and concrete node selections.
+    if [ "$PREV_TEMPLATE" != "v2.2" ]; then
+    uci -q delete passwall.DirectGame
+    uci -q set passwall.DirectGame='shunt_rules'
+    uci -q set passwall.DirectGame.remarks='DirectGame'
+    uci -q set passwall.DirectGame.network='tcp,udp'
+    uci -q set passwall.DirectGame.domain_list='# 国内游戏geosite域名
+geosite:category-games@cn'
+    uci -q set passwall.DirectGame.ip_list='# steam直连IP
+45.121.184.0/24
+103.10.124.0/23
+103.28.54.0/24
+146.66.152.0/24
+146.66.155.0/24
+153.254.86.0/24
+155.133.224.0/22
+155.133.230.0/24
+155.133.232.0/23
+155.133.234.0/24
+155.133.236.0/22
+155.133.240.0/23
+155.133.244.0/23
+155.133.246.0/24
+155.133.248.0/21
+162.254.192.0/21
+185.25.182.0/23
+190.217.32.0/22
+192.69.96.0/22
+205.196.6.0/24
+208.64.200.0/22
+208.78.164.0/22
+205.185.194.0/24'
+
+    uci -q delete passwall.ProxyGame
+    uci -q set passwall.ProxyGame='shunt_rules'
+    uci -q set passwall.ProxyGame.remarks='ProxyGame'
+    uci -q set passwall.ProxyGame.network='tcp,udp'
+    uci -q set passwall.ProxyGame.domain_list='# steam 商店/客服/聊天/网页布局/API/二维码/Google云同步 代理URL
+steamcommunity.com
+www.steamcommunity.com
+store.steampowered.com
+checkout.steampowered.com
+api.steampowered.com
+help.steampowered.com
+login.steampowered.com
+store.akamai.steamstatic.com
+steambroadcast.akamaized.net
+steamvideo-a.akamaihd.net
+steamusercontent-a.akamaihd.net
+steamstore-a.akamaihd.net
+steamcommunity-a.akamaihd.net
+steamcdn-a.akamaihd.net
+steamuserimages-a.akamaihd.net
+community.akamai.steamstatic.com
+avatars.akamai.steamstatic.com
+community.steamstatic.com
+cdn.akamai.steamstatic.com
+avatars.steamstatic.com
+shared.akamai.steamstatic.com
+clan.akamai.steamstatic.com
+cdn.cloudflare.steamstatic.com
+community.cloudflare.steamstatic.com
+store.cloudflare.steamstatic.com
+avatars.cloudflare.steamstatic.com
+clan.cloudflare.steamstatic.com
+shared.cloudflare.steamstatic.com
+steam-chat.com
+steamcloud-ugc.storage.googleapis.com
+steamcloud-eu-ams.storage.googleapis.com
+steamcloud-eu-fra.storage.googleapis.com
+steamcloud-finland.storage.googleapis.com
+steamcloud-saopaulo.storage.googleapis.com
+steamcloud-singapore.storage.googleapis.com
+steamcloud-sydney.storage.googleapis.com
+steamcloud-taiwan.storage.googleapis.com
+steamcloud-eu.storage.googleapis.com
+domain:blizzard.com
+#Steam支付
+domain:checkout.steampowered.com
+domain:globalapi.smart2pay.com
+geosite:category-games'
+
+    uci -q delete passwall.AIGC
+    uci -q set passwall.AIGC='shunt_rules'
+    uci -q set passwall.AIGC.remarks='AIGC'
+    uci -q set passwall.AIGC.network='tcp,udp'
+    uci -q set passwall.AIGC.domain_list='geosite:category-ai-!cn
+geosite:apple-intelligence'
+
+    uci -q delete passwall.Streaming
+    uci -q set passwall.Streaming='shunt_rules'
+    uci -q set passwall.Streaming.remarks='Streaming'
+    uci -q set passwall.Streaming.network='tcp,udp'
+    uci -q set passwall.Streaming.domain_list='geosite:netflix
+geosite:disney'
+
+    uci -q delete passwall.Proxy
+    uci -q set passwall.Proxy='shunt_rules'
+    uci -q set passwall.Proxy.remarks='Proxy'
+    uci -q set passwall.Proxy.network='tcp,udp'
+    uci -q set passwall.Proxy.domain_list='geosite:geolocation-!cn'
+    uci -q set passwall.Proxy.ip_list='149.154.160.0/20
+91.108.4.0/22
+91.108.56.0/24
+109.239.140.0/24
+67.198.55.0/24
+8.8.4.4
+8.8.8.8
+208.67.222.222
+208.67.220.220
+1.1.1.1
+1.1.1.2
+1.0.0.1
+9.9.9.9
+149.112.112.112
+2001:67c:4e8::/48
+2001:b28:f23c::/48
+2001:b28:f23d::/48
+2001:b28:f23f::/48
+2001:b28:f242::/48
+2001:4860:4860::8888
+2001:4860:4860::8844
+2606:4700:4700::1111
+2606:4700:4700::1001'
+
+    uci -q delete passwall.Direct
+    uci -q set passwall.Direct='shunt_rules'
+    uci -q set passwall.Direct.remarks='Direct'
+    uci -q set passwall.Direct.network='tcp,udp'
+    uci -q set passwall.Direct.domain_list='geosite:cn
+domain:api.example.com
+domain:speedtest.net'
+    uci -q set passwall.Direct.ip_list='223.5.5.5/32
+223.6.6.6/32
+119.29.29.29/32
+180.76.76.76/32
+114.114.114.114/32
+114.114.115.115/32
+1.12.12.12/32
+120.53.53.53/32
+geoip:cn
+geoip:private'
+
+    uci -q delete passwall.WeChatTencent
+    uci -q set passwall.WeChatTencent='shunt_rules'
+    uci -q set passwall.WeChatTencent.remarks='微信 / QQ / 腾讯媒体'
+    uci -q set passwall.WeChatTencent.network='tcp,udp'
+    uci -q set passwall.WeChatTencent.domain_list='domain:weixin.qq.com
+domain:wx.qq.com
+domain:weixin110.qq.com
+domain:qq.com
+domain:qpic.cn
+domain:qlogo.cn
+domain:gtimg.cn
+domain:myqcloud.com
+domain:tencent.com
+domain:tencent-cloud.net'
+
+    uci -q delete passwall.ChatGPTLogin
+    uci -q set passwall.ChatGPTLogin='shunt_rules'
+    uci -q set passwall.ChatGPTLogin.remarks='ChatGPT 登录完整链路'
+    uci -q set passwall.ChatGPTLogin.network='tcp,udp'
+    uci -q set passwall.ChatGPTLogin.domain_list='domain:auth.openai.com
+domain:auth0.openai.com
+domain:chatgpt.com
+domain:openai.com
+domain:oaistatic.com
+domain:oaiusercontent.com
+domain:cdn.oaistatic.com
+domain:files.oaiusercontent.com'
+
+    uci -q delete passwall.LINE
+    uci -q set passwall.LINE='shunt_rules'
+    uci -q set passwall.LINE.remarks='LINE'
+    uci -q set passwall.LINE.network='tcp,udp'
+    uci -q set passwall.LINE.domain_list='domain:line.me
+domain:line-apps.com
+domain:line-scdn.net
+domain:naver.jp'
+
+    uci -q delete passwall.WhatsApp
+    uci -q set passwall.WhatsApp='shunt_rules'
+    uci -q set passwall.WhatsApp.remarks='WhatsApp'
+    uci -q set passwall.WhatsApp.network='tcp,udp'
+    uci -q set passwall.WhatsApp.domain_list='domain:whatsapp.com
+domain:whatsapp.net
+domain:wa.me'
+
+    uci -q delete passwall.Signal
+    uci -q set passwall.Signal='shunt_rules'
+    uci -q set passwall.Signal.remarks='Signal'
+    uci -q set passwall.Signal.network='tcp,udp'
+    uci -q set passwall.Signal.domain_list='domain:signal.org
+domain:signal.art'
+
+    uci -q delete passwall.Telegram
+    uci -q set passwall.Telegram='shunt_rules'
+    uci -q set passwall.Telegram.remarks='Telegram'
+    uci -q set passwall.Telegram.network='tcp,udp'
+    uci -q set passwall.Telegram.domain_list='geosite:telegram'
+
+    uci -q delete passwall.Discord
+    uci -q set passwall.Discord='shunt_rules'
+    uci -q set passwall.Discord.remarks='Discord'
+    uci -q set passwall.Discord.network='tcp,udp'
+    uci -q set passwall.Discord.domain_list='domain:discord.com
+domain:discord.gg
+domain:discordapp.com
+domain:discordapp.net'
+
+    uci -q delete passwall.Facebook
+    uci -q set passwall.Facebook='shunt_rules'
+    uci -q set passwall.Facebook.remarks='Facebook / Messenger'
+    uci -q set passwall.Facebook.network='tcp,udp'
+    uci -q set passwall.Facebook.domain_list='geosite:facebook'
+
+    uci -q delete passwall.Instagram
+    uci -q set passwall.Instagram='shunt_rules'
+    uci -q set passwall.Instagram.remarks='Instagram'
+    uci -q set passwall.Instagram.network='tcp,udp'
+    uci -q set passwall.Instagram.domain_list='domain:instagram.com
+domain:cdninstagram.com'
+
+    uci -q delete passwall.Twitter
+    uci -q set passwall.Twitter='shunt_rules'
+    uci -q set passwall.Twitter.remarks='X / Twitter'
+    uci -q set passwall.Twitter.network='tcp,udp'
+    uci -q set passwall.Twitter.domain_list='geosite:twitter'
+
+    uci -q delete passwall.Reddit
+    uci -q set passwall.Reddit='shunt_rules'
+    uci -q set passwall.Reddit.remarks='Reddit'
+    uci -q set passwall.Reddit.network='tcp,udp'
+    uci -q set passwall.Reddit.domain_list='geosite:reddit'
+
+    uci -q delete passwall.YouTube
+    uci -q set passwall.YouTube='shunt_rules'
+    uci -q set passwall.YouTube.remarks='YouTube'
+    uci -q set passwall.YouTube.network='tcp,udp'
+    uci -q set passwall.YouTube.domain_list='geosite:youtube'
+
+    uci -q delete passwall.GoogleAI
+    uci -q set passwall.GoogleAI='shunt_rules'
+    uci -q set passwall.GoogleAI.remarks='Google AI / Gemini'
+    uci -q set passwall.GoogleAI.network='tcp,udp'
+    uci -q set passwall.GoogleAI.domain_list='domain:gemini.google.com
+domain:ai.google.dev
+domain:aistudio.google.com
+domain:generativelanguage.googleapis.com
+domain:deepmind.google'
+
+    uci -q delete passwall.GoogleWork
+    uci -q set passwall.GoogleWork='shunt_rules'
+    uci -q set passwall.GoogleWork.remarks='Gmail / Google Drive'
+    uci -q set passwall.GoogleWork.network='tcp,udp'
+    uci -q set passwall.GoogleWork.domain_list='domain:gmail.com
+domain:mail.google.com
+domain:drive.google.com
+domain:docs.google.com
+domain:googleusercontent.com
+domain:googleapis.com'
+
+    uci -q delete passwall.Google
+    uci -q set passwall.Google='shunt_rules'
+    uci -q set passwall.Google.remarks='Google'
+    uci -q set passwall.Google.network='tcp,udp'
+    uci -q set passwall.Google.domain_list='geosite:google'
+
+    uci -q delete passwall.OpenAI
+    uci -q set passwall.OpenAI='shunt_rules'
+    uci -q set passwall.OpenAI.remarks='OpenAI / ChatGPT'
+    uci -q set passwall.OpenAI.network='tcp,udp'
+    uci -q set passwall.OpenAI.domain_list='domain:openai.com
+domain:chatgpt.com
+domain:oaistatic.com
+domain:oaiusercontent.com'
+
+    uci -q delete passwall.Claude
+    uci -q set passwall.Claude='shunt_rules'
+    uci -q set passwall.Claude.remarks='Claude / Anthropic'
+    uci -q set passwall.Claude.network='tcp,udp'
+    uci -q set passwall.Claude.domain_list='domain:anthropic.com
+domain:claude.ai'
+
+    uci -q delete passwall.Perplexity
+    uci -q set passwall.Perplexity='shunt_rules'
+    uci -q set passwall.Perplexity.remarks='Perplexity'
+    uci -q set passwall.Perplexity.network='tcp,udp'
+    uci -q set passwall.Perplexity.domain_list='domain:perplexity.ai'
+
+    uci -q delete passwall.Copilot
+    uci -q set passwall.Copilot='shunt_rules'
+    uci -q set passwall.Copilot.remarks='Microsoft Copilot'
+    uci -q set passwall.Copilot.network='tcp,udp'
+    uci -q set passwall.Copilot.domain_list='domain:copilot.microsoft.com
+domain:copilot.cloud.microsoft
+domain:bing.com'
+
+    uci -q delete passwall.Grok
+    uci -q set passwall.Grok='shunt_rules'
+    uci -q set passwall.Grok.remarks='Grok / xAI'
+    uci -q set passwall.Grok.network='tcp,udp'
+    uci -q set passwall.Grok.domain_list='domain:x.ai
+domain:grok.com'
+
+    uci -q delete passwall.Netflix
+    uci -q set passwall.Netflix='shunt_rules'
+    uci -q set passwall.Netflix.remarks='Netflix'
+    uci -q set passwall.Netflix.network='tcp,udp'
+    uci -q set passwall.Netflix.domain_list='geosite:netflix'
+
+    uci -q delete passwall.Disney
+    uci -q set passwall.Disney='shunt_rules'
+    uci -q set passwall.Disney.remarks='Disney+'
+    uci -q set passwall.Disney.network='tcp,udp'
+    uci -q set passwall.Disney.domain_list='geosite:disney'
+
+    uci -q delete passwall.MaxHBO
+    uci -q set passwall.MaxHBO='shunt_rules'
+    uci -q set passwall.MaxHBO.remarks='Max / HBO'
+    uci -q set passwall.MaxHBO.network='tcp,udp'
+    uci -q set passwall.MaxHBO.domain_list='domain:max.com
+domain:hbomax.com
+domain:hbo.com'
+
+    uci -q delete passwall.PrimeVideo
+    uci -q set passwall.PrimeVideo='shunt_rules'
+    uci -q set passwall.PrimeVideo.remarks='Amazon Prime Video'
+    uci -q set passwall.PrimeVideo.network='tcp,udp'
+    uci -q set passwall.PrimeVideo.domain_list='domain:primevideo.com
+domain:amazonvideo.com
+domain:media-amazon.com'
+
+    uci -q delete passwall.Spotify
+    uci -q set passwall.Spotify='shunt_rules'
+    uci -q set passwall.Spotify.remarks='Spotify'
+    uci -q set passwall.Spotify.network='tcp,udp'
+    uci -q set passwall.Spotify.domain_list='domain:spotify.com
+domain:scdn.co
+domain:spotifycdn.com'
+
+    uci -q delete passwall.TikTok
+    uci -q set passwall.TikTok='shunt_rules'
+    uci -q set passwall.TikTok.remarks='TikTok'
+    uci -q set passwall.TikTok.network='tcp,udp'
+    uci -q set passwall.TikTok.domain_list='geosite:tiktok'
+
+    uci -q delete passwall.Apple
+    uci -q set passwall.Apple='shunt_rules'
+    uci -q set passwall.Apple.remarks='Apple / iCloud / App Store'
+    uci -q set passwall.Apple.network='tcp,udp'
+    uci -q set passwall.Apple.domain_list='geosite:apple'
+
+    uci -q delete passwall.Microsoft
+    uci -q set passwall.Microsoft='shunt_rules'
+    uci -q set passwall.Microsoft.remarks='Microsoft / Office / OneDrive'
+    uci -q set passwall.Microsoft.network='tcp,udp'
+    uci -q set passwall.Microsoft.domain_list='geosite:microsoft'
+
+    uci -q delete passwall.GitHub
+    uci -q set passwall.GitHub='shunt_rules'
+    uci -q set passwall.GitHub.remarks='GitHub'
+    uci -q set passwall.GitHub.network='tcp,udp'
+    uci -q set passwall.GitHub.domain_list='geosite:github'
+
+    uci -q delete passwall.Slack
+    uci -q set passwall.Slack='shunt_rules'
+    uci -q set passwall.Slack.remarks='Slack'
+    uci -q set passwall.Slack.network='tcp,udp'
+    uci -q set passwall.Slack.domain_list='domain:slack.com
+domain:slack-edge.com
+domain:slack-files.com'
+
+    uci -q delete passwall.Zoom
+    uci -q set passwall.Zoom='shunt_rules'
+    uci -q set passwall.Zoom.remarks='Zoom'
+    uci -q set passwall.Zoom.network='tcp,udp'
+    uci -q set passwall.Zoom.domain_list='domain:zoom.us
+domain:zoom.com'
+
+    uci -q delete passwall.Notion
+    uci -q set passwall.Notion='shunt_rules'
+    uci -q set passwall.Notion.remarks='Notion'
+    uci -q set passwall.Notion.network='tcp,udp'
+    uci -q set passwall.Notion.domain_list='domain:notion.so
+domain:notion.site
+domain:notion-static.com'
+
+    uci -q delete passwall.Dropbox
+    uci -q set passwall.Dropbox='shunt_rules'
+    uci -q set passwall.Dropbox.remarks='Dropbox'
+    uci -q set passwall.Dropbox.network='tcp,udp'
+    uci -q set passwall.Dropbox.domain_list='domain:dropbox.com
+domain:dropboxapi.com
+domain:dropboxstatic.com'
+
+    uci -q delete passwall.PlayStation
+    uci -q set passwall.PlayStation='shunt_rules'
+    uci -q set passwall.PlayStation.remarks='PlayStation'
+    uci -q set passwall.PlayStation.network='tcp,udp'
+    uci -q set passwall.PlayStation.domain_list='domain:playstation.com
+domain:playstation.net
+domain:sonyentertainmentnetwork.com'
+
+    uci -q delete passwall.Nintendo
+    uci -q set passwall.Nintendo='shunt_rules'
+    uci -q set passwall.Nintendo.remarks='Nintendo'
+    uci -q set passwall.Nintendo.network='tcp,udp'
+    uci -q set passwall.Nintendo.domain_list='domain:nintendo.com
+domain:nintendo.net
+domain:nintendo.co.jp'
+
+    uci -q delete passwall.Xbox
+    uci -q set passwall.Xbox='shunt_rules'
+    uci -q set passwall.Xbox.remarks='Xbox'
+    uci -q set passwall.Xbox.network='tcp,udp'
+    uci -q set passwall.Xbox.domain_list='domain:xbox.com
+domain:xboxlive.com
+domain:xboxservices.com'
+
+        uci -q delete passwall.myshunt
+        uci -q set passwall.myshunt='nodes'
+        uci -q set passwall.myshunt.remarks='分流总节点'
+        uci -q set passwall.myshunt.type='Xray'
+        uci -q set passwall.myshunt.protocol='_shunt'
+        uci -q set passwall.myshunt.Direct='_direct'
+        uci -q set passwall.myshunt.default_node='_direct'
+        uci -q set passwall.myshunt.domainStrategy='IPOnDemand'
+        uci -q set passwall.myshunt.domainMatcher='hybrid'
+        uci -q set passwall.myshunt.WeChatTencent='_direct'
+    fi
+
+    # Always enforce only the system-owned safety baseline.
+    # Do NOT bind any ordinary service rule to a concrete proxy node.
+    uci -q set passwall.myshunt.remarks='分流总节点'
+    uci -q set passwall.myshunt.type='Xray'
+    uci -q set passwall.myshunt.protocol='_shunt'
+    uci -q set passwall.myshunt.Direct='_direct'
+    uci -q set passwall.myshunt.WeChatTencent='_direct'
+    uci -q set passwall.myshunt.default_node='_direct'
+    uci -q set passwall.myshunt.domainStrategy='IPOnDemand'
+    uci -q set passwall.myshunt.domainMatcher='hybrid'
+    uci -q set passwall.myshunt.r76s_template='v2.2'
+
+    uci -q set passwall.@global[0].enabled='1'
+    uci -q set passwall.@global[0].socks_enabled='0'
+    uci -q set passwall.@global[0].node_socks_port='1070'
+    uci -q set passwall.@global[0].filter_proxy_ipv6='1'
+    uci -q set passwall.@global[0].dns_shunt='chinadns-ng'
+    uci -q set passwall.@global[0].dns_mode='xray'
+    uci -q set passwall.@global[0].remote_dns='1.1.1.1'
+    uci -q set passwall.@global[0].chinadns_ng_default_tag='none'
+    uci -q set passwall.@global[0].dns_redirect='0'
+    uci -q set passwall.@global[0].chn_list='direct'
+    uci -q set passwall.@global[0].tcp_proxy_mode='proxy'
+    uci -q set passwall.@global[0].udp_proxy_mode='proxy'
+    uci -q set passwall.@global[0].localhost_proxy='1'
+    uci -q set passwall.@global[0].client_proxy='1'
+    uci -q set passwall.@global[0].acl_enable='0'
+    uci -q set passwall.@global[0].log_node='0'
+    uci -q set passwall.@global[0].loglevel='error'
+    uci -q set passwall.@global[0].log_chinadns_ng='0'
+    uci -q set passwall.@global[0].node='myshunt'
+    uci -q set passwall.@global[0].v2ray_dns_mode='tcp'
+
+    if uci -q get passwall.@global_forwarding[0] >/dev/null 2>&1; then
+        uci -q set passwall.@global_forwarding[0].tcp_no_redir_ports='disable'
+        uci -q set passwall.@global_forwarding[0].udp_no_redir_ports='disable'
+        uci -q set passwall.@global_forwarding[0].tcp_proxy_drop_ports='disable'
+        uci -q set passwall.@global_forwarding[0].udp_proxy_drop_ports='443'
+        uci -q set passwall.@global_forwarding[0].tcp_redir_ports='22,25,53,80,143,443,465,587,853,873,993,995,5222,8080,8443,9418'
+        uci -q set passwall.@global_forwarding[0].udp_redir_ports='1:65535'
+        uci -q set passwall.@global_forwarding[0].accept_icmp='0'
+        uci -q set passwall.@global_forwarding[0].prefer_nft='1'
+        uci -q set passwall.@global_forwarding[0].tcp_proxy_way='redirect'
+        uci -q set passwall.@global_forwarding[0].ipv6_tproxy='0'
+    fi
+
+    uci -q commit passwall
+    # Do not enable/start PassWall here. The DNS finalizer starts it only after
+    # AdGuard Home and SmartDNS are confirmed healthy.
+fi
+
+# -----------------------------------------------------------------------------
+# 7. PassWall DNS guard
+#    PassWall's own App Update can replace /usr/share/passwall/app.sh.
+#    This guard re-applies ONLY the verified external-DNS patch when needed.
+# -----------------------------------------------------------------------------
+mkdir -p /usr/libexec
+
+cat > /usr/libexec/r76s-passwall-dns-guard <<'PWGUARD'
+#!/bin/sh
+
+APP='/usr/share/passwall/app.sh'
+MARK_BEGIN='# R76S_EXTERNAL_DNS_BEGIN'
+MARK_END='# R76S_EXTERNAL_DNS_END'
+ANCHOR='uci -q delete dhcp.@dnsmasq[0].min_cache_ttl'
+CHANGED=0
+
+patch_app() {
+    [ -f "$APP" ] || return 0
+    grep -Fq "$MARK_BEGIN" "$APP" && return 0
+
+    grep -Fq "$ANCHOR" "$APP" || {
+        logger -t r76s-passwall-dns-guard 'PassWall app.sh anchor not found; DNS patch not applied.'
+        return 1
+    }
+
+    SNIP="/tmp/r76s-passwall-dns-snippet.$$"
+    NEW="/tmp/r76s-passwall-app.$$"
+
+    cat > "$SNIP" <<'PATCH'
+# R76S_EXTERNAL_DNS_BEGIN
+# Keep PassWall routing / Xray / NFT / domain rules,
+# but prevent PassWall from replacing the system dnsmasq upstream.
+if [ -f "${GLOBAL_DNSMASQ_CONF}" ]; then
+sed -i \
+-e '/^server=127\.0\.0\.1#[0-9][0-9]*$/d' \
+-e '/^server=::1#[0-9][0-9]*$/d' \
+-e '/^all-servers$/d' \
+-e '/^no-poll$/d' \
+-e '/^no-resolv$/d' \
+"${GLOBAL_DNSMASQ_CONF}"
+fi
+uci -q set dhcp.@dnsmasq[0].noresolv='1'
+# R76S_EXTERNAL_DNS_END
+PATCH
+
+    awk -v anchor="$ANCHOR" -v snip="$SNIP" '
+        BEGIN { inserted = 0 }
+        index($0, anchor) && !inserted {
+            while ((getline line < snip) > 0) print line
+            close(snip)
+            inserted = 1
+        }
+        { print }
+        END {
+            if (!inserted) exit 42
+        }
+    ' "$APP" > "$NEW" || {
+        rm -f "$SNIP" "$NEW"
+        return 1
+    }
+
+    sh -n "$NEW" || {
+        logger -t r76s-passwall-dns-guard 'Patched app.sh failed syntax validation.'
+        rm -f "$SNIP" "$NEW"
+        return 1
+    }
+
+    cp -f "$APP" "${APP}.pre-r76s-update" >/dev/null 2>&1 || true
+    chmod --reference="$APP" "$NEW" 2>/dev/null || chmod 0755 "$NEW"
+    mv -f "$NEW" "$APP"
+    rm -f "$SNIP"
+    CHANGED=1
+    logger -t r76s-passwall-dns-guard 'Re-applied R76S external-DNS patch to PassWall.'
+}
+
+patch_app || exit 1
+
+# Before the proven DNS chain is finalized, patch app.sh only. Do not force
+# no-resolv or restart PassWall yet, otherwise first boot could lose DNS before
+# AdGuard Home is listening on 3053.
+[ -e /etc/r76s-v2c-dns-ready ] || exit 0
+
+DNSCFG_CHANGED=0
+if [ "$(uci -q get dhcp.@dnsmasq[0].noresolv)" != "1" ]; then
+    uci -q set dhcp.@dnsmasq[0].noresolv='1'
+    DNSCFG_CHANGED=1
+fi
+if [ "$(uci -q get dhcp.@dnsmasq[0].extraconftext)" != "server=127.0.0.1#3053" ]; then
+    uci -q set dhcp.@dnsmasq[0].extraconftext='server=127.0.0.1#3053'
+    DNSCFG_CHANGED=1
+fi
+if [ "$(uci -q get dhcp.@dnsmasq[0].filter_aaaa)" != "0" ]; then
+    uci -q set dhcp.@dnsmasq[0].filter_aaaa='0'
+    DNSCFG_CHANGED=1
+fi
+
+if [ "$DNSCFG_CHANGED" -eq 1 ]; then
+    uci -q commit dhcp
+fi
+
+if [ "$CHANGED" -eq 1 ]; then
+    /etc/init.d/passwall restart >/dev/null 2>&1 || true
+    sleep 2
+    /etc/init.d/dnsmasq restart >/dev/null 2>&1 || true
+elif [ "$DNSCFG_CHANGED" -eq 1 ]; then
+    /etc/init.d/dnsmasq restart >/dev/null 2>&1 || true
+fi
+
+exit 0
+PWGUARD
+
+chmod 0755 /usr/libexec/r76s-passwall-dns-guard
+
+# Patch app.sh before the first PassWall start. The guard intentionally does
+# not restart PassWall until the DNS finalizer marks the main chain ready.
+/usr/libexec/r76s-passwall-dns-guard >/dev/null 2>&1 || true
+
+# Re-check after a future online PassWall App Update. Avoid duplicate cron rows.
+mkdir -p /etc/crontabs
+grep -Fq '/usr/libexec/r76s-passwall-dns-guard' /etc/crontabs/root 2>/dev/null ||     echo '*/2 * * * * /usr/libexec/r76s-passwall-dns-guard >/dev/null 2>&1' >> /etc/crontabs/root
+/etc/init.d/cron enable >/dev/null 2>&1 || true
+/etc/init.d/cron restart >/dev/null 2>&1 || true
+
+# -----------------------------------------------------------------------------
+# 8. Component updater + NetEase UU manual mode
+# -----------------------------------------------------------------------------
+# The online component updater is packaged separately. UU is installed and
+# available in LuCI, but remains OFF by default. The optional R76S recovery
+# helper is deliberately not enabled during first boot.
+if uci -q get uuplugin.@uuplugin[0] >/dev/null 2>&1; then
+    uci -q set uuplugin.@uuplugin[0].enabled='0'
+    uci -q set uuplugin.@uuplugin[0].model='OpenWrt'
+    uci -q set uuplugin.@uuplugin[0].addfw='0'
+    uci -q commit uuplugin
+fi
+
+if [ -x /etc/init.d/uuplugin ]; then
+    /etc/init.d/uuplugin enable >/dev/null 2>&1 || true
+    /etc/init.d/uuplugin stop >/dev/null 2>&1 || true
+fi
+
+if [ -x /etc/init.d/r76s-uu-autostart ]; then
+    /etc/init.d/r76s-uu-autostart disable >/dev/null 2>&1 || true
+fi
+rm -f /etc/rc.d/*r76s-uu-autostart* 2>/dev/null || true
+
+# -----------------------------------------------------------------------------
+# 9. Retryable DNS finalizer.
+#    Preserve the proven v2.0C install flow for AdGuard Home.
+# -----------------------------------------------------------------------------
+cat > /usr/libexec/r76s-v2c-dns-finalize <<'FINALIZER'
+#!/bin/sh
+
+MARKER='/etc/r76s-v2c-dns-ready'
+AGH_CFG='/etc/adguardhome.yaml'
+AGH_WORK='/var/lib/adguardhome'
+LAN_IP='192.168.50.1'
+
+[ -e "$MARKER" ] && exit 0
+
+i=0
+while [ "$i" -lt 90 ]; do
+    if ip -4 addr show 2>/dev/null | grep -q '192\.168\.50\.1/24'; then
+        break
+    fi
+    sleep 2
+    i=$((i + 1))
+done
+
+if ! ip -4 addr show 2>/dev/null | grep -q '192\.168\.50\.1/24'; then
+    logger -t r76s-v2c 'DNS finalizer: LAN 192.168.50.1 did not become ready.'
+    exit 1
+fi
+
+if [ -x /etc/init.d/smartdns ]; then
+    /etc/init.d/smartdns enable >/dev/null 2>&1 || true
+    /etc/init.d/smartdns restart >/dev/null 2>&1 || true
+fi
+
+i=0
+while [ "$i" -lt 30 ]; do
+    if netstat -ln 2>/dev/null | grep -q ':6053'; then
+        break
+    fi
+    sleep 2
+    i=$((i + 1))
+done
+
+if ! netstat -ln 2>/dev/null | grep -q ':6053'; then
+    logger -t r76s-v2c 'DNS finalizer: SmartDNS did not listen on 6053.'
+    exit 1
+fi
+
+if [ -x /etc/init.d/adguardhome ]; then
+    /etc/init.d/adguardhome enable >/dev/null 2>&1 || true
+    /etc/init.d/adguardhome restart >/dev/null 2>&1 || true
+fi
+
+if [ ! -s "$AGH_CFG" ]; then
+    i=0
+    while [ "$i" -lt 45 ]; do
+        if curl -fsS --max-time 2             "http://${LAN_IP}:3000/control/install/get_addresses"             >/dev/null 2>&1; then
+            break
+        fi
+        sleep 2
+        i=$((i + 1))
+    done
+
+    if ! curl -fsS --max-time 2         "http://${LAN_IP}:3000/control/install/get_addresses"         >/dev/null 2>&1; then
+        logger -t r76s-v2c 'DNS finalizer: AdGuard Home install API was not reachable.'
+        exit 1
+    fi
+
+    if ! curl -fsS --max-time 15         -H 'Content-Type: application/json'         -X POST         --data '{"web":{"ip":"192.168.50.1","port":3001},"dns":{"ip":"127.0.0.1","port":3053},"username":"root","password":"password"}'         "http://${LAN_IP}:3000/control/install/configure"         >/dev/null; then
+        logger -t r76s-v2c 'DNS finalizer: AdGuard Home install/configure failed.'
+        exit 1
+    fi
+fi
+
+i=0
+while [ "$i" -lt 30 ]; do
+    [ -s "$AGH_CFG" ] && break
+    sleep 2
+    i=$((i + 1))
+done
+
+if [ ! -s "$AGH_CFG" ]; then
+    logger -t r76s-v2c 'DNS finalizer: AdGuard Home configuration file was not created.'
+    exit 1
+fi
+
+/etc/init.d/adguardhome stop >/dev/null 2>&1 || true
+sleep 1
+
+cp -f "$AGH_CFG" "${AGH_CFG}.v2c-base" || exit 1
+
+sed -i 's#^  address: 192\.168\.50\.1:3001$#  address: 192.168.50.1:3000#' "$AGH_CFG" || exit 1
+
+awk '
+BEGIN { in_upstream = 0 }
+/^  upstream_dns:/ {
+    print "  upstream_dns:"
+    print "    - 127.0.0.1:6053"
+    in_upstream = 1
+    next
+}
+in_upstream && /^  [A-Za-z0-9_]+:/ {
+    in_upstream = 0
+}
+in_upstream { next }
+{ print }
+' "$AGH_CFG" > "${AGH_CFG}.v2c-new" || exit 1
+
+mv -f "${AGH_CFG}.v2c-new" "$AGH_CFG" || exit 1
+chmod 600 "$AGH_CFG" >/dev/null 2>&1 || true
+
+grep -q '^  address: 192\.168\.50\.1:3000$' "$AGH_CFG" || {
+    cp -f "${AGH_CFG}.v2c-base" "$AGH_CFG"
+    /etc/init.d/adguardhome restart >/dev/null 2>&1 || true
+    logger -t r76s-v2c 'DNS finalizer: unexpected AdGuard Home web binding.'
+    exit 1
+}
+
+grep -A2 '^  bind_hosts:$' "$AGH_CFG" | grep -q '127\.0\.0\.1' || {
+    cp -f "${AGH_CFG}.v2c-base" "$AGH_CFG"
+    /etc/init.d/adguardhome restart >/dev/null 2>&1 || true
+    logger -t r76s-v2c 'DNS finalizer: unexpected AdGuard Home DNS binding.'
+    exit 1
+}
+
+grep -q '^  port: 3053$' "$AGH_CFG" || {
+    cp -f "${AGH_CFG}.v2c-base" "$AGH_CFG"
+    /etc/init.d/adguardhome restart >/dev/null 2>&1 || true
+    logger -t r76s-v2c 'DNS finalizer: AdGuard Home DNS port is not 3053.'
+    exit 1
+}
+
+grep -A2 '^  upstream_dns:$' "$AGH_CFG" | grep -q '127\.0\.0\.1:6053' || {
+    cp -f "${AGH_CFG}.v2c-base" "$AGH_CFG"
+    /etc/init.d/adguardhome restart >/dev/null 2>&1 || true
+    logger -t r76s-v2c 'DNS finalizer: AdGuard Home upstream patch failed.'
+    exit 1
+}
+
+if ! /usr/bin/AdGuardHome     --check-config     -c "$AGH_CFG"     -w "$AGH_WORK"     >/tmp/r76s-v2c-adguard-check.log 2>&1; then
+    cp -f "${AGH_CFG}.v2c-base" "$AGH_CFG"
+    /etc/init.d/adguardhome restart >/dev/null 2>&1 || true
+    logger -t r76s-v2c 'DNS finalizer: AdGuard Home config validation failed.'
+    exit 1
+fi
+
+/etc/init.d/adguardhome restart >/dev/null 2>&1 || exit 1
+
+i=0
+while [ "$i" -lt 30 ]; do
+    if netstat -ln 2>/dev/null | grep -q '127\.0\.0\.1:3053'; then
+        break
+    fi
+    sleep 2
+    i=$((i + 1))
+done
+
+if ! netstat -ln 2>/dev/null | grep -q '127\.0\.0\.1:3053'; then
+    logger -t r76s-v2c 'DNS finalizer: AdGuard Home did not listen on 127.0.0.1:3053.'
+    exit 1
+fi
+
+uci -q delete dhcp.@dnsmasq[0].server || true
+uci -q set dhcp.@dnsmasq[0].filter_aaaa='0'
+uci -q set dhcp.@dnsmasq[0].filter_a='0'
+uci -q set dhcp.@dnsmasq[0].extraconftext='server=127.0.0.1#3053'
+uci -q set dhcp.@dnsmasq[0].noresolv='1'
+uci -q commit dhcp
+
+/etc/init.d/dnsmasq restart >/dev/null 2>&1 || exit 1
+sleep 2
+
+if ! grep -Rqs '^server=127\.0\.0\.1#3053$'     /tmp/dnsmasq.*.d/extraconfig.conf 2>/dev/null; then
+    logger -t r76s-v2c 'DNS finalizer: dnsmasq did not render AdGuard Home upstream.'
+    exit 1
+fi
+
+if ! nslookup www.qq.com "$LAN_IP" >/dev/null 2>&1; then
+    logger -t r76s-v2c 'DNS finalizer: dnsmasq end-to-end DNS query failed.'
+    exit 1
+fi
+
+# Now that the main DNS chain is live, start the verified PassWall framework.
+# app.sh was patched earlier, so PassWall may add routing/domain-rule includes
+# but must not replace the 3053 upstream.
+if [ -x /etc/init.d/passwall ]; then
+    /etc/init.d/passwall enable >/dev/null 2>&1 || true
+    /etc/init.d/passwall restart >/dev/null 2>&1 || true
+    sleep 4
+fi
+
+# Verify PassWall did not reintroduce its internal DNS as the main upstream.
+if grep -RqsE '^server=(127\.0\.0\.1|::1)#[0-9]+$|^all-servers$'     /tmp/dnsmasq.*.d/dnsmasq-passwall.conf 2>/dev/null; then
+    logger -t r76s-v2c 'DNS finalizer: PassWall attempted to replace the system DNS upstream.'
+    exit 1
+fi
+
+if ! grep -Rqs '^server=127\.0\.0\.1#3053$'     /tmp/dnsmasq.*.d/extraconfig.conf 2>/dev/null; then
+    logger -t r76s-v2c 'DNS finalizer: 3053 upstream disappeared after PassWall start.'
+    exit 1
+fi
+
+if ! nslookup www.qq.com "$LAN_IP" >/dev/null 2>&1; then
+    logger -t r76s-v2c 'DNS finalizer: DNS failed after PassWall start.'
+    exit 1
+fi
+
+touch "$MARKER"
+/etc/init.d/r76s-v2c-finalize disable >/dev/null 2>&1 || true
+logger -t r76s-v2c 'DNS + PassWall ready: dnsmasq:53 -> AdGuardHome:3053 -> SmartDNS:6053.'
+
+exit 0
+FINALIZER
+
+chmod 0755 /usr/libexec/r76s-v2c-dns-finalize
+
+cat > /etc/init.d/r76s-v2c-finalize <<'INITSCRIPT'
+#!/bin/sh /etc/rc.common
+
+START=99
+STOP=10
+
+start() {
+    [ -e /etc/r76s-v2c-dns-ready ] && return 0
+    /usr/libexec/r76s-v2c-dns-finalize >>/tmp/r76s-v2c-finalize.log 2>&1 &
+}
+
+stop() {
+    return 0
+}
+INITSCRIPT
+
+chmod 0755 /etc/init.d/r76s-v2c-finalize
+/etc/init.d/r76s-v2c-finalize enable >/dev/null 2>&1 || true
+/etc/init.d/r76s-v2c-finalize start >/dev/null 2>&1 || true
+
+exit 0

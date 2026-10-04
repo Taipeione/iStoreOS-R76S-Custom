@@ -1,0 +1,533 @@
+#!/bin/sh
+
+PATH='/usr/sbin:/usr/bin:/sbin:/bin'
+TMPROOT='/tmp/r76s-component-updater'
+LOCKDIR='/tmp/r76s-component-updater.lock'
+UU_URL='https://router.uu.163.com/api/plugin?type=openwrt-aarch64'
+
+mkdir -p "$TMPROOT"
+
+sayrow() {
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$5" "$6"
+}
+
+pkgver() {
+    opkg status "$1" 2>/dev/null | sed -n 's/^Version: //p' | head -n 1
+}
+
+fetch() {
+    curl -fL --connect-timeout 10 --max-time 180 --retry 2 --retry-delay 2 "$1" -o "$2"
+}
+
+put_exec() {
+    cp -f "$1" "$2" || return 1
+    chmod 0755 "$2" || return 1
+}
+
+elf_ok() {
+    [ -f "$1" ] || return 1
+    [ "$(head -c 4 "$1" 2>/dev/null | hexdump -v -e '4/1 "%02x"')" = '7f454c46' ]
+}
+
+smartdns_current() {
+    local out
+    [ -x /usr/libexec/r76s/smartdns.bin ] || { echo missing; return; }
+    out="$(/usr/libexec/r76s/smartdns.bin -v 2>&1 | head -n1)"
+    [ -n "$out" ] || out='unknown'
+    echo "$out"
+}
+
+adguard_current() {
+    local out
+    [ -x /usr/bin/AdGuardHome ] || { echo missing; return; }
+    out="$(/usr/bin/AdGuardHome --version 2>&1 | head -n1)"
+    [ -n "$out" ] || out='unknown'
+    echo "$out"
+}
+
+uu_current() {
+    local pkg sha
+    pkg="$(pkgver luci-app-uugamebooster)"; [ -n "$pkg" ] || pkg='unknown'
+    if [ -f /var/tmp/uu/uuplugin ]; then
+        sha="$(sha256sum /var/tmp/uu/uuplugin 2>/dev/null | awk '{print substr($1,1,12)}')"
+        echo "$pkg / core:${sha:-unknown}"
+    else
+        echo "$pkg / core:missing"
+    fi
+}
+
+json_asset_meta() {
+    lua - "$1" "$2" <<'LUA'
+local json = require "luci.jsonc"
+local f = assert(io.open(arg[1], "r"))
+local data = json.parse(f:read("*a")) or {}
+f:close()
+local pat = arg[2]
+for _, a in ipairs(data.assets or {}) do
+    if type(a.name) == "string" and a.name:match(pat) then
+        io.write((data.tag_name or "unknown") .. "\t" .. (a.browser_download_url or "") .. "\t" .. (a.digest or "") .. "\n")
+        return
+    end
+end
+os.exit(2)
+LUA
+}
+
+verify_digest_if_present() {
+    local file="$1" digest="$2" expected actual
+    case "$digest" in
+        sha256:*)
+            expected="${digest#sha256:}"
+            actual="$(sha256sum "$file" | awk '{print $1}')"
+            [ "$actual" = "$expected" ] || {
+                echo "SHA256 mismatch: expected $expected got $actual" >&2
+                return 1
+            }
+            ;;
+    esac
+}
+
+passwall_feed_prepare() {
+    . /etc/openwrt_release
+    local kind="$1" rel="${DISTRIB_RELEASE%.*}" arch="$DISTRIB_ARCH" base gz meta
+    base="https://master.dl.sourceforge.net/project/openwrt-passwall-build/releases/packages-${rel}/${arch}/${kind}"
+    gz="$TMPROOT/${kind}-Packages.gz"
+    meta="$TMPROOT/${kind}-Packages"
+    fetch "$base/Packages.gz" "$gz" >/dev/null 2>&1 || return 1
+    gzip -dc "$gz" > "$meta" || return 1
+    printf '%s\t%s\n' "$base" "$meta"
+}
+
+passwall_pkg_meta() {
+    local prep base meta pkg="$2" row version filename
+    prep="$(passwall_feed_prepare "$1")" || return 1
+    base="$(printf '%s' "$prep" | cut -f1)"
+    meta="$(printf '%s' "$prep" | cut -f2)"
+    row="$(awk -v wanted="$pkg" '
+        BEGIN { RS=""; FS="\n" }
+        {
+            p=""; v=""; f=""
+            for (i=1; i<=NF; i++) {
+                if ($i ~ /^Package: /)  { p=$i; sub(/^Package: /,"",p) }
+                if ($i ~ /^Version: /)  { v=$i; sub(/^Version: /,"",v) }
+                if ($i ~ /^Filename: /) { f=$i; sub(/^Filename: /,"",f) }
+            }
+            if (p == wanted && v != "" && f != "") { print v "\t" f; exit }
+        }
+    ' "$meta")"
+    [ -n "$row" ] || return 1
+    version="$(printf '%s' "$row" | cut -f1)"
+    filename="$(printf '%s' "$row" | cut -f2)"
+    printf '%s\t%s\n' "$version" "$base/$filename"
+}
+
+passwall_current_summary() {
+    local app xray sing china
+    app="$(pkgver luci-app-passwall)"; [ -n "$app" ] || app=missing
+    xray="$(pkgver xray-core)"; [ -n "$xray" ] || xray=missing
+    sing="$(pkgver sing-box)"; [ -n "$sing" ] || sing=missing
+    china="$(pkgver chinadns-ng)"; [ -n "$china" ] || china=missing
+    printf 'App:%s | Xray:%s | Sing-box:%s | ChinaDNS:%s\n' "$app" "$xray" "$sing" "$china"
+}
+
+passwall_remote_summary() {
+    local app xray sing china
+    app="$(passwall_pkg_meta passwall_luci luci-app-passwall)" || return 1
+    xray="$(passwall_pkg_meta passwall_packages xray-core)" || return 1
+    sing="$(passwall_pkg_meta passwall_packages sing-box)" || return 1
+    china="$(passwall_pkg_meta passwall_packages chinadns-ng)" || return 1
+    printf 'App:%s | Xray:%s | Sing-box:%s | ChinaDNS:%s\n' \
+        "$(printf '%s' "$app" | cut -f1)" "$(printf '%s' "$xray" | cut -f1)" \
+        "$(printf '%s' "$sing" | cut -f1)" "$(printf '%s' "$china" | cut -f1)"
+}
+
+pkg_needs_update() {
+    local cur
+    cur="$(pkgver "$1")"
+    [ -n "$cur" ] || return 0
+    opkg compare-versions "$cur" lt "$2"
+}
+
+passwall_update_count() {
+    local item pkg feed meta remote count=0
+    for item in \
+        'luci-app-passwall:passwall_luci' \
+        'luci-i18n-passwall-zh-cn:passwall_luci' \
+        'xray-core:passwall_packages' \
+        'sing-box:passwall_packages' \
+        'chinadns-ng:passwall_packages'; do
+        pkg="${item%%:*}"; feed="${item#*:}"
+        meta="$(passwall_pkg_meta "$feed" "$pkg")" || return 2
+        remote="$(printf '%s' "$meta" | cut -f1)"
+        pkg_needs_update "$pkg" "$remote" && count=$((count+1))
+    done
+    echo "$count"
+}
+
+smartdns_meta() {
+    local j="$TMPROOT/smartdns-release.json"
+    fetch 'https://api.github.com/repos/pymumu/smartdns/releases/latest' "$j" >/dev/null 2>&1 || return 1
+    json_asset_meta "$j" 'aarch64%-linux%-all%.tar%.gz$'
+}
+
+adguard_meta() {
+    local j="$TMPROOT/adguard-release.json"
+    fetch 'https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest' "$j" >/dev/null 2>&1 || return 1
+    json_asset_meta "$j" 'AdGuardHome_linux_arm64%.tar%.gz$'
+}
+
+uu_api_meta() {
+    local j="$TMPROOT/uu-api.json"
+    fetch "$UU_URL" "$j" >/dev/null 2>&1 || return 1
+    lua - "$j" <<'LUA'
+local json = require "luci.jsonc"
+local f = assert(io.open(arg[1], "r"))
+local data = json.parse(f:read("*a")); f:close()
+if type(data) ~= "table" then os.exit(2) end
+local url = type(data.url) == "string" and data.url or nil
+local md5 = type(data.md5) == "string" and data.md5:lower() or nil
+local function walk(v)
+    if type(v) == "table" then
+        for _,x in pairs(v) do walk(x) end
+    elseif type(v) == "string" then
+        if not url and v:match("^https?://") and v:match("uu%.tar%.gz") then url=v end
+        if not md5 and #v==32 and v:match("^[0-9a-fA-F]+$") then md5=v:lower() end
+    end
+end
+walk(data)
+if not url then os.exit(3) end
+io.write(url .. "\t" .. (md5 or "") .. "\n")
+LUA
+}
+
+uu_remote_meta() {
+    local api url md5 arc ex candidate conf actual sha version
+    api="$(uu_api_meta)" || return 1
+    url="$(printf '%s' "$api" | cut -f1)"; md5="$(printf '%s' "$api" | cut -f2)"
+    arc="$TMPROOT/uu.tar.gz"; ex="$TMPROOT/uu-extract"
+    rm -rf "$ex"; mkdir -p "$ex"
+    fetch "$url" "$arc" >/dev/null 2>&1 || return 1
+    if [ -n "$md5" ]; then
+        actual="$(md5sum "$arc" | awk '{print tolower($1)}')"
+        [ "$actual" = "$(printf '%s' "$md5" | tr 'A-F' 'a-f')" ] || return 1
+    fi
+    tar -xzf "$arc" -C "$ex" >/dev/null 2>&1 || return 1
+    candidate="$(find "$ex" -type f -name uuplugin | head -n1)"; [ -n "$candidate" ] || return 1
+    chmod 0755 "$candidate"; elf_ok "$candidate" || return 1
+    conf="$(find "$ex" -type f -name uu.conf | head -n1)"
+    sha="$(sha256sum "$candidate" | awk '{print $1}')"
+    version="$(printf '%s' "$url" | sed -n 's#.*[/]\(v[^/?]*\)/uu\.tar\.gz.*#\1#p')"; [ -n "$version" ] || version=latest
+    printf '%s\t%s\t%s\t%s\n' "$version" "$sha" "$candidate" "$conf"
+}
+
+check_one() {
+    local id="$1" cur meta remote update tag sha
+    case "$id" in
+        passwall)
+            cur="$(passwall_current_summary)"
+            if remote="$(passwall_remote_summary)" && update="$(passwall_update_count)"; then
+                sayrow passwall 'PassWall 代理分流' "$cur" "$remote" "$update" '仅更新 LuCI 与用户态核心，保留 R76S 分流/DNS 基线。'
+            else
+                sayrow passwall 'PassWall 代理分流' "$cur" 'check-failed' '-' '无法读取 PassWall release feed。'
+            fi
+            ;;
+        smartdns)
+            cur="$(smartdns_current)"
+            if meta="$(smartdns_meta)"; then
+                tag="$(printf '%s' "$meta" | cut -f1)"
+                printf '%s' "$cur" | grep -Fq "$tag" && update=0 || update=1
+                sayrow smartdns 'SmartDNS DNS 加速' "$cur" "$tag" "$update" '官方 aarch64 runtime；更新后重放 R76S DNS 策略。'
+            else
+                sayrow smartdns 'SmartDNS DNS 加速' "$cur" 'check-failed' '-' '无法读取 SmartDNS release。'
+            fi
+            ;;
+        adguardhome)
+            cur="$(adguard_current)"
+            if meta="$(adguard_meta)"; then
+                tag="$(printf '%s' "$meta" | cut -f1)"
+                printf '%s' "$cur" | grep -Fq "$tag" && update=0 || update=1
+                sayrow adguardhome 'AdGuard Home' "$cur" "$tag" "$update" '官方 linux_arm64 runtime；保留现有 YAML/UCI。'
+            else
+                sayrow adguardhome 'AdGuard Home' "$cur" 'check-failed' '-' '无法读取 AdGuard Home release。'
+            fi
+            ;;
+        uu)
+            cur="$(uu_current)"
+            if meta="$(uu_remote_meta)"; then
+                tag="$(printf '%s' "$meta" | cut -f1)"; sha="$(printf '%s' "$meta" | cut -f2)"
+                remote="$tag / core:$(printf '%.12s' "$sha")"
+                if [ -f /var/tmp/uu/uuplugin ] && [ "$(sha256sum /var/tmp/uu/uuplugin | awk '{print $1}')" = "$sha" ]; then update=0; else update=1; fi
+                sayrow uu '网易 UU 游戏加速器' "$cur" "$remote" "$update" '网易官方 openwrt-aarch64 runtime；保留手动开关状态。'
+            else
+                sayrow uu '网易 UU 游戏加速器' "$cur" 'check-failed' '-' '无法获取或验证网易 UU runtime。'
+            fi
+            ;;
+    esac
+}
+
+status_one() {
+    case "$1" in
+        passwall) sayrow passwall 'PassWall 代理分流' "$(passwall_current_summary)" '未检查' '-' '点击检查更新';;
+        smartdns) sayrow smartdns 'SmartDNS DNS 加速' "$(smartdns_current)" '未检查' '-' '点击检查更新';;
+        adguardhome) sayrow adguardhome 'AdGuard Home' "$(adguard_current)" '未检查' '-' '点击检查更新';;
+        uu) sayrow uu '网易 UU 游戏加速器' "$(uu_current)" '未检查' '-' '点击检查更新';;
+    esac
+}
+
+backup_file_tree() {
+    local pkg="$1" dst="$2" p d
+    mkdir -p "$dst/root"
+    opkg files "$pkg" 2>/dev/null | sed '1d' | while read -r p; do
+        [ -f "$p" ] || [ -L "$p" ] || continue
+        d="$dst/root$(dirname "$p")"; mkdir -p "$d"
+        cp -a "$p" "$dst/root$p" 2>/dev/null || true
+    done
+}
+
+restore_file_tree() {
+    [ -d "$1/root" ] && cp -a "$1/root/." / 2>/dev/null || true
+}
+
+passwall_rollback() {
+    local backup="$1" pkg
+    [ -f "$backup/opkg-status" ] && cp -a "$backup/opkg-status" /usr/lib/opkg/status
+    if [ -f "$backup/changed.list" ]; then
+        while read -r pkg; do
+            [ -n "$pkg" ] || continue
+            restore_file_tree "$backup/pkgs/$pkg"
+            if [ -d "$backup/info/$pkg" ]; then
+                rm -f /usr/lib/opkg/info/"$pkg".* 2>/dev/null || true
+                cp -a "$backup/info/$pkg/." /usr/lib/opkg/info/ 2>/dev/null || true
+            fi
+        done < "$backup/changed.list"
+    fi
+    [ -f "$backup/passwall" ] && cp -a "$backup/passwall" /etc/config/passwall
+    /usr/libexec/r76s-passwall-dns-guard >/dev/null 2>&1 || true
+    /etc/init.d/passwall restart >/dev/null 2>&1 || true
+}
+
+update_passwall() {
+    local item pkg feed meta remote url ipk backup changed=0 fail=0 preflight cur rules
+    : > "$TMPROOT/passwall-install.list"
+    for item in \
+        'luci-app-passwall:passwall_luci' \
+        'luci-i18n-passwall-zh-cn:passwall_luci' \
+        'xray-core:passwall_packages' \
+        'sing-box:passwall_packages' \
+        'chinadns-ng:passwall_packages'; do
+        pkg="${item%%:*}"; feed="${item#*:}"
+        meta="$(passwall_pkg_meta "$feed" "$pkg")" || { echo "Cannot read metadata for $pkg"; return 1; }
+        remote="$(printf '%s' "$meta" | cut -f1)"; url="$(printf '%s' "$meta" | cut -f2)"
+        pkg_needs_update "$pkg" "$remote" || continue
+        ipk="$TMPROOT/${pkg}.ipk"; fetch "$url" "$ipk" || return 1
+        printf '%s\t%s\t%s\n' "$pkg" "$remote" "$ipk" >> "$TMPROOT/passwall-install.list"
+        changed=$((changed+1))
+    done
+    [ "$changed" -gt 0 ] || { echo 'PassWall is already current.'; return 0; }
+
+    while IFS="$(printf '\t')" read -r pkg remote ipk; do
+        preflight="$(opkg --noaction install "$ipk" 2>&1)"; rc=$?
+        printf '%s\n' "$preflight" | grep -Eiq '(^|[[:space:]])kernel([[:space:]]|$)|(^|[[:space:]])kmod-' && {
+            echo "Refusing update: dependency preflight for $pkg touches kernel modules."; return 1;
+        }
+        [ "$rc" -eq 0 ] || { echo "$preflight"; return 1; }
+    done < "$TMPROOT/passwall-install.list"
+
+    backup="/root/r76s-update-backups/passwall-$(date +%Y%m%d-%H%M%S)"
+    mkdir -p "$backup/pkgs" "$backup/info"
+    cp -a /etc/config/passwall "$backup/passwall" 2>/dev/null || true
+    cp -a /usr/lib/opkg/status "$backup/opkg-status" 2>/dev/null || true
+    while IFS="$(printf '\t')" read -r pkg remote ipk; do
+        echo "$pkg" >> "$backup/changed.list"
+        backup_file_tree "$pkg" "$backup/pkgs/$pkg"
+        mkdir -p "$backup/info/$pkg"
+        cp -a /usr/lib/opkg/info/"$pkg".* "$backup/info/$pkg/" 2>/dev/null || true
+    done < "$TMPROOT/passwall-install.list"
+
+    /etc/init.d/passwall stop >/dev/null 2>&1 || true
+    if uci -q get passwall.@global[0] >/dev/null 2>&1; then
+        uci -q set passwall.@global[0].enabled='0'; uci -q commit passwall
+    fi
+
+    for wanted in xray-core sing-box chinadns-ng luci-app-passwall luci-i18n-passwall-zh-cn; do
+        while IFS="$(printf '\t')" read -r pkg remote ipk; do
+            [ "$pkg" = "$wanted" ] || continue
+            opkg install "$ipk" || { fail=1; break; }
+            cur="$(pkgver "$pkg")"
+            [ -n "$cur" ] && ! opkg compare-versions "$cur" lt "$remote" || { fail=1; break; }
+        done < "$TMPROOT/passwall-install.list"
+        [ "$fail" -eq 0 ] || break
+    done
+    [ "$fail" -eq 0 ] || { passwall_rollback "$backup"; echo "PassWall update failed; rolled back. Backup: $backup"; return 1; }
+
+    if uci -q get passwall.@global[0] >/dev/null 2>&1; then
+        uci -q set passwall.@global[0].enabled='1'
+        uci -q set passwall.@global[0].node='myshunt'
+        uci -q set passwall.@global[0].dns_redirect='0'
+    fi
+    if uci -q get passwall.myshunt >/dev/null 2>&1; then
+        uci -q set passwall.myshunt.Direct='_direct'
+        uci -q set passwall.myshunt.WeChatTencent='_direct'
+        uci -q set passwall.myshunt.default_node='_direct'
+    fi
+    uci -q commit passwall
+    /usr/libexec/r76s-passwall-dns-guard >/dev/null 2>&1 || true
+    /etc/init.d/passwall restart >/dev/null 2>&1 || true
+    sleep 5
+    /usr/libexec/r76s-passwall-dns-guard >/dev/null 2>&1 || true
+
+    rules="$(uci show passwall 2>/dev/null | grep -c '=shunt_rules')"; [ -n "$rules" ] || rules=0
+    if [ "$(uci -q get passwall.@global[0].dns_redirect)" != 0 ] || \
+       [ "$(uci -q get passwall.@global[0].node)" != myshunt ] || \
+       [ "$(uci -q get passwall.myshunt.Direct)" != _direct ] || \
+       [ "$(uci -q get passwall.myshunt.WeChatTencent)" != _direct ] || \
+       [ "$(uci -q get passwall.myshunt.default_node)" != _direct ] || \
+       [ "$rules" -lt 42 ] || [ ! -x /usr/bin/xray ] || [ ! -x /usr/bin/sing-box ] || [ ! -x /usr/bin/chinadns-ng ]; then
+        passwall_rollback "$backup"; echo "PassWall validation failed; rolled back. Backup: $backup"; return 1
+    fi
+    nft list table inet passwall >/dev/null 2>&1 || { passwall_rollback "$backup"; echo "PassWall nft validation failed; rolled back. Backup: $backup"; return 1; }
+    echo "PassWall update complete ($changed package(s)). Backup: $backup"
+}
+
+update_smartdns() {
+    local meta tag url digest arc ex candidate backup
+    meta="$(smartdns_meta)" || { echo 'SmartDNS release check failed.'; return 1; }
+    tag="$(printf '%s' "$meta" | cut -f1)"; url="$(printf '%s' "$meta" | cut -f2)"; digest="$(printf '%s' "$meta" | cut -f3)"
+    arc="$TMPROOT/smartdns.tar.gz"; ex="$TMPROOT/smartdns-extract"; rm -rf "$ex"; mkdir -p "$ex"
+    fetch "$url" "$arc" || return 1; verify_digest_if_present "$arc" "$digest" || return 1
+    tar -xzf "$arc" -C "$ex" || return 1
+    candidate="$(find "$ex" -type f -name smartdns | head -n1)"; [ -n "$candidate" ] || return 1
+    chmod 0755 "$candidate"; elf_ok "$candidate" || return 1
+    "$candidate" -v 2>&1 | grep -qi smartdns || return 1
+    backup="/root/r76s-update-backups/smartdns-$(date +%Y%m%d-%H%M%S)"; mkdir -p "$backup"
+    cp -a /usr/libexec/r76s/smartdns.bin "$backup/" 2>/dev/null || true
+    cp -a /etc/config/smartdns "$backup/" 2>/dev/null || true
+    cp -a /etc/smartdns "$backup/etc-smartdns" 2>/dev/null || true
+    /etc/init.d/smartdns stop >/dev/null 2>&1 || true
+    put_exec "$candidate" /usr/libexec/r76s/smartdns.bin || return 1
+    /usr/libexec/r76s/r76s-smartdns-policy || true
+    /etc/init.d/smartdns restart >/dev/null 2>&1 || true; sleep 3
+    if ! netstat -ln 2>/dev/null | grep -q ':6053'; then
+        [ -f "$backup/smartdns.bin" ] && put_exec "$backup/smartdns.bin" /usr/libexec/r76s/smartdns.bin
+        [ -f "$backup/smartdns" ] && cp -a "$backup/smartdns" /etc/config/smartdns
+        [ -d "$backup/etc-smartdns" ] && { rm -rf /etc/smartdns; cp -a "$backup/etc-smartdns" /etc/smartdns; }
+        /etc/init.d/smartdns restart >/dev/null 2>&1 || true
+        echo "SmartDNS validation failed; rolled back. Backup: $backup"; return 1
+    fi
+    /usr/libexec/r76s/r76s-smartdns-policy || true
+    /etc/init.d/dnsmasq restart >/dev/null 2>&1 || true
+    echo "SmartDNS update complete: $tag. Backup: $backup"
+}
+
+adguard_paths() {
+    local line cfg work
+    line="$(ps ww 2>/dev/null | grep '[A]dGuardHome' | head -n1)"
+    cfg="$(printf '%s' "$line" | sed -n 's/.* -c \([^ ]*\).*/\1/p')"
+    work="$(printf '%s' "$line" | sed -n 's/.* -w \([^ ]*\).*/\1/p')"
+    [ -n "$cfg" ] || cfg='/etc/adguardhome.yaml'
+    [ -n "$work" ] || work='/var/lib/adguardhome'
+    printf '%s\t%s\n' "$cfg" "$work"
+}
+
+update_adguard() {
+    local meta tag url digest arc ex candidate paths cfg work backup
+    meta="$(adguard_meta)" || { echo 'AdGuard Home release check failed.'; return 1; }
+    tag="$(printf '%s' "$meta" | cut -f1)"; url="$(printf '%s' "$meta" | cut -f2)"; digest="$(printf '%s' "$meta" | cut -f3)"
+    arc="$TMPROOT/adguardhome.tar.gz"; ex="$TMPROOT/adguard-extract"; rm -rf "$ex"; mkdir -p "$ex"
+    fetch "$url" "$arc" || return 1; verify_digest_if_present "$arc" "$digest" || return 1
+    tar -xzf "$arc" -C "$ex" || return 1
+    candidate="$(find "$ex" -type f -name AdGuardHome | head -n1)"; [ -n "$candidate" ] || return 1
+    chmod 0755 "$candidate"; elf_ok "$candidate" || return 1; "$candidate" --version >/dev/null 2>&1 || return 1
+    paths="$(adguard_paths)"; cfg="$(printf '%s' "$paths" | cut -f1)"; work="$(printf '%s' "$paths" | cut -f2)"
+    backup="/root/r76s-update-backups/adguardhome-$(date +%Y%m%d-%H%M%S)"; mkdir -p "$backup"
+    cp -a /usr/bin/AdGuardHome "$backup/" 2>/dev/null || true
+    [ -f "$cfg" ] && cp -a "$cfg" "$backup/adguardhome.yaml" || true
+    cp -a /etc/config/adguardhome "$backup/" 2>/dev/null || true
+    if [ -s "$cfg" ]; then
+        "$candidate" --check-config -c "$cfg" -w "$work" >/tmp/r76s-adguard-check.log 2>&1 || { cat /tmp/r76s-adguard-check.log; return 1; }
+    fi
+    /etc/init.d/adguardhome stop >/dev/null 2>&1 || true
+    put_exec "$candidate" /usr/bin/AdGuardHome || return 1
+    /etc/init.d/adguardhome restart >/dev/null 2>&1 || true; sleep 3
+    if ! netstat -ln 2>/dev/null | grep -q '127\.0\.0\.1:3053'; then
+        [ -f "$backup/AdGuardHome" ] && put_exec "$backup/AdGuardHome" /usr/bin/AdGuardHome
+        [ -f "$backup/adguardhome.yaml" ] && cp -a "$backup/adguardhome.yaml" "$cfg"
+        [ -f "$backup/adguardhome" ] && cp -a "$backup/adguardhome" /etc/config/adguardhome
+        /etc/init.d/adguardhome restart >/dev/null 2>&1 || true
+        echo "AdGuard Home validation failed; rolled back. Backup: $backup"; return 1
+    fi
+    /etc/init.d/dnsmasq restart >/dev/null 2>&1 || true
+    echo "AdGuard Home update complete: $tag. Backup: $backup"
+}
+
+update_uu() {
+    local meta version sha candidate conf backup was_enabled running_sha
+    meta="$(uu_remote_meta)" || { echo 'NetEase UU runtime download/verification failed.'; return 1; }
+    version="$(printf '%s' "$meta" | cut -f1)"; sha="$(printf '%s' "$meta" | cut -f2)"
+    candidate="$(printf '%s' "$meta" | cut -f3)"; conf="$(printf '%s' "$meta" | cut -f4)"
+    [ -x "$candidate" ] || return 1
+    if [ -f /var/tmp/uu/uuplugin ] && [ "$(sha256sum /var/tmp/uu/uuplugin | awk '{print $1}')" = "$sha" ]; then
+        echo "NetEase UU is already current: $version / sha256 $(printf '%.12s' "$sha")"; return 0
+    fi
+    backup="/root/r76s-update-backups/uu-$(date +%Y%m%d-%H%M%S)"; mkdir -p "$backup"
+    cp -a /var/tmp/uu/uuplugin "$backup/" 2>/dev/null || true
+    cp -a /var/tmp/uu/uu.conf "$backup/" 2>/dev/null || true
+    cp -a /etc/config/uuplugin "$backup/uuplugin.config" 2>/dev/null || true
+    was_enabled="$(uci -q get uuplugin.@uuplugin[0].enabled)"; [ -n "$was_enabled" ] || was_enabled=0
+    if uci -q get uuplugin.@uuplugin[0] >/dev/null 2>&1; then
+        uci -q set uuplugin.@uuplugin[0].model='OpenWrt'; uci -q set uuplugin.@uuplugin[0].addfw='0'; uci -q commit uuplugin
+    fi
+    /etc/init.d/uuplugin stop >/dev/null 2>&1 || true
+    mkdir -p /var/tmp/uu; put_exec "$candidate" /var/tmp/uu/uuplugin || return 1
+    if [ -n "$conf" ] && [ -f "$conf" ]; then cp -f "$conf" /var/tmp/uu/uu.conf; chmod 0600 /var/tmp/uu/uu.conf 2>/dev/null || true; fi
+    if [ "$was_enabled" = 1 ]; then
+        /etc/init.d/uuplugin start >/dev/null 2>&1 || true; sleep 6
+        if ! pidof uuplugin >/dev/null 2>&1; then /usr/libexec/r76s/r76s-uu-autostart >/dev/null 2>&1 || true; sleep 2; fi
+        if ! pidof uuplugin >/dev/null 2>&1 || [ ! -x /var/tmp/uu/uuplugin ]; then
+            /etc/init.d/uuplugin stop >/dev/null 2>&1 || true
+            [ -f "$backup/uuplugin" ] && put_exec "$backup/uuplugin" /var/tmp/uu/uuplugin
+            [ -f "$backup/uu.conf" ] && cp -a "$backup/uu.conf" /var/tmp/uu/uu.conf
+            [ -f "$backup/uuplugin.config" ] && cp -a "$backup/uuplugin.config" /etc/config/uuplugin 2>/dev/null || true
+            /etc/init.d/uuplugin start >/dev/null 2>&1 || true
+            echo "UU validation failed; rolled back. Backup: $backup"; return 1
+        fi
+    else
+        uci -q set uuplugin.@uuplugin[0].enabled='0'; uci -q set uuplugin.@uuplugin[0].model='OpenWrt'; uci -q set uuplugin.@uuplugin[0].addfw='0'; uci -q commit uuplugin
+    fi
+    running_sha="$(sha256sum /var/tmp/uu/uuplugin 2>/dev/null | awk '{print $1}')"
+    if [ "$was_enabled" = 1 ]; then
+        echo "NetEase UU runtime update complete and service state restored. Current sha256 $(printf '%.12s' "$running_sha"). Backup: $backup"
+    else
+        echo "NetEase UU runtime update complete. UU remains disabled for manual start. Current sha256 $(printf '%.12s' "$running_sha"). Backup: $backup"
+    fi
+}
+
+with_lock() {
+    mkdir "$LOCKDIR" 2>/dev/null || { echo 'Another component update is already running.'; return 1; }
+    trap 'rmdir "$LOCKDIR" 2>/dev/null || true' EXIT INT TERM
+    "$@"; rc=$?
+    rmdir "$LOCKDIR" 2>/dev/null || true; trap - EXIT INT TERM
+    return $rc
+}
+
+all_ids() { echo 'passwall smartdns adguardhome uu'; }
+
+cmd="${1:-status}"; id="${2:-all}"
+case "$cmd" in
+    status)
+        if [ "$id" = all ]; then for x in $(all_ids); do status_one "$x"; done; else status_one "$id"; fi
+        ;;
+    check)
+        if [ "$id" = all ]; then for x in $(all_ids); do check_one "$x"; done; else check_one "$id"; fi
+        ;;
+    update)
+        case "$id" in
+            passwall) with_lock update_passwall;;
+            smartdns) with_lock update_smartdns;;
+            adguardhome) with_lock update_adguard;;
+            uu) with_lock update_uu;;
+            *) echo 'Usage: r76s-component-updater update passwall|smartdns|adguardhome|uu' >&2; exit 2;;
+        esac
+        ;;
+    *) echo 'Usage: r76s-component-updater status|check [all|component] | update component' >&2; exit 2;;
+esac

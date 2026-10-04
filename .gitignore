@@ -1,0 +1,5 @@
+*.log
+*.img
+*.img.gz
+*.ipk
+.DS_Store
