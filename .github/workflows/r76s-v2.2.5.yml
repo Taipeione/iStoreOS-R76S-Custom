@@ -115,6 +115,8 @@ jobs:
             echo "ERROR: Bootloader region size mismatch."
             echo "Expected: $EXPECTED_SIZE"
             echo "Actual:   $BOOT_SIZE"
+            exit 1
+          fi
 
           BOOT_MD5=$(
             md5sum "$BOOT_BIN" \
@@ -129,6 +131,8 @@ jobs:
             echo "ERROR: Official bootloader hash mismatch."
             echo "Expected: $EXPECTED_MD5"
             echo "Actual:   $BOOT_MD5"
+            exit 1
+          fi
 
           echo
           echo "Official R76S bootloader verified successfully."
