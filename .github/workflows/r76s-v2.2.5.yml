@@ -1,5 +1,5 @@
-name: R76S V2.2.5 Consolidated Build
-run-name: "R76S V2.2.5 #${{ github.run_number }} @ ${{ github.sha }}"
+name: R76S Build v2.2.5
+run-name: "R76S v2.2.5 #${{ github.run_number }}"
 
 on:
   workflow_dispatch:
@@ -326,6 +326,7 @@ jobs:
               "$GO_DIR"; then
               CLONED=1
               break
+            fi
   
             rm -rf "$GO_DIR"
             sleep 5
@@ -333,6 +334,8 @@ jobs:
 
           if [ "$CLONED" -ne 1 ]; then
             echo "ERROR: Failed to clone Go 26.x toolchain after 3 attempts."
+            exit 1
+          fi
 
           test -f "$GO_DIR/golang/Makefile"
           test -f "$GO_DIR/golang-package.mk"
@@ -377,12 +380,16 @@ jobs:
               package/passwall-packages; then
               PWPKG_OK=1
               break
-              rm -rf package/passwall-packages
+            fi
+
+            rm -rf package/passwall-packages
             sleep 5
           done
 
           if [ "$PWPKG_OK" -ne 1 ]; then
             echo "ERROR: Failed to clone openwrt-passwall-packages after 3 attempts."
+            exit 1
+          fi
 
           # Xray 26.9.8+ requires Go >= 1.27, while the OpenWrt 24.10
           # compatibility toolchain used here is Go 1.26.x. Keep Xray on
@@ -413,12 +420,16 @@ jobs:
               package/passwall-luci; then
               PWLUC_OK=1
               break
-              rm -rf package/passwall-luci
+            fi
+
+            rm -rf package/passwall-luci
             sleep 5
           done
 
           if [ "$PWLUC_OK" -ne 1 ]; then
             echo "ERROR: Failed to clone openwrt-passwall after 3 attempts."
+            exit 1
+          fi
 
           test -f package/passwall-luci/luci-app-passwall/Makefile
           test -f package/passwall-luci/luci-app-passwall2/Makefile
@@ -585,7 +596,9 @@ jobs:
             ACTUAL_SHA="$(sha256sum /tmp/smartdns-aarch64.tar.gz | awk '{print $1}')"
             [ "$EXPECTED_SHA" = "$ACTUAL_SHA" ] || {
               echo "ERROR: SmartDNS SHA256 mismatch."
-              }
+              exit 1
+            }
+          fi
 
           rm -rf /tmp/smartdns-extract
           mkdir -p /tmp/smartdns-extract
@@ -634,6 +647,8 @@ jobs:
           if grep -RnsE 'sysupgrade|dd[[:space:]].*of=/dev/|mmcblk[0-9]|partx[[:space:]]|fdisk[[:space:]]|sfdisk[[:space:]]|blkdiscard' \
             "$UPDATER_DIR/files/root"; then
             echo "ERROR: forbidden firmware/block-device operation in component updater."
+            exit 1
+          fi
 
           PKG_MK="$UPDATER_DIR/Makefile"
           grep -qF '$(INSTALL_BIN)' "$PKG_MK"
@@ -679,7 +694,7 @@ jobs:
             "passwall.myshunt.remarks='分流总节点'" \
             "passwall.myshunt.default_node='_direct'" \
             "passwall.myshunt.WeChatTencent='_direct'" \
-            "/usr/share/passwall/0_default_config" \
+            "/usr/share/passwall/0_default_config"; do
             grep -qF \
               "$required_text" \
               openwrt/files/etc/uci-defaults/99-r76s-v2-defaults
@@ -692,6 +707,8 @@ jobs:
 
           if [ "$RULE_COUNT" -ne 42 ]; then
             echo "ERROR: expected 42 PassWall shunt rules, found $RULE_COUNT"
+            exit 1
+          fi
 
           grep -qF \
             "github.com/${GITHUB_REPOSITORY}/releases/latest/download" \
@@ -712,11 +729,15 @@ jobs:
             openwrt/files/etc/AdGuardHome/AdGuardHome.yaml; do
             if [ -e "$bad" ]; then
               echo "ERROR: legacy rootfs configuration detected: $bad"
-              done
+              exit 1
+            fi
+          done
 
           FILE_COUNT=$(find openwrt/files -type f | wc -l)
           if [ "$FILE_COUNT" -ne 2 ]; then
             echo "ERROR: unexpected files were injected into openwrt/files."
+            exit 1
+          fi
 
           echo "R76S v2.2.5 rootfs payload verified safely."
 
@@ -780,7 +801,9 @@ jobs:
             if ! grep -qxF "$required" .config; then
               echo "ERROR: Required v2.2.5 selection missing from config/R76S.config:"
               echo "$required"
-              done
+              exit 1
+            fi
+          done
 
           make defconfig
 
@@ -817,6 +840,9 @@ jobs:
               .config tmp/.config-package.in 2>/dev/null \
               | head -n 250 \
               || true
+            fi
+            exit 1
+          fi
 
       - name: Verify final R76S configuration
         run: |
@@ -889,7 +915,9 @@ jobs:
             'CONFIG_PACKAGE_sing-box=y'; do
             if ! grep -qxF "$required" .config; then
               echo "ERROR: required config missing after defconfig: $required"
-              done
+              exit 1
+            fi
+          done
 
           echo
           echo "===== PASSWALL ====="
@@ -910,6 +938,8 @@ jobs:
 
           if [ "$DEVICE_COUNT" -ne 1 ]; then
             echo "ERROR: Exactly one Rockchip device must be selected."
+            exit 1
+          fi
 
           echo
           echo "R76S v2.2.5 configuration verified successfully."
@@ -928,6 +958,7 @@ jobs:
           if ! make -j"$JOBS"; then
             echo "Parallel build failed; retrying once with -j1 V=s for diagnosis."
             make -j1 V=s
+          fi
 
           ccache -s || true
 
@@ -955,6 +986,8 @@ jobs:
 
           if [ -z "$CUSTOM_IMAGE" ]; then
             echo "ERROR: R76S image not found."
+            exit 1
+          fi
 
           echo
           echo "Found:"
@@ -1066,6 +1099,7 @@ jobs:
           if [ "$PATCHED_BOOT" != "$BOOT_MD5" ]; then
             echo "ERROR: Bootloader patch verification failed."
 
+          fi
           echo
           echo "===== Verify first 32KB was NOT modified ====="
 
@@ -1085,6 +1119,7 @@ jobs:
           if [ "$FIRST32_BEFORE" != "$FIRST32_AFTER" ]; then
             echo "ERROR: Partition table area was modified."
 
+          fi
           echo
           echo "===== Partition table ====="
 
@@ -1231,6 +1266,7 @@ jobs:
                 "$TARGET_DIR/$file" \
                 "$RELEASE_DIR/"
   
+          fi
           done
 
           find \
@@ -1290,6 +1326,8 @@ jobs:
 
           if [ "$FINAL_BOOT_MD5" != "$BOOT_MD5" ]; then
             echo "ERROR: Final image bootloader mismatch."
+            exit 1
+          fi
 
           echo
           echo "R76S v2.2.5 OTA / PassWall2 / PassWall verified successfully."
