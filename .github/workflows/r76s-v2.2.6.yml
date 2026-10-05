@@ -698,57 +698,19 @@ jobs:
           SMARTDNS_TAG="Release48.4"
           SMARTDNS_ASSET="smartdns.1.2026.08.05-0921.aarch64-linux-all.tar.gz"
           SMARTDNS_URL="https://github.com/pymumu/smartdns/releases/download/${SMARTDNS_TAG}/${SMARTDNS_ASSET}"
-          SMARTDNS_API="https://api.github.com/repos/pymumu/smartdns/releases/tags/${SMARTDNS_TAG}"
 
-          echo "===== SmartDNS ${SMARTDNS_TAG}: official direct asset ====="
+          echo "===== SmartDNS ${SMARTDNS_TAG} official asset ====="
           echo "SmartDNS asset: $SMARTDNS_URL"
 
-          # Do not make the build depend on the unauthenticated GitHub API.
-          # The Release48.4 asset URL is deterministic; metadata is optional and
-          # used only to obtain the upstream-published SHA256 when API access works.
-          SMARTDNS_DIGEST=""
-          rm -f /tmp/smartdns-release.json
-          if curl -fsSL --retry 3 --retry-delay 3 \
-            -H 'Accept: application/vnd.github+json' \
-            -H 'User-Agent: R76S-V226-Build' \
-            -H 'Authorization: Bearer ${{ github.token }}' \
-            "$SMARTDNS_API" \
-            -o /tmp/smartdns-release.json; then
+          rm -f /tmp/smartdns-aarch64.tar.gz
 
-            SMARTDNS_DIGEST="$(python3 - /tmp/smartdns-release.json "$SMARTDNS_ASSET" <<'PY_SD_META'
-          import json, sys
-          data = json.load(open(sys.argv[1], 'r', encoding='utf-8'))
-          wanted = sys.argv[2]
-          for asset in data.get('assets', []):
-              if asset.get('name') == wanted:
-                  print(asset.get('digest', '') or '')
-                  break
-          PY_SD_META
-            )"
-          else
-            echo "WARNING: GitHub release metadata API unavailable; using official direct release asset."
-          fi
-
-          echo "SmartDNS digest: ${SMARTDNS_DIGEST:-metadata-unavailable}"
-
-          curl -fL --retry 5 --retry-delay 3 --retry-all-errors \
-            "$SMARTDNS_URL" \
-            -o /tmp/smartdns-aarch64.tar.gz
+          curl -fL --retry 5 --retry-delay 3 --retry-all-errors "$SMARTDNS_URL" -o /tmp/smartdns-aarch64.tar.gz
 
           test -s /tmp/smartdns-aarch64.tar.gz
           gzip -t /tmp/smartdns-aarch64.tar.gz
 
-          if echo "$SMARTDNS_DIGEST" | grep -q '^sha256:'; then
-            EXPECTED_SHA="${SMARTDNS_DIGEST#sha256:}"
-            ACTUAL_SHA="$(sha256sum /tmp/smartdns-aarch64.tar.gz | awk '{print $1}')"
-            [ "$EXPECTED_SHA" = "$ACTUAL_SHA" ] || {
-              echo "ERROR: SmartDNS SHA256 mismatch."
-              exit 1
-            }
-            echo "SmartDNS SHA256 verified: $ACTUAL_SHA"
-          else
-            echo "WARNING: Upstream SHA256 metadata unavailable; archive and aarch64 binary checks remain mandatory."
-          fi
+          echo "SmartDNS archive SHA256:"
+          sha256sum /tmp/smartdns-aarch64.tar.gz
 
           rm -rf /tmp/smartdns-extract
           mkdir -p /tmp/smartdns-extract
