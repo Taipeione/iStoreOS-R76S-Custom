@@ -327,7 +327,7 @@ jobs:
               CLONED=1
               break
             fi
-  
+
             rm -rf "$GO_DIR"
             sleep 5
           done
@@ -390,6 +390,22 @@ jobs:
             echo "ERROR: Failed to clone openwrt-passwall-packages after 3 attempts."
             exit 1
           fi
+
+          # Pin shadowsocks-rust to Rust-1.90-compatible v1.24.0
+          # shadowsocks-rust 1.25.0 requires Rust >= 1.91
+          # iStoreOS 24.10 currently provides rustc 1.90.0
+          SS_RUST_MK="package/passwall-packages/shadowsocks-rust/Makefile"
+          test -f "$SS_RUST_MK"
+
+          echo "===== Pin shadowsocks-rust v1.24.0 ====="
+          sed -i \
+            -e 's/^PKG_VERSION:=.*/PKG_VERSION:=1.24.0/' \
+            -e 's/^PKG_HASH:=.*/PKG_HASH:=a89865d1c5203de1b732017dd032e85f943d1592e8d3152eb7d2c4f3fca387bf/' \
+            "$SS_RUST_MK"
+
+          grep -qxF 'PKG_VERSION:=1.24.0' "$SS_RUST_MK"
+          grep -qxF 'PKG_HASH:=a89865d1c5203de1b732017dd032e85f943d1592e8d3152eb7d2c4f3fca387bf' "$SS_RUST_MK"
+          grep -E '^PKG_(VERSION|HASH):=' "$SS_RUST_MK"
 
           # Xray 26.9.8+ requires Go >= 1.27, while the OpenWrt 24.10
           # compatibility toolchain used here is Go 1.26.x. Keep Xray on
@@ -1292,7 +1308,7 @@ jobs:
               cp \
                 "$TARGET_DIR/$file" \
                 "$RELEASE_DIR/"
-  
+
           fi
           done
 
