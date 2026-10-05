@@ -284,6 +284,8 @@ jobs:
             '^TARGET_DEVICES += friendlyarm_nanopi-r76s$' \
             "$ARMV8_MK"
 
+          fi
+
       - name: Load official iStoreOS 24.10 feeds
         run: |
           cd openwrt
