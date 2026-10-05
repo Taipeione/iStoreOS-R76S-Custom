@@ -233,6 +233,8 @@ jobs:
             "$BOOT_SCRIPT"; then
 
             echo "ERROR: ttyS2 still exists."
+            exit 1
+          fi
 
           echo
           echo "R76S boot console verified: ttyS0."
