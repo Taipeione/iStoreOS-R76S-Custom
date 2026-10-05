@@ -432,7 +432,34 @@ jobs:
           fi
 
           test -f package/passwall-luci/luci-app-passwall/Makefile
-          test -f package/passwall-luci/luci-app-passwall2/Makefile
+
+          echo "===== Clone PassWall2 LuCI source ====="
+
+          PWLUC2_OK=0
+          for attempt in 1 2 3; do
+            echo "PassWall2 LuCI clone attempt: $attempt/3"
+
+            if git -c http.version=HTTP/1.1 clone \
+              --filter=blob:none \
+              --depth=1 \
+              --single-branch \
+              --branch main \
+              https://github.com/Openwrt-Passwall/openwrt-passwall2.git \
+              package/passwall2-luci; then
+              PWLUC2_OK=1
+              break
+            fi
+
+            rm -rf package/passwall2-luci
+            sleep 5
+          done
+
+          if [ "$PWLUC2_OK" -ne 1 ]; then
+            echo "ERROR: Failed to clone openwrt-passwall2 after 3 attempts."
+            exit 1
+          fi
+
+          test -f package/passwall2-luci/luci-app-passwall2/Makefile
           test -f package/passwall-packages/xray-core/Makefile
           test -f package/passwall-packages/sing-box/Makefile
           test -f package/passwall-packages/chinadns-ng/Makefile
