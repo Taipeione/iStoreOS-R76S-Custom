@@ -814,7 +814,16 @@ jobs:
           p = Path(sys.argv[1])
           t = p.read_text()
 
-          t = t.replace('-- R76S_UPDATER_UI_PATCH=4', '-- R76S_UPDATER_UI_PATCH=5')
+          import re
+
+          t, marker_count = re.subn(
+              r'-- R76S_UPDATER_UI_PATCH=\d+',
+              '-- R76S_UPDATER_UI_PATCH=5',
+              t,
+              count=1,
+          )
+          if marker_count != 1:
+              raise SystemExit('ERROR: updater UI patch marker not found')
 
           old_return = '    return rc, trim(out)'
           new_return = "\n".join([
