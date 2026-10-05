@@ -1,2 +1,0 @@
-#!/bin/sh
-exec /usr/libexec/r76s/r76s-component-updater update uu "$@"

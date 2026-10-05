@@ -18,7 +18,7 @@ define Package/luci-app-r76s-updater
 endef
 
 define Package/luci-app-r76s-updater/description
- Safe online updater for R76S firmware plus PassWall, SmartDNS, AdGuard Home and NetEase UU runtime.
+ Safe online updater for R76S firmware plus PassWall, SmartDNS, AdGuard Home.
 endef
 
 define Build/Prepare
@@ -42,20 +42,16 @@ define Package/luci-app-r76s-updater/install
 
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/libexec/r76s/r76s-component-updater $(1)/usr/libexec/r76s/r76s-component-updater
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/libexec/r76s/r76s-smartdns-policy $(1)/usr/libexec/r76s/r76s-smartdns-policy
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/libexec/r76s/r76s-uu-autostart $(1)/usr/libexec/r76s/r76s-uu-autostart
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/libexec/r76s/smartdns-wrapper $(1)/usr/libexec/r76s/smartdns-wrapper
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/libexec/r76s/smartdns.bin $(1)/usr/libexec/r76s/smartdns.bin
 
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/bin/r76s-update-passwall $(1)/usr/bin/r76s-update-passwall
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/bin/r76s-update-smartdns $(1)/usr/bin/r76s-update-smartdns
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/bin/r76s-update-adguardhome $(1)/usr/bin/r76s-update-adguardhome
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/bin/r76s-update-uu $(1)/usr/bin/r76s-update-uu
 
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/etc/init.d/r76s-fix3-boot $(1)/etc/init.d/r76s-fix3-boot
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/etc/init.d/r76s-uu-autostart $(1)/etc/init.d/r76s-uu-autostart
 
 	$(LN) ../init.d/r76s-fix3-boot $(1)/etc/rc.d/S98r76s-fix3-boot
-	# UU recovery helper is intentionally packaged but NOT linked/enabled by default.
 endef
 
 $(eval $(call BuildPackage,luci-app-r76s-updater))

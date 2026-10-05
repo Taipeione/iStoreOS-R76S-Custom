@@ -682,27 +682,16 @@ grep -Fq '/usr/libexec/r76s-passwall-dns-guard' /etc/crontabs/root 2>/dev/null |
 /etc/init.d/cron restart >/dev/null 2>&1 || true
 
 # -----------------------------------------------------------------------------
-# 8. Component updater + NetEase UU manual mode
+# 8. Component updater
 # -----------------------------------------------------------------------------
-# The online component updater is packaged separately. UU is installed and
+# The online component updater is packaged separately.
 # available in LuCI, but remains OFF by default. The optional R76S recovery
 # helper is deliberately not enabled during first boot.
-if uci -q get uuplugin.@uuplugin[0] >/dev/null 2>&1; then
-    uci -q set uuplugin.@uuplugin[0].enabled='0'
-    uci -q set uuplugin.@uuplugin[0].model='OpenWrt'
-    uci -q set uuplugin.@uuplugin[0].addfw='0'
-    uci -q commit uuplugin
 fi
 
-if [ -x /etc/init.d/uuplugin ]; then
-    /etc/init.d/uuplugin enable >/dev/null 2>&1 || true
-    /etc/init.d/uuplugin stop >/dev/null 2>&1 || true
 fi
 
-if [ -x /etc/init.d/r76s-uu-autostart ]; then
-    /etc/init.d/r76s-uu-autostart disable >/dev/null 2>&1 || true
 fi
-rm -f /etc/rc.d/*r76s-uu-autostart* 2>/dev/null || true
 
 # -----------------------------------------------------------------------------
 # 9. Retryable DNS finalizer.

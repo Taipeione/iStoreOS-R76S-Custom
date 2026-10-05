@@ -3,7 +3,6 @@
 PATH='/usr/sbin:/usr/bin:/sbin:/bin'
 TMPROOT='/tmp/r76s-component-updater'
 LOCKDIR='/tmp/r76s-component-updater.lock'
-UU_URL='https://router.uu.163.com/api/plugin?type=openwrt-aarch64'
 
 mkdir -p "$TMPROOT"
 
@@ -45,16 +44,6 @@ adguard_current() {
     echo "$out"
 }
 
-uu_current() {
-    local pkg sha
-    pkg="$(pkgver luci-app-uugamebooster)"; [ -n "$pkg" ] || pkg='unknown'
-    if [ -f /var/tmp/uu/uuplugin ]; then
-        sha="$(sha256sum /var/tmp/uu/uuplugin 2>/dev/null | awk '{print substr($1,1,12)}')"
-        echo "$pkg / core:${sha:-unknown}"
-    else
-        echo "$pkg / core:missing"
-    fi
-}
 
 json_asset_meta() {
     lua - "$1" "$2" <<'LUA'
@@ -176,49 +165,7 @@ adguard_meta() {
     json_asset_meta "$j" 'AdGuardHome_linux_arm64%.tar%.gz$'
 }
 
-uu_api_meta() {
-    local j="$TMPROOT/uu-api.json"
-    fetch "$UU_URL" "$j" >/dev/null 2>&1 || return 1
-    lua - "$j" <<'LUA'
-local json = require "luci.jsonc"
-local f = assert(io.open(arg[1], "r"))
-local data = json.parse(f:read("*a")); f:close()
-if type(data) ~= "table" then os.exit(2) end
-local url = type(data.url) == "string" and data.url or nil
-local md5 = type(data.md5) == "string" and data.md5:lower() or nil
-local function walk(v)
-    if type(v) == "table" then
-        for _,x in pairs(v) do walk(x) end
-    elseif type(v) == "string" then
-        if not url and v:match("^https?://") and v:match("uu%.tar%.gz") then url=v end
-        if not md5 and #v==32 and v:match("^[0-9a-fA-F]+$") then md5=v:lower() end
-    end
-end
-walk(data)
-if not url then os.exit(3) end
-io.write(url .. "\t" .. (md5 or "") .. "\n")
-LUA
-}
 
-uu_remote_meta() {
-    local api url md5 arc ex candidate conf actual sha version
-    api="$(uu_api_meta)" || return 1
-    url="$(printf '%s' "$api" | cut -f1)"; md5="$(printf '%s' "$api" | cut -f2)"
-    arc="$TMPROOT/uu.tar.gz"; ex="$TMPROOT/uu-extract"
-    rm -rf "$ex"; mkdir -p "$ex"
-    fetch "$url" "$arc" >/dev/null 2>&1 || return 1
-    if [ -n "$md5" ]; then
-        actual="$(md5sum "$arc" | awk '{print tolower($1)}')"
-        [ "$actual" = "$(printf '%s' "$md5" | tr 'A-F' 'a-f')" ] || return 1
-    fi
-    tar -xzf "$arc" -C "$ex" >/dev/null 2>&1 || return 1
-    candidate="$(find "$ex" -type f -name uuplugin | head -n1)"; [ -n "$candidate" ] || return 1
-    chmod 0755 "$candidate"; elf_ok "$candidate" || return 1
-    conf="$(find "$ex" -type f -name uu.conf | head -n1)"
-    sha="$(sha256sum "$candidate" | awk '{print $1}')"
-    version="$(printf '%s' "$url" | sed -n 's#.*[/]\(v[^/?]*\)/uu\.tar\.gz.*#\1#p')"; [ -n "$version" ] || version=latest
-    printf '%s\t%s\t%s\t%s\n' "$version" "$sha" "$candidate" "$conf"
-}
 
 check_one() {
     local id="$1" cur meta remote update tag sha
@@ -251,17 +198,6 @@ check_one() {
                 sayrow adguardhome 'AdGuard Home' "$cur" 'check-failed' '-' '无法读取 AdGuard Home release。'
             fi
             ;;
-        uu)
-            cur="$(uu_current)"
-            if meta="$(uu_remote_meta)"; then
-                tag="$(printf '%s' "$meta" | cut -f1)"; sha="$(printf '%s' "$meta" | cut -f2)"
-                remote="$tag / core:$(printf '%.12s' "$sha")"
-                if [ -f /var/tmp/uu/uuplugin ] && [ "$(sha256sum /var/tmp/uu/uuplugin | awk '{print $1}')" = "$sha" ]; then update=0; else update=1; fi
-                sayrow uu '网易 UU 游戏加速器' "$cur" "$remote" "$update" '网易官方 openwrt-aarch64 runtime；保留手动开关状态。'
-            else
-                sayrow uu '网易 UU 游戏加速器' "$cur" 'check-failed' '-' '无法获取或验证网易 UU runtime。'
-            fi
-            ;;
     esac
 }
 
@@ -270,7 +206,6 @@ status_one() {
         passwall) sayrow passwall 'PassWall 代理分流' "$(passwall_current_summary)" '未检查' '-' '点击检查更新';;
         smartdns) sayrow smartdns 'SmartDNS DNS 加速' "$(smartdns_current)" '未检查' '-' '点击检查更新';;
         adguardhome) sayrow adguardhome 'AdGuard Home' "$(adguard_current)" '未检查' '-' '点击检查更新';;
-        uu) sayrow uu '网易 UU 游戏加速器' "$(uu_current)" '未检查' '-' '点击检查更新';;
     esac
 }
 
@@ -460,47 +395,6 @@ update_adguard() {
     echo "AdGuard Home update complete: $tag. Backup: $backup"
 }
 
-update_uu() {
-    local meta version sha candidate conf backup was_enabled running_sha
-    meta="$(uu_remote_meta)" || { echo 'NetEase UU runtime download/verification failed.'; return 1; }
-    version="$(printf '%s' "$meta" | cut -f1)"; sha="$(printf '%s' "$meta" | cut -f2)"
-    candidate="$(printf '%s' "$meta" | cut -f3)"; conf="$(printf '%s' "$meta" | cut -f4)"
-    [ -x "$candidate" ] || return 1
-    if [ -f /var/tmp/uu/uuplugin ] && [ "$(sha256sum /var/tmp/uu/uuplugin | awk '{print $1}')" = "$sha" ]; then
-        echo "NetEase UU is already current: $version / sha256 $(printf '%.12s' "$sha")"; return 0
-    fi
-    backup="/root/r76s-update-backups/uu-$(date +%Y%m%d-%H%M%S)"; mkdir -p "$backup"
-    cp -a /var/tmp/uu/uuplugin "$backup/" 2>/dev/null || true
-    cp -a /var/tmp/uu/uu.conf "$backup/" 2>/dev/null || true
-    cp -a /etc/config/uuplugin "$backup/uuplugin.config" 2>/dev/null || true
-    was_enabled="$(uci -q get uuplugin.@uuplugin[0].enabled)"; [ -n "$was_enabled" ] || was_enabled=0
-    if uci -q get uuplugin.@uuplugin[0] >/dev/null 2>&1; then
-        uci -q set uuplugin.@uuplugin[0].model='OpenWrt'; uci -q set uuplugin.@uuplugin[0].addfw='0'; uci -q commit uuplugin
-    fi
-    /etc/init.d/uuplugin stop >/dev/null 2>&1 || true
-    mkdir -p /var/tmp/uu; put_exec "$candidate" /var/tmp/uu/uuplugin || return 1
-    if [ -n "$conf" ] && [ -f "$conf" ]; then cp -f "$conf" /var/tmp/uu/uu.conf; chmod 0600 /var/tmp/uu/uu.conf 2>/dev/null || true; fi
-    if [ "$was_enabled" = 1 ]; then
-        /etc/init.d/uuplugin start >/dev/null 2>&1 || true; sleep 6
-        if ! pidof uuplugin >/dev/null 2>&1; then /usr/libexec/r76s/r76s-uu-autostart >/dev/null 2>&1 || true; sleep 2; fi
-        if ! pidof uuplugin >/dev/null 2>&1 || [ ! -x /var/tmp/uu/uuplugin ]; then
-            /etc/init.d/uuplugin stop >/dev/null 2>&1 || true
-            [ -f "$backup/uuplugin" ] && put_exec "$backup/uuplugin" /var/tmp/uu/uuplugin
-            [ -f "$backup/uu.conf" ] && cp -a "$backup/uu.conf" /var/tmp/uu/uu.conf
-            [ -f "$backup/uuplugin.config" ] && cp -a "$backup/uuplugin.config" /etc/config/uuplugin 2>/dev/null || true
-            /etc/init.d/uuplugin start >/dev/null 2>&1 || true
-            echo "UU validation failed; rolled back. Backup: $backup"; return 1
-        fi
-    else
-        uci -q set uuplugin.@uuplugin[0].enabled='0'; uci -q set uuplugin.@uuplugin[0].model='OpenWrt'; uci -q set uuplugin.@uuplugin[0].addfw='0'; uci -q commit uuplugin
-    fi
-    running_sha="$(sha256sum /var/tmp/uu/uuplugin 2>/dev/null | awk '{print $1}')"
-    if [ "$was_enabled" = 1 ]; then
-        echo "NetEase UU runtime update complete and service state restored. Current sha256 $(printf '%.12s' "$running_sha"). Backup: $backup"
-    else
-        echo "NetEase UU runtime update complete. UU remains disabled for manual start. Current sha256 $(printf '%.12s' "$running_sha"). Backup: $backup"
-    fi
-}
 
 with_lock() {
     mkdir "$LOCKDIR" 2>/dev/null || { echo 'Another component update is already running.'; return 1; }
@@ -510,7 +404,7 @@ with_lock() {
     return $rc
 }
 
-all_ids() { echo 'passwall smartdns adguardhome uu'; }
+all_ids() { echo 'passwall smartdns adguardhome'; }
 
 cmd="${1:-status}"; id="${2:-all}"
 case "$cmd" in
@@ -525,8 +419,7 @@ case "$cmd" in
             passwall) with_lock update_passwall;;
             smartdns) with_lock update_smartdns;;
             adguardhome) with_lock update_adguard;;
-            uu) with_lock update_uu;;
-            *) echo 'Usage: r76s-component-updater update passwall|smartdns|adguardhome|uu' >&2; exit 2;;
+            *) echo 'Usage: r76s-component-updater update passwall|smartdns|adguardhome' >&2; exit 2;;
         esac
         ;;
     *) echo 'Usage: r76s-component-updater status|check [all|component] | update component' >&2; exit 2;;

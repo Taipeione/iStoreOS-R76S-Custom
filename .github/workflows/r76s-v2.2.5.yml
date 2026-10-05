@@ -1,0 +1,1322 @@
+name: R76S V2.2.5 Consolidated Build
+run-name: "R76S V2.2.5 #${{ github.run_number }} @ ${{ github.sha }}"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify V2.2.5 workflow identity
+        run: |
+          echo "=========================================="
+          echo " WORKFLOW_REV=R76S-V2.2.5-CONSOLIDATED"
+          echo " EXPECTED_STEPS=30"
+          echo " COMMIT=$GITHUB_SHA"
+          echo "=========================================="
+          test -f .github/workflows/r76s-v2.2.5.yml
+          grep -qF 'R76S V2.2.5 Consolidated Build' .github/workflows/r76s-v2.2.5.yml
+          grep -qF 'name: Build firmware' .github/workflows/r76s-v2.2.5.yml
+          grep -qF 'name: Publish OTA assets to GitHub Release' .github/workflows/r76s-v2.2.5.yml
+          sha256sum .github/workflows/r76s-v2.2.5.yml
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo apt clean
+          df -h
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+
+          sudo apt install -y \
+            build-essential \
+            clang \
+            flex \
+            bison \
+            g++ \
+            gawk \
+            gcc-multilib \
+            gettext \
+            git \
+            libelf-dev \
+            libncurses-dev \
+            libssl-dev \
+            python3 \
+            python3-dev \
+            python3-pyelftools \
+            python3-setuptools \
+            rsync \
+            swig \
+            time \
+            unzip \
+            zlib1g-dev \
+            file \
+            wget \
+            curl \
+            xsltproc \
+            zstd \
+            pigz \
+            ca-certificates \
+            ccache
+
+          echo "===== Verify Python elftools ====="
+
+          python3 -c "from elftools.elf.elffile import ELFFile; print('pyelftools OK')"
+
+      - name: Download and verify R76S bootloader
+        run: |
+          OFFICIAL_URL="https://fw.koolcenter.com/iStoreOS/r76s/istoreos-24.10.8-2026073111-r76s-squashfs.img.gz"
+
+          OFFICIAL_GZ="/tmp/official-r76s-24.10.8.img.gz"
+          BOOT_BIN="/tmp/r76s-official-bootloader.bin"
+
+          echo "===== Download official R76S reference image ====="
+
+          curl -fL \
+            --retry 3 \
+            --retry-delay 5 \
+            "$OFFICIAL_URL" \
+            -o "$OFFICIAL_GZ"
+
+          test -s "$OFFICIAL_GZ"
+
+          echo
+          echo "===== Extract 32KB - 16MB bootloader region ====="
+
+          gzip -dc "$OFFICIAL_GZ" 2>/dev/null | \
+            dd \
+              of="$BOOT_BIN" \
+              bs=512 \
+              skip=64 \
+              count=32704 \
+              status=none
+
+          test -s "$BOOT_BIN"
+
+          BOOT_SIZE=$(stat -c%s "$BOOT_BIN")
+
+          echo "Bootloader size: $BOOT_SIZE bytes"
+
+          EXPECTED_SIZE=16744448
+
+          if [ "$BOOT_SIZE" -ne "$EXPECTED_SIZE" ]; then
+            echo "ERROR: Bootloader region size mismatch."
+            echo "Expected: $EXPECTED_SIZE"
+            echo "Actual:   $BOOT_SIZE"
+
+          BOOT_MD5=$(
+            md5sum "$BOOT_BIN" \
+              | awk '{print $1}'
+          )
+
+          EXPECTED_MD5="80f6bcbcbb912ecce884f24e275f2ac6"
+
+          echo "Bootloader MD5: $BOOT_MD5"
+
+          if [ "$BOOT_MD5" != "$EXPECTED_MD5" ]; then
+            echo "ERROR: Official bootloader hash mismatch."
+            echo "Expected: $EXPECTED_MD5"
+            echo "Actual:   $BOOT_MD5"
+
+          echo
+          echo "Official R76S bootloader verified successfully."
+
+          echo "BOOT_BIN=$BOOT_BIN" >> "$GITHUB_ENV"
+          echo "BOOT_MD5=$BOOT_MD5" >> "$GITHUB_ENV"
+
+      - name: Clone iStoreOS source
+        run: |
+          git clone \
+            --depth=1 \
+            --branch istoreos-24.10 \
+            https://github.com/istoreos/istoreos.git \
+            openwrt
+
+      - name: Restore download and compiler caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            openwrt/dl
+            ~/.ccache
+          key: r76s-v224-${{ runner.os }}-${{ hashFiles('config/R76S.config') }}
+          restore-keys: |
+            r76s-v224-${{ runner.os }}-
+            r76s-${{ runner.os }}-
+
+      - name: Set R76S v2.2.5 firmware identity
+        run: |
+          cd openwrt
+
+          RELEASE_FILE="package/base-files/files/etc/openwrt_release"
+          test -f "$RELEASE_FILE"
+
+          # iStoreOS OTA compares DISTRIB_RELEASE-DISTRIB_REVISION.
+          # Keep the 24.10.8 release number and give the custom firmware a
+          # stable revision identity that our GitHub Release metadata can match.
+          sed -i \
+            "s/^DISTRIB_REVISION=.*/DISTRIB_REVISION='V2.2.5'/" \
+            "$RELEASE_FILE"
+
+          grep -q "^DISTRIB_REVISION='V2.2.5'$" "$RELEASE_FILE"
+
+          echo "===== Custom release identity ====="
+          grep -E '^DISTRIB_(RELEASE|REVISION)=' "$RELEASE_FILE" || true
+
+      - name: Verify R76S prerequisites
+        run: |
+          cd openwrt
+
+          echo "===== Check RK3576 / R76S prerequisites ====="
+
+          test -f \
+            target/linux/rockchip/dts/rk3576/rk3576-nanopi-r76s.dts
+
+          grep -q \
+            'compatible = "friendlyarm,nanopi-r76s", "rockchip,rk3576"' \
+            target/linux/rockchip/dts/rk3576/rk3576-nanopi-r76s.dts
+
+          grep -q \
+            'define U-Boot/easepi-rk3576' \
+            package/boot/uboot-rk35xx/Makefile
+
+          grep -q \
+            'define Device/Legacy' \
+            target/linux/rockchip/image/Makefile
+
+          test -f \
+            target/linux/rockchip/image/legacy/default.bootscript
+
+          echo
+          echo "R76S prerequisites verified."
+
+      - name: Fix R76S boot console
+        run: |
+          cd openwrt
+
+          BOOT_SCRIPT="target/linux/rockchip/image/legacy/default.bootscript"
+
+          echo "===== Boot script before patch ====="
+
+          grep -n 'console=' "$BOOT_SCRIPT" || true
+
+          sed -i \
+            's/console=ttyS2,1500000/console=ttyS0,1500000/g' \
+            "$BOOT_SCRIPT"
+
+          echo
+          echo "===== Boot script after patch ====="
+
+          grep -n 'console=' "$BOOT_SCRIPT" || true
+
+          grep -q \
+            'console=ttyS0,1500000' \
+            "$BOOT_SCRIPT"
+
+          if grep -q \
+            'console=ttyS2,1500000' \
+            "$BOOT_SCRIPT"; then
+
+            echo "ERROR: ttyS2 still exists."
+
+          echo
+          echo "R76S boot console verified: ttyS0."
+
+      - name: Add R76S image profile
+        run: |
+          cd openwrt
+
+          ARMV8_MK="target/linux/rockchip/image/armv8.mk"
+
+          if grep -q \
+            '^define Device/friendlyarm_nanopi-r76s$' \
+            "$ARMV8_MK"; then
+
+            echo "R76S profile already exists."
+
+          else
+
+            echo >> "$ARMV8_MK"
+
+            cat >> "$ARMV8_MK" <<'EOF'
+
+          define Device/friendlyarm_nanopi-r76s
+            $(Device/Legacy)
+            DEVICE_VENDOR := FriendlyARM
+            DEVICE_MODEL := NanoPi R76S
+            SOC := rk3576
+            UBOOT_DEVICE_NAME := easepi-rk3576
+            DEVICE_PACKAGES := kmod-r8169 kmod-rtw88-8822cs wpad-basic-mbedtls
+          endef
+          TARGET_DEVICES += friendlyarm_nanopi-r76s
+          EOF
+
+
+          echo
+          echo "===== Final R76S profile ====="
+
+          sed -n \
+            '/define Device\/friendlyarm_nanopi-r76s/,/TARGET_DEVICES += friendlyarm_nanopi-r76s/p' \
+            "$ARMV8_MK"
+
+          grep -q \
+            '^define Device/friendlyarm_nanopi-r76s$' \
+            "$ARMV8_MK"
+
+          grep -q \
+            '^TARGET_DEVICES += friendlyarm_nanopi-r76s$' \
+            "$ARMV8_MK"
+
+      - name: Load official iStoreOS 24.10 feeds
+        run: |
+          cd openwrt
+
+          curl -fL \
+            --retry 3 \
+            --retry-delay 3 \
+            https://fw.koolcenter.com/iStoreOS/r76s/24.10-feeds.conf \
+            -o feeds.conf
+
+          test -s feeds.conf
+
+          echo "===== feeds.conf ====="
+          cat feeds.conf
+
+      - name: Update feeds and stage current PassWall sources
+        run: |
+          cd openwrt
+
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+          echo "===== Refresh Go toolchain for current PassWall cores ====="
+
+          GO_DIR="feeds/packages/lang/golang"
+          rm -rf "$GO_DIR"
+
+          CLONED=0
+          for attempt in 1 2 3; do
+            echo "Go toolchain clone attempt: $attempt/3"
+
+            if git -c http.version=HTTP/1.1 clone \
+              --filter=blob:none \
+              --depth=1 \
+              --single-branch \
+              --branch 26.x \
+              https://github.com/sbwml/packages_lang_golang.git \
+              "$GO_DIR"; then
+              CLONED=1
+              break
+  
+            rm -rf "$GO_DIR"
+            sleep 5
+          done
+
+          if [ "$CLONED" -ne 1 ]; then
+            echo "ERROR: Failed to clone Go 26.x toolchain after 3 attempts."
+
+          test -f "$GO_DIR/golang/Makefile"
+          test -f "$GO_DIR/golang-package.mk"
+          test -f "$GO_DIR/golang-build.sh"
+
+          echo "===== Remove conflicting/older proxy cores from OpenWrt feeds ====="
+
+          rm -rf feeds/packages/net/xray-core
+          rm -rf feeds/packages/net/v2ray-geodata
+          rm -rf feeds/packages/net/sing-box
+          rm -rf feeds/packages/net/chinadns-ng
+          rm -rf feeds/packages/net/dns2socks
+          rm -rf feeds/packages/net/hysteria
+          rm -rf feeds/packages/net/ipt2socks
+          rm -rf feeds/packages/net/microsocks
+          rm -rf feeds/packages/net/naiveproxy
+          rm -rf feeds/packages/net/shadowsocks-rust
+          rm -rf feeds/packages/net/shadowsocksr-libev
+          rm -rf feeds/packages/net/simple-obfs
+          rm -rf feeds/packages/net/tcping
+          rm -rf feeds/packages/net/v2ray-plugin
+          rm -rf feeds/packages/net/xray-plugin
+          rm -rf feeds/packages/net/geoview
+          rm -rf feeds/packages/net/shadow-tls
+
+          rm -rf feeds/luci/applications/luci-app-passwall
+
+          rm -rf package/passwall-packages
+          rm -rf package/passwall-luci
+
+          echo "===== Clone PassWall package sources directly ====="
+
+          PWPKG_OK=0
+          for attempt in 1 2 3; do
+            echo "PassWall packages clone attempt: $attempt/3"
+            if git -c http.version=HTTP/1.1 clone \
+              --filter=blob:none \
+              --depth=1 \
+              --single-branch \
+              --branch main \
+              https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git \
+              package/passwall-packages; then
+              PWPKG_OK=1
+              break
+              rm -rf package/passwall-packages
+            sleep 5
+          done
+
+          if [ "$PWPKG_OK" -ne 1 ]; then
+            echo "ERROR: Failed to clone openwrt-passwall-packages after 3 attempts."
+
+          # Xray 26.9.8+ requires Go >= 1.27, while the OpenWrt 24.10
+          # compatibility toolchain used here is Go 1.26.x. Keep Xray on
+          # the last Go-1.26-compatible release so Sing-box can also remain
+          # on the proven Go 1.26 toolchain.
+          XRAY_MK="package/passwall-packages/xray-core/Makefile"
+          test -f "$XRAY_MK"
+
+          echo "===== Pin Xray to Go 1.26-compatible v26.7.28 ====="
+          sed -i \
+            -e 's/^PKG_VERSION:=.*/PKG_VERSION:=26.7.28/' \
+            -e 's/^PKG_HASH:=.*/PKG_HASH:=a9afe86349c7bd3e6cae60125e62a5ada09d102e1a2760623e77c24a84dbfb46/' \
+            "$XRAY_MK"
+
+          grep -qxF 'PKG_VERSION:=26.7.28' "$XRAY_MK"
+          grep -qxF 'PKG_HASH:=a9afe86349c7bd3e6cae60125e62a5ada09d102e1a2760623e77c24a84dbfb46' "$XRAY_MK"
+          grep -E '^PKG_(VERSION|HASH):=' "$XRAY_MK"
+
+          PWLUC_OK=0
+          for attempt in 1 2 3; do
+            echo "PassWall LuCI clone attempt: $attempt/3"
+            if git -c http.version=HTTP/1.1 clone \
+              --filter=blob:none \
+              --depth=1 \
+              --single-branch \
+              --branch main \
+              https://github.com/Openwrt-Passwall/openwrt-passwall.git \
+              package/passwall-luci; then
+              PWLUC_OK=1
+              break
+              rm -rf package/passwall-luci
+            sleep 5
+          done
+
+          if [ "$PWLUC_OK" -ne 1 ]; then
+            echo "ERROR: Failed to clone openwrt-passwall after 3 attempts."
+
+          test -f package/passwall-luci/luci-app-passwall/Makefile
+          test -f package/passwall-luci/luci-app-passwall2/Makefile
+          test -f package/passwall-packages/xray-core/Makefile
+          test -f package/passwall-packages/sing-box/Makefile
+          test -f package/passwall-packages/chinadns-ng/Makefile
+
+      - name: Verify PassWall source defaults
+        run: |
+          cd openwrt
+
+          PASSWALL_DIR="package/passwall-luci/luci-app-passwall"
+          PASSWALL_MK="$PASSWALL_DIR/Makefile"
+          PASSWALL_DEFAULT="$PASSWALL_DIR/root/usr/share/passwall/0_default_config"
+
+          test -f "$PASSWALL_MK"
+          test -f "$PASSWALL_DEFAULT"
+
+          grep -q 'Nftables Transparent Proxy' "$PASSWALL_MK"
+          grep -q 'PACKAGE_kmod-nft-socket' "$PASSWALL_MK"
+          grep -q 'PACKAGE_kmod-nft-tproxy' "$PASSWALL_MK"
+          grep -q 'PACKAGE_$(PKG_NAME)_INCLUDE_Xray' "$PASSWALL_MK"
+          grep -q 'PACKAGE_$(PKG_NAME)_INCLUDE_SingBox' "$PASSWALL_MK"
+
+          # Upstream package remains disabled in ROM; v2.2.5 first-boot defaults
+          # enable only the verified node-free shunt framework.
+          grep -q "option enabled '0'" "$PASSWALL_DEFAULT"
+
+          PASSWALL_APP="$PASSWALL_DIR/root/usr/share/passwall/app.sh"
+          test -f "$PASSWALL_APP"
+
+          # The runtime DNS guard uses this stable anchor when a PassWall App
+          # Update replaces app.sh. Fail before compilation if upstream changes
+          # the layout instead of shipping an unpatchable image.
+          grep -qF \
+            'uci -q delete dhcp.@dnsmasq[0].min_cache_ttl' \
+            "$PASSWALL_APP"
+
+          test -f package/diy/luci-app-ota/Makefile
+
+
+      - name: Stage official iStoreOS QuickStart UI
+        run: |
+          cd openwrt
+
+          echo "===== Stage official iStoreOS QuickStart ====="
+
+          # Use the official LinkEase/iStoreOS release sources directly.
+          # Do not use the refactoring-only istoreos/quickstart repository;
+          # its own README points release builds to these two package trees.
+          rm -rf \
+            /tmp/r76s-nas-packages \
+            /tmp/r76s-nas-packages-luci \
+            package/custom/quickstart \
+            package/custom/luci-app-quickstart
+
+          git clone \
+            --depth=1 \
+            --filter=blob:none \
+            --sparse \
+            --branch master \
+            https://github.com/linkease/nas-packages.git \
+            /tmp/r76s-nas-packages
+
+          git -C /tmp/r76s-nas-packages sparse-checkout set \
+            network/services/quickstart
+
+          git clone \
+            --depth=1 \
+            --filter=blob:none \
+            --sparse \
+            --branch main \
+            https://github.com/linkease/nas-packages-luci.git \
+            /tmp/r76s-nas-packages-luci
+
+          git -C /tmp/r76s-nas-packages-luci sparse-checkout set \
+            luci/luci-app-quickstart
+
+          mkdir -p package/custom
+
+          cp -a \
+            /tmp/r76s-nas-packages/network/services/quickstart \
+            package/custom/quickstart
+
+          cp -a \
+            /tmp/r76s-nas-packages-luci/luci/luci-app-quickstart \
+            package/custom/luci-app-quickstart
+
+          test -f package/custom/quickstart/Makefile
+          test -f package/custom/luci-app-quickstart/Makefile
+
+          grep -q '^PKG_NAME:=quickstart$' \
+            package/custom/quickstart/Makefile
+          grep -q 'LUCI_DEPENDS:=+quickstart +luci-app-store' \
+            package/custom/luci-app-quickstart/Makefile
+
+          echo "===== Official QuickStart package versions ====="
+          grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE):=' \
+            package/custom/quickstart/Makefile || true
+          grep -E '^(PKG_VERSION|PKG_RELEASE):=' \
+            package/custom/luci-app-quickstart/Makefile || true
+
+          echo "Official iStoreOS QuickStart sources staged."
+
+      - name: Copy R76S status package
+        run: |
+          mkdir -p openwrt/package/custom
+
+          rm -rf \
+            openwrt/package/custom/luci-app-r76s-status
+
+          cp -r \
+            feeds/luci-app-r76s-status \
+            openwrt/package/custom/
+
+          test -f \
+            openwrt/package/custom/luci-app-r76s-status/Makefile
+
+      - name: Stage V2.2.5 component updater and SmartDNS Release48.4 runtime
+        run: |
+          mkdir -p openwrt/package/custom
+
+          rm -rf openwrt/package/custom/luci-app-r76s-updater
+          cp -r feeds/luci-app-r76s-updater openwrt/package/custom/
+
+          UPDATER_DIR="openwrt/package/custom/luci-app-r76s-updater"
+          SMARTDNS_TAG="Release48.4"
+          SMARTDNS_ASSET="smartdns.1.2026.08.05-0921.aarch64-linux-all.tar.gz"
+          SMARTDNS_API="https://api.github.com/repos/pymumu/smartdns/releases/tags/${SMARTDNS_TAG}"
+
+          echo "===== Fetch SmartDNS ${SMARTDNS_TAG} release metadata ====="
+          curl -fL --retry 3 --retry-delay 3 \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'User-Agent: R76S-Fix3-Build' \
+            "$SMARTDNS_API" \
+            -o /tmp/smartdns-release.json
+
+          python3 - /tmp/smartdns-release.json "$SMARTDNS_ASSET" > /tmp/smartdns-meta <<'PY_SD_META'
+          import json, sys
+          data = json.load(open(sys.argv[1], 'r', encoding='utf-8'))
+          wanted = sys.argv[2]
+          for asset in data.get('assets', []):
+              if asset.get('name') == wanted:
+                  print(asset.get('browser_download_url', ''))
+                  print(asset.get('digest', '') or '')
+                  break
+          else:
+              raise SystemExit(f'ERROR: SmartDNS asset not found: {wanted}')
+          PY_SD_META
+
+          SMARTDNS_URL="$(sed -n '1p' /tmp/smartdns-meta)"
+          SMARTDNS_DIGEST="$(sed -n '2p' /tmp/smartdns-meta)"
+          test -n "$SMARTDNS_URL"
+
+          echo "SmartDNS asset: $SMARTDNS_URL"
+          echo "SmartDNS digest: ${SMARTDNS_DIGEST:-not-published}"
+
+          curl -fL --retry 3 --retry-delay 3 \
+            "$SMARTDNS_URL" \
+            -o /tmp/smartdns-aarch64.tar.gz
+
+          if echo "$SMARTDNS_DIGEST" | grep -q '^sha256:'; then
+            EXPECTED_SHA="${SMARTDNS_DIGEST#sha256:}"
+            ACTUAL_SHA="$(sha256sum /tmp/smartdns-aarch64.tar.gz | awk '{print $1}')"
+            [ "$EXPECTED_SHA" = "$ACTUAL_SHA" ] || {
+              echo "ERROR: SmartDNS SHA256 mismatch."
+              }
+
+          rm -rf /tmp/smartdns-extract
+          mkdir -p /tmp/smartdns-extract
+          tar -xzf /tmp/smartdns-aarch64.tar.gz -C /tmp/smartdns-extract
+
+          SMARTDNS_BIN="$(find /tmp/smartdns-extract -type f -name smartdns | head -n 1)"
+          test -n "$SMARTDNS_BIN"
+
+          file "$SMARTDNS_BIN" | grep -Eqi 'ARM aarch64|aarch64' || {
+            echo "ERROR: SmartDNS runtime is not aarch64."
+            file "$SMARTDNS_BIN"
+          }
+
+          install -m 0755 \
+            "$SMARTDNS_BIN" \
+            "$UPDATER_DIR/files/root/usr/libexec/r76s/smartdns.bin"
+
+          for required in \
+            "$UPDATER_DIR/Makefile" \
+            "$UPDATER_DIR/files/controller/r76s_updater.lua" \
+            "$UPDATER_DIR/files/view/r76s_updater/index.htm" \
+            "$UPDATER_DIR/files/root/usr/libexec/r76s/r76s-component-updater" \
+            "$UPDATER_DIR/files/root/usr/libexec/r76s/r76s-smartdns-policy" \
+            "$UPDATER_DIR/files/root/etc/init.d/r76s-fix3-boot" \
+            "$UPDATER_DIR/files/root/usr/libexec/r76s/smartdns.bin"; do
+            test -s "$required"
+          done
+
+          POLICY="$UPDATER_DIR/files/root/usr/libexec/r76s/r76s-smartdns-policy"
+          grep -qF "uci -q delete smartdns.@smartdns[0].dualstack_selection || true" "$POLICY"
+          grep -qF "uci -q delete smartdns.@smartdns[0].force_https_soa || true" "$POLICY"
+          grep -qF "uci -q delete smartdns.@smartdns[0].conf_files || true" "$POLICY"
+          grep -qF "dualstack_ip_selection='0'" "$POLICY"
+          grep -qF "force_aaaa_soa='0'" "$POLICY"
+          grep -qF "add_list smartdns.@smartdns[0].conf_files='/etc/smartdns/r76s-cn.conf'" "$POLICY"
+          grep -qF "add_server '223.5.5.5' 'udp' 'cn'" "$POLICY"
+          grep -qF "add_server '119.29.29.29' 'udp' 'cn'" "$POLICY"
+          grep -qF "add_server '1.1.1.1' 'tcp' 'foreign'" "$POLICY"
+          grep -qF "add_server '8.8.8.8' 'tcp' 'foreign'" "$POLICY"
+          grep -qF 'server_group="$group"' "$POLICY"
+          grep -qF "exclude_default_group='1'" "$POLICY"
+          grep -qF "domain-rules /./ -nameserver foreign -address #6" "$POLICY"
+          grep -qF "domain-rules /domain-set:r76s-cn/ -nameserver cn -address -6" "$POLICY"
+
+          # Component updates must never contain firmware/block-device writes.
+          if grep -RnsE 'sysupgrade|dd[[:space:]].*of=/dev/|mmcblk[0-9]|partx[[:space:]]|fdisk[[:space:]]|sfdisk[[:space:]]|blkdiscard' \
+            "$UPDATER_DIR/files/root"; then
+            echo "ERROR: forbidden firmware/block-device operation in component updater."
+
+          PKG_MK="$UPDATER_DIR/Makefile"
+          grep -qF '$(INSTALL_BIN)' "$PKG_MK"
+
+
+      - name: Install R76S v2.2.5 rootfs defaults and OTA source safely
+        run: |
+          # IMPORTANT:
+          # Do NOT copy the repository's whole files/ tree. Historical stale
+          # /etc/config files hard-coded interface mappings and broke R76S.
+          # v2.2.5 injects only:
+          #   1) the verified first-boot defaults script
+          #   2) the device-specific OTA URL exporter
+          rm -rf openwrt/files
+          mkdir -p \
+            openwrt/files/etc/uci-defaults \
+            openwrt/files/lib/upgrade
+
+          install -m 0755 \
+            files/etc/uci-defaults/99-r76s-v2-defaults \
+            openwrt/files/etc/uci-defaults/99-r76s-v2-defaults
+
+          cat > openwrt/files/lib/upgrade/ota.sh <<EOF
+          #!/bin/sh
+
+          export_ota_url() {
+              OTA_URL_BASE="https://github.com/${GITHUB_REPOSITORY}/releases/latest/download"
+          }
+          EOF
+
+          chmod 0755 openwrt/files/lib/upgrade/ota.sh
+
+          test -x openwrt/files/etc/uci-defaults/99-r76s-v2-defaults
+          test -x openwrt/files/lib/upgrade/ota.sh
+
+          for required_text in \
+            "192.168.50.1" \
+            "/luci-static/argon" \
+            "127.0.0.1#3053" \
+            "127.0.0.1:6053" \
+            "/usr/libexec/r76s/r76s-smartdns-policy" \
+            "R76S_EXTERNAL_DNS_BEGIN" \
+            "passwall.myshunt.remarks='分流总节点'" \
+            "passwall.myshunt.default_node='_direct'" \
+            "passwall.myshunt.WeChatTencent='_direct'" \
+            "/usr/share/passwall/0_default_config" \
+            grep -qF \
+              "$required_text" \
+              openwrt/files/etc/uci-defaults/99-r76s-v2-defaults
+          done
+
+          RULE_COUNT=$(
+            grep -c "='shunt_rules'" \
+              openwrt/files/etc/uci-defaults/99-r76s-v2-defaults
+          )
+
+          if [ "$RULE_COUNT" -ne 42 ]; then
+            echo "ERROR: expected 42 PassWall shunt rules, found $RULE_COUNT"
+
+          grep -qF \
+            "github.com/${GITHUB_REPOSITORY}/releases/latest/download" \
+            openwrt/files/lib/upgrade/ota.sh
+
+          echo "===== Files injected into rootfs ====="
+          find openwrt/files -type f -print | sort
+
+          # Full legacy configuration files remain forbidden.
+          for bad in \
+            openwrt/files/etc/config/network \
+            openwrt/files/etc/config/system \
+            openwrt/files/etc/config/dhcp \
+            openwrt/files/etc/config/firewall \
+            openwrt/files/etc/config/smartdns \
+            openwrt/files/etc/config/passwall \
+            openwrt/files/etc/config/adguardhome \
+            openwrt/files/etc/AdGuardHome/AdGuardHome.yaml; do
+            if [ -e "$bad" ]; then
+              echo "ERROR: legacy rootfs configuration detected: $bad"
+              done
+
+          FILE_COUNT=$(find openwrt/files -type f | wc -l)
+          if [ "$FILE_COUNT" -ne 2 ]; then
+            echo "ERROR: unexpected files were injected into openwrt/files."
+
+          echo "R76S v2.2.5 rootfs payload verified safely."
+
+      - name: Verify R76S status package
+        run: |
+          echo "===== R76S custom package ====="
+
+          find \
+            openwrt/package/custom/luci-app-r76s-status \
+            -maxdepth 4 \
+            -type f \
+            -print
+
+          grep -q \
+            'Rockchip RK3576' \
+            openwrt/package/custom/luci-app-r76s-status/files/view/r76s_status/status.htm
+
+          grep -q \
+            'view/r76s_status/\*' \
+            openwrt/package/custom/luci-app-r76s-status/Makefile
+
+          echo
+          echo "R76S status page verified."
+
+      - name: Apply R76S config and verify v2.2.5 selections
+        run: |
+          cd openwrt
+
+          cp ../config/R76S.config .config
+
+          echo "===== Input R76S.config PassWall selections ====="
+          grep -E \
+            '^CONFIG_PACKAGE_(luci-app-passwall|chinadns-ng|xray-core|sing-box|kmod-nft-(socket|tproxy)|firewall4)' \
+            .config \
+            || true
+
+          # The repository config is the single source of truth.
+          # Do not call ./scripts/config here: in OpenWrt this path is a
+          # directory containing Kconfig helper sources, not an executable.
+          for required in \
+            'CONFIG_PACKAGE_firewall4=y' \
+            'CONFIG_PACKAGE_dnsmasq-full=y' \
+            'CONFIG_PACKAGE_luci-app-ota=y' \
+            'CONFIG_PACKAGE_luci-app-package-manager=y' \
+            'CONFIG_PACKAGE_luci-app-r76s-updater=y' \
+            'CONFIG_PACKAGE_quickstart=y' \
+            'CONFIG_PACKAGE_luci-app-quickstart=y' \
+            'CONFIG_PACKAGE_luci-i18n-quickstart-zh-cn=y' \
+            'CONFIG_PACKAGE_kmod-tun=y' \
+            'CONFIG_PACKAGE_luci-app-passwall=y' \
+            'CONFIG_PACKAGE_luci-app-passwall2=y' \
+            'CONFIG_PACKAGE_luci-i18n-passwall2-zh-cn=y' \
+            'CONFIG_PACKAGE_luci-app-passwall_Nftables_Transparent_Proxy=y' \
+            'CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Geoview=y' \
+            'CONFIG_PACKAGE_luci-app-passwall_INCLUDE_SingBox=y' \
+            'CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray_Geodata=y' \
+            'CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=y' \
+            'CONFIG_PACKAGE_chinadns-ng=y' \
+            'CONFIG_PACKAGE_kmod-nft-socket=y' \
+            'CONFIG_PACKAGE_kmod-nft-tproxy=y'; do
+            if ! grep -qxF "$required" .config; then
+              echo "ERROR: Required v2.2.5 selection missing from config/R76S.config:"
+              echo "$required"
+              done
+
+          make defconfig
+
+          echo
+          echo "===== Final PassWall selections after make defconfig ====="
+          grep -E \
+            '^CONFIG_PACKAGE_(luci-app-passwall|chinadns-ng|xray-core|sing-box|kmod-nft-(socket|tproxy)|firewall4)' \
+            .config \
+            || true
+
+          if ! grep -qxF 'CONFIG_PACKAGE_luci-app-passwall=y' .config; then
+            echo "ERROR: luci-app-passwall was removed by make defconfig."
+            echo
+            echo "===== PassWall package definition ====="
+            sed -n '1,190p' package/passwall-luci/luci-app-passwall/Makefile 2>/dev/null || true
+            echo
+            echo "===== Kconfig block for luci-app-passwall ====="
+            LINE=$(
+              grep -n '^config PACKAGE_luci-app-passwall$' \
+                tmp/.config-package.in 2>/dev/null \
+                | head -n 1 \
+                | cut -d: -f1
+            )
+            if [ -n "$LINE" ]; then
+              START=$((LINE > 12 ? LINE - 12 : 1))
+              END=$((LINE + 35))
+              sed -n "${START},${END}p" tmp/.config-package.in
+            else
+              echo "PACKAGE_luci-app-passwall symbol was not generated."
+              echo
+            echo "===== Direct dependency symbols ====="
+            grep -E \
+              '^(config PACKAGE_(coreutils|coreutils-base64|coreutils-nohup|coreutils-timeout|curl|chinadns-ng|dns2socks|dnsmasq-full|ip-full|libuci-lua|lua|luci-compat|luci-lib-jsonc|microsocks|resolveip|tcping|lyaml)|# CONFIG_PACKAGE_(coreutils|coreutils-base64|coreutils-nohup|coreutils-timeout|curl|chinadns-ng|dns2socks|dnsmasq-full|ip-full|libuci-lua|lua|luci-compat|luci-lib-jsonc|microsocks|resolveip|tcping|lyaml))' \
+              .config tmp/.config-package.in 2>/dev/null \
+              | head -n 250 \
+              || true
+
+      - name: Verify final R76S configuration
+        run: |
+          cd openwrt
+
+          echo "===== TARGET ====="
+
+          grep -E \
+            '^CONFIG_TARGET_(rockchip|rockchip_armv8)' \
+            .config
+
+          echo
+          echo "===== DEVICE ====="
+
+          grep \
+            '^CONFIG_TARGET_rockchip_armv8_DEVICE_.*=y$' \
+            .config \
+            || true
+
+          echo
+          echo "===== PARTITIONS ====="
+
+          grep -E \
+            '^CONFIG_TARGET_(KERNEL_PARTSIZE|ROOTFS_PARTSIZE)=' \
+            .config
+
+          echo
+          echo "===== ROOTFS ====="
+
+          grep -E \
+            '^CONFIG_TARGET_ROOTFS_|^# CONFIG_TARGET_ROOTFS_' \
+            .config \
+            || true
+
+          for required in \
+            'CONFIG_TARGET_rockchip=y' \
+            'CONFIG_TARGET_rockchip_armv8=y' \
+            'CONFIG_TARGET_rockchip_armv8_DEVICE_friendlyarm_nanopi-r76s=y' \
+            'CONFIG_TARGET_KERNEL_PARTSIZE=64' \
+            'CONFIG_TARGET_ROOTFS_PARTSIZE=256' \
+            'CONFIG_TARGET_ROOTFS_SQUASHFS=y' \
+            '# CONFIG_TARGET_ROOTFS_EXT4FS is not set' \
+            'CONFIG_PACKAGE_luci-app-r76s-status=y' \
+            'CONFIG_PACKAGE_luci-app-r76s-updater=y' \
+            'CONFIG_PACKAGE_quickstart=y' \
+            'CONFIG_PACKAGE_luci-app-quickstart=y' \
+            'CONFIG_PACKAGE_luci-i18n-quickstart-zh-cn=y' \
+            'CONFIG_PACKAGE_luci-theme-argon=y' \
+            'CONFIG_PACKAGE_luci-app-ota=y' \
+            'CONFIG_PACKAGE_luci-app-package-manager=y' \
+            'CONFIG_PACKAGE_kmod-tun=y' \
+            'CONFIG_PACKAGE_smartdns=y' \
+            'CONFIG_PACKAGE_luci-app-smartdns=y' \
+            'CONFIG_PACKAGE_luci-i18n-smartdns-zh-cn=y' \
+            'CONFIG_PACKAGE_adguardhome=y' \
+            'CONFIG_PACKAGE_dockerd=y' \
+            'CONFIG_PACKAGE_luci-app-dockerman=y' \
+            'CONFIG_PACKAGE_luci-app-passwall=y' \
+            'CONFIG_PACKAGE_luci-app-passwall2=y' \
+            'CONFIG_PACKAGE_luci-i18n-passwall2-zh-cn=y' \
+            'CONFIG_PACKAGE_luci-app-passwall_Nftables_Transparent_Proxy=y' \
+            'CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=y' \
+            'CONFIG_PACKAGE_luci-app-passwall_INCLUDE_SingBox=y' \
+            'CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Geoview=y' \
+            'CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray_Geodata=y' \
+            'CONFIG_PACKAGE_kmod-nft-socket=y' \
+            'CONFIG_PACKAGE_kmod-nft-tproxy=y' \
+            'CONFIG_PACKAGE_chinadns-ng=y' \
+            'CONFIG_PACKAGE_xray-core=y' \
+            'CONFIG_PACKAGE_sing-box=y'; do
+            if ! grep -qxF "$required" .config; then
+              echo "ERROR: required config missing after defconfig: $required"
+              done
+
+          echo
+          echo "===== PASSWALL ====="
+          grep -E \
+            '^CONFIG_PACKAGE_(luci-app-passwall|chinadns-ng|xray-core|sing-box|kmod-nft-(socket|tproxy))' \
+            .config \
+            | sort
+
+          DEVICE_COUNT=$(
+            grep -c \
+              '^CONFIG_TARGET_rockchip_armv8_DEVICE_.*=y$' \
+              .config \
+              || true
+          )
+
+          echo
+          echo "Enabled device count: $DEVICE_COUNT"
+
+          if [ "$DEVICE_COUNT" -ne 1 ]; then
+            echo "ERROR: Exactly one Rockchip device must be selected."
+
+          echo
+          echo "R76S v2.2.5 configuration verified successfully."
+
+      - name: Build firmware
+        run: |
+          cd openwrt
+
+          JOBS="$(nproc)"
+          echo "===== Build with $JOBS parallel jobs + ccache ====="
+
+          export CCACHE_DIR="$HOME/.ccache"
+          ccache -M 5G >/dev/null 2>&1 || true
+          ccache -z >/dev/null 2>&1 || true
+
+          if ! make -j"$JOBS"; then
+            echo "Parallel build failed; retrying once with -j1 V=s for diagnosis."
+            make -j1 V=s
+
+          ccache -s || true
+
+      - name: Locate R76S firmware
+        run: |
+          TARGET_DIR="openwrt/bin/targets/rockchip/armv8"
+
+          echo "===== Build output ====="
+
+          find \
+            "$TARGET_DIR" \
+            -maxdepth 1 \
+            -type f \
+            -printf '%f\n' \
+            | sort
+
+          CUSTOM_IMAGE=$(
+            find \
+              "$TARGET_DIR" \
+              -maxdepth 1 \
+              -type f \
+              -name '*friendlyarm_nanopi-r76s*squashfs*.img.gz' \
+              | head -n 1
+          )
+
+          if [ -z "$CUSTOM_IMAGE" ]; then
+            echo "ERROR: R76S image not found."
+
+          echo
+          echo "Found:"
+          echo "$CUSTOM_IMAGE"
+
+          echo "CUSTOM_IMAGE=$CUSTOM_IMAGE" >> "$GITHUB_ENV"
+          echo "TARGET_DIR=$TARGET_DIR" >> "$GITHUB_ENV"
+
+      - name: Patch R76S bootloader
+        run: |
+          RAW_IMAGE="/tmp/R76S-Custom-v2.2.5.img"
+          STRIPPED_IMAGE="/tmp/R76S-Custom-v2.2.5-stripped.img.gz"
+          SYSUPGRADE_META="/tmp/R76S-Custom-v2.2.5.sysupgrade.meta"
+          FWTOOL="$GITHUB_WORKSPACE/openwrt/staging_dir/host/bin/fwtool"
+
+          test -x "$FWTOOL"
+          cp -f "$CUSTOM_IMAGE" "$STRIPPED_IMAGE"
+
+          echo "===== Preserve and strip OpenWrt sysupgrade metadata ====="
+          rm -f "$SYSUPGRADE_META" /tmp/r76s-build.ucert
+          "$FWTOOL" -s /tmp/r76s-build.ucert -t "$STRIPPED_IMAGE" >/dev/null 2>&1 || true
+          "$FWTOOL" -i "$SYSUPGRADE_META" -t "$STRIPPED_IMAGE"
+          test -s "$SYSUPGRADE_META"
+
+          python3 - "$SYSUPGRADE_META" <<'PY_META'
+          import json, sys
+          p=sys.argv[1]
+          with open(p, 'r', encoding='utf-8') as f: meta=json.load(f)
+          if 'friendlyarm,nanopi-r76s' not in meta.get('supported_devices', []):
+              raise SystemExit('ERROR: source sysupgrade metadata lacks friendlyarm,nanopi-r76s')
+          meta['metadata_version']='1.1'
+          meta['compat_version']=meta.get('compat_version','1.0')
+          v=meta.setdefault('version',{})
+          v.update({'dist':'iStoreOS','version':'24.10.8','revision':'V2.2.5','target':'rockchip/armv8','board':'friendlyarm,nanopi-r76s'})
+          with open(p,'w',encoding='utf-8') as f:
+              json.dump(meta,f,ensure_ascii=False,separators=(',',':')); f.write('\n')
+          PY_META
+          cat "$SYSUPGRADE_META"
+
+          gzip -t "$STRIPPED_IMAGE"
+          echo "===== Decompress stripped custom image ====="
+          gzip -dc "$STRIPPED_IMAGE" > "$RAW_IMAGE"
+          test -s "$RAW_IMAGE"
+          echo "SYSUPGRADE_META=$SYSUPGRADE_META" >> "$GITHUB_ENV"
+          echo "FWTOOL=$FWTOOL" >> "$GITHUB_ENV"
+
+          echo
+          echo "===== Preserve first 32KB hash ====="
+
+          FIRST32_BEFORE=$(
+            dd \
+              if="$RAW_IMAGE" \
+              bs=512 \
+              count=64 \
+              status=none \
+              | md5sum \
+              | awk '{print $1}'
+          )
+
+          echo "First 32KB before: $FIRST32_BEFORE"
+
+          echo
+          echo "===== Current custom bootloader ====="
+
+          CUSTOM_BOOT_BEFORE=$(
+            dd \
+              if="$RAW_IMAGE" \
+              bs=512 \
+              skip=64 \
+              count=32704 \
+              status=none \
+              | md5sum \
+              | awk '{print $1}'
+          )
+
+          echo "Custom bootloader before: $CUSTOM_BOOT_BEFORE"
+
+          echo
+          echo "===== Patch official bootloader into custom image ====="
+
+          dd \
+            if="$BOOT_BIN" \
+            of="$RAW_IMAGE" \
+            bs=512 \
+            seek=64 \
+            count=32704 \
+            conv=notrunc,fsync \
+            status=progress
+
+          sync
+
+          echo
+          echo "===== Verify bootloader after patch ====="
+
+          PATCHED_BOOT=$(
+            dd \
+              if="$RAW_IMAGE" \
+              bs=512 \
+              skip=64 \
+              count=32704 \
+              status=none \
+              | md5sum \
+              | awk '{print $1}'
+          )
+
+          echo "Patched bootloader: $PATCHED_BOOT"
+          echo "Expected bootloader: $BOOT_MD5"
+
+          if [ "$PATCHED_BOOT" != "$BOOT_MD5" ]; then
+            echo "ERROR: Bootloader patch verification failed."
+
+          echo
+          echo "===== Verify first 32KB was NOT modified ====="
+
+          FIRST32_AFTER=$(
+            dd \
+              if="$RAW_IMAGE" \
+              bs=512 \
+              count=64 \
+              status=none \
+              | md5sum \
+              | awk '{print $1}'
+          )
+
+          echo "First 32KB before: $FIRST32_BEFORE"
+          echo "First 32KB after:  $FIRST32_AFTER"
+
+          if [ "$FIRST32_BEFORE" != "$FIRST32_AFTER" ]; then
+            echo "ERROR: Partition table area was modified."
+
+          echo
+          echo "===== Partition table ====="
+
+          fdisk -l "$RAW_IMAGE"
+
+          echo "RAW_IMAGE=$RAW_IMAGE" >> "$GITHUB_ENV"
+
+      - name: Create final v2.2.5 image and OTA metadata
+        run: |
+          RELEASE_DIR="$TARGET_DIR/release-v2.2.5"
+
+          FINAL_NAME="R76S-Custom-v2.2.5-TF-squashfs.img.gz"
+          FINAL_IMAGE="$RELEASE_DIR/$FINAL_NAME"
+
+          mkdir -p "$RELEASE_DIR"
+
+          echo "===== Compress final patched image ====="
+
+          pigz -9 -c \
+            "$RAW_IMAGE" \
+            > "$FINAL_IMAGE"
+
+          # Verify gzip payload BEFORE appending fwtool metadata.
+          gzip -t "$FINAL_IMAGE"
+
+          echo
+          echo "===== Restore OpenWrt sysupgrade metadata ====="
+          test -x "$FWTOOL"
+          test -s "$SYSUPGRADE_META"
+          "$FWTOOL" -I "$SYSUPGRADE_META" "$FINAL_IMAGE"
+
+          FINAL_META_CHECK="/tmp/R76S-Custom-v2.2.5.final.meta"
+          rm -f "$FINAL_META_CHECK"
+          "$FWTOOL" -i "$FINAL_META_CHECK" "$FINAL_IMAGE"
+          test -s "$FINAL_META_CHECK"
+          python3 - "$FINAL_META_CHECK" <<'PY_FINAL_META'
+          import json, sys
+          with open(sys.argv[1], 'r', encoding='utf-8') as f: meta=json.load(f)
+          if 'friendlyarm,nanopi-r76s' not in meta.get('supported_devices', []):
+              raise SystemExit('ERROR: final metadata lacks R76S support')
+          v=meta.get('version',{})
+          exp={'dist':'iStoreOS','version':'24.10.8','revision':'V2.2.5','target':'rockchip/armv8'}
+          for k,val in exp.items():
+              if v.get(k) != val: raise SystemExit(f'ERROR: metadata {k}={v.get(k)!r}, expected {val!r}')
+          PY_FINAL_META
+          cat "$FINAL_META_CHECK"
+
+          echo
+          echo "===== SHA256 ====="
+
+          cd "$RELEASE_DIR"
+
+          FINAL_SHA="$(
+            sha256sum "$FINAL_NAME" | awk '{print $1}'
+          )"
+
+          printf '%s  %s\n' \
+            "$FINAL_SHA" \
+            "$FINAL_NAME" \
+            | tee sha256sums
+
+          # iStoreOS luci-app-ota reads version.latest/version.index from the
+          # device-specific OTA_URL_BASE. Our ota.sh points that base to this
+          # repository's latest GitHub Release assets.
+          cat > version.latest <<EOF
+          [24.10.8-V2.2.5]($FINAL_NAME)
+          R76S Custom V2.2.5 / RK3576 / TF
+          SHA256: $FINAL_SHA
+          EOF
+
+          cat > version.index <<'EOF'
+          24.10.8-V2.2.5
+          EOF
+
+          cat > ota.footer.html <<'EOF'
+          <p>R76S Custom OTA: TF-first validation. Do not write eMMC until the TF build is fully verified.</p>
+          EOF
+
+          printf '%s\n' \
+            'R76S Custom v2.2.5 OTA / PassWall2 / PassWall' \
+            '' \
+            'Target:' \
+            'rockchip/armv8' \
+            '' \
+            'Device:' \
+            'FriendlyElec NanoPi R76S' \
+            '' \
+            'SoC:' \
+            'Rockchip RK3576' \
+            '' \
+            'Bootloader source:' \
+            'iStoreOS 24.10.8-2026073111 R76S' \
+            '' \
+            'Patched range:' \
+            '32KB - 16MB' \
+            '' \
+            "Bootloader MD5: $BOOT_MD5" \
+            '' \
+            'The first 32KB of the custom image is preserved.' \
+            '' \
+            'v2.2.5 features:' \
+            'LAN: 192.168.50.1/24' \
+            'DHCP: enabled on LAN' \
+            'LuCI theme: Argon' \
+            'System login: root / password' \
+            'SmartDNS: bundled Release48.4 runtime on 6053' \
+            'AdGuard Home Web: 192.168.50.1:3000' \
+            'AdGuard Home DNS: 127.0.0.1:3053' \
+            'DNS chain: dnsmasq:53 -> AdGuardHome:3053 -> SmartDNS:6053' \
+            'DNS policy: China IPv4+IPv6, foreign IPv4 only' \
+            'PassWall: enabled, node-free shunt framework, 42 rules' \
+            'PassWall DNS guard: keeps main DNS chain after App Update' \
+            'Xray core: pinned to 26.7.28 for Go 1.26 compatibility' \
+            'PassWall transparent proxy: nftables' \
+            'PassWall cores: Xray + Sing-box' \
+            'Firmware OTA: GitHub Releases latest/download' \
+            'Component online update: PassWall + PassWall2 + SmartDNS + AdGuard Home' \
+            'TF-first only: eMMC remains untouched' \
+            > BOOTLOADER_INFO.txt
+
+          echo
+          echo "===== Final image and OTA metadata ====="
+
+          ls -lh \
+            "$FINAL_NAME" \
+            sha256sums \
+            version.latest \
+            version.index \
+            ota.footer.html \
+            BOOTLOADER_INFO.txt
+
+      - name: Copy build metadata
+        run: |
+          RELEASE_DIR="$TARGET_DIR/release-v2.2.5"
+
+          for file in \
+            config.buildinfo \
+            feeds.buildinfo \
+            version.buildinfo \
+            profiles.json; do
+
+            if [ -f "$TARGET_DIR/$file" ]; then
+              cp \
+                "$TARGET_DIR/$file" \
+                "$RELEASE_DIR/"
+  
+          done
+
+          find \
+            "$TARGET_DIR" \
+            -maxdepth 1 \
+            -type f \
+            -name '*friendlyarm_nanopi-r76s*.manifest' \
+            -exec cp {} "$RELEASE_DIR/" \; \
+            || true
+
+      - name: Final verification
+        run: |
+          RELEASE_DIR="$TARGET_DIR/release-v2.2.5"
+
+          FINAL_IMAGE="$RELEASE_DIR/R76S-Custom-v2.2.5-TF-squashfs.img.gz"
+
+          echo "===== Final verification ====="
+
+          test -s "$FINAL_IMAGE"
+
+          echo "===== Verify final sysupgrade metadata ====="
+          FINAL_META="/tmp/R76S-Custom-v2.2.5.verify.meta"
+          FINAL_STRIPPED="/tmp/R76S-Custom-v2.2.5.verify.img.gz"
+          cp -f "$FINAL_IMAGE" "$FINAL_STRIPPED"
+          "$FWTOOL" -i "$FINAL_META" -t "$FINAL_STRIPPED"
+          grep -qF 'friendlyarm,nanopi-r76s' "$FINAL_META"
+          grep -qF 'V2.2.5' "$FINAL_META"
+          gzip -t "$FINAL_STRIPPED"
+
+          for ota_file in version.latest version.index sha256sums ota.footer.html; do
+            test -s "$RELEASE_DIR/$ota_file"
+          done
+
+          grep -qF '24.10.8-V2.2.5' "$RELEASE_DIR/version.latest"
+          grep -qxF '24.10.8-V2.2.5' "$RELEASE_DIR/version.index"
+
+          echo
+          echo "Final image:"
+          ls -lh "$FINAL_IMAGE"
+
+          echo
+          echo "===== Verify final bootloader directly ====="
+
+          FINAL_BOOT_MD5=$(
+            gzip -dc "$FINAL_STRIPPED" \
+              | dd \
+                  bs=512 \
+                  skip=64 \
+                  count=32704 \
+                  status=none \
+              | md5sum \
+              | awk '{print $1}'
+          )
+
+          echo "Final bootloader MD5: $FINAL_BOOT_MD5"
+          echo "Expected bootloader MD5: $BOOT_MD5"
+
+          if [ "$FINAL_BOOT_MD5" != "$BOOT_MD5" ]; then
+            echo "ERROR: Final image bootloader mismatch."
+
+          echo
+          echo "R76S v2.2.5 OTA / PassWall2 / PassWall verified successfully."
+
+      - name: Upload final v2.2.5 firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: R76S-Custom-v2.2.5-OTA
+          path: openwrt/bin/targets/rockchip/armv8/release-v2.2.5/*
+          if-no-files-found: error
+
+      - name: Publish OTA assets to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: r76s-v2.2.5-${{ github.run_number }}
+          name: R76S Custom v2.2.5 build ${{ github.run_number }}
+          make_latest: true
+          generate_release_notes: false
+          body: |
+            R76S Custom v2.2.5
+            RK3576 / TF-first
+            OTA + PassWall + PassWall2 + SmartDNS + AdGuard Home
+            eMMC is intentionally not touched by this build.
+          files: |
+            openwrt/bin/targets/rockchip/armv8/release-v2.2.5/R76S-Custom-v2.2.5-TF-squashfs.img.gz
+            openwrt/bin/targets/rockchip/armv8/release-v2.2.5/version.latest
+            openwrt/bin/targets/rockchip/armv8/release-v2.2.5/version.index
+            openwrt/bin/targets/rockchip/armv8/release-v2.2.5/sha256sums
+            openwrt/bin/targets/rockchip/armv8/release-v2.2.5/ota.footer.html
+            openwrt/bin/targets/rockchip/armv8/release-v2.2.5/BOOTLOADER_INFO.txt
+
+      - name: Build finished
+        run: |
+          echo "===================================="
+          echo " R76S Custom v2.2.5 BUILD COMPLETE "
+          echo " RK3576 / rockchip / armv8 "
+          echo " OTA / PassWall2 / PassWall / DNS Finalized / Bootloader Fix "
+          echo "===================================="

@@ -293,7 +293,7 @@ function action_firmware()
     template.render("r76s_updater/index")
 end
 
-local valid = { passwall=true, smartdns=true, adguardhome=true, uu=true }
+local valid = { passwall=true, smartdns=true, adguardhome=true }
 
 local function rows_from_tsv(text)
     local rows = {}
