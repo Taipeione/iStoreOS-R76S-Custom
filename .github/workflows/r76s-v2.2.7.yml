@@ -1153,10 +1153,12 @@ jobs:
           print('PassWall and PassWall2 42-rule libraries generated successfully.')
           PY_RULES
 
-          echo "PassWall rule count:  $(grep -c \"^config shunt_rules '\" "$PW1_DEFAULT")"
-          echo "PassWall2 rule count: $(grep -c \"^config shunt_rules '\" "$PW2_DEFAULT")"
-          test "$(grep -c \"^config shunt_rules '\" "$PW1_DEFAULT")" -eq 42
-          test "$(grep -c \"^config shunt_rules '\" "$PW2_DEFAULT")" -eq 42
+          PW1_COUNT="$(grep -c '^config shunt_rules ' "$PW1_DEFAULT")"
+          PW2_COUNT="$(grep -c '^config shunt_rules ' "$PW2_DEFAULT")"
+          echo "PassWall rule count:  $PW1_COUNT"
+          echo "PassWall2 rule count: $PW2_COUNT"
+          test "$PW1_COUNT" -eq 42
+          test "$PW2_COUNT" -eq 42
           grep -qF "config nodes 'myshunt'" "$PW1_DEFAULT"
           grep -qF "config nodes 'myshunt'" "$PW2_DEFAULT"
           grep -qF "option auto_lang 'zh_cn'" "$PW2_DEFAULT"
@@ -1555,8 +1557,10 @@ jobs:
           echo "===== Verify PassWall / PassWall2 package defaults after build ====="
           PW1_DEFAULT="package/passwall-luci/luci-app-passwall/root/usr/share/passwall/0_default_config"
           PW2_DEFAULT="package/passwall2-luci/luci-app-passwall2/root/usr/share/passwall2/0_default_config"
-          test "$(grep -c \"^config shunt_rules '\" "$PW1_DEFAULT")" -eq 42
-          test "$(grep -c \"^config shunt_rules '\" "$PW2_DEFAULT")" -eq 42
+          PW1_COUNT="$(grep -c '^config shunt_rules ' "$PW1_DEFAULT")"
+          PW2_COUNT="$(grep -c '^config shunt_rules ' "$PW2_DEFAULT")"
+          test "$PW1_COUNT" -eq 42
+          test "$PW2_COUNT" -eq 42
           grep -qF "config nodes 'myshunt'" "$PW1_DEFAULT"
           grep -qF "config nodes 'myshunt'" "$PW2_DEFAULT"
 
