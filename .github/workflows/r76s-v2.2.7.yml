@@ -1306,7 +1306,7 @@ jobs:
           chmod 0755 openwrt/files/etc/uci-defaults/99-r76s-v227-ota-restore
 
           echo "===== V2.2.7 safety assertions ====="
-          grep -qF 'github.com/${GITHUB_REPOSITORY}/releases/latest/download' openwrt/files/lib/upgrade/ota.sh
+          grep -qF "github.com/${GITHUB_REPOSITORY}/releases/latest/download" openwrt/files/lib/upgrade/ota.sh
           grep -qF '/etc/config/passwall2' openwrt/files/lib/upgrade/keep.d/r76s-v227
           grep -qF '/etc/adguardhome.yaml' openwrt/files/lib/upgrade/keep.d/r76s-v227
           grep -qF 'r76s_ota_state.state.pending' openwrt/files/etc/init.d/r76s-ota-restore
