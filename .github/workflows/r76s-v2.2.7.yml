@@ -1165,38 +1165,9 @@ jobs:
           grep -qF "option enabled '0'" "$PW1_DEFAULT"
           grep -qF "option enabled '0'" "$PW2_DEFAULT"
 
-          echo "===== SmartDNS clean default: disabled, no automatic dnsmasq takeover ====="
-          python3 - <<'PY_SERVICE_DEFAULTS'
-          from pathlib import Path
-          import re
-
-          roots = [Path('openwrt/feeds'), Path('openwrt/package')]
-          smartdns_candidates = []
-          for root in roots:
-              if not root.exists():
-                  continue
-              for p in root.rglob('*'):
-                  if not p.is_file():
-                      continue
-                  sp = str(p).lower()
-                  if '/root/etc/config/' not in sp and not sp.endswith('smartdns.config'):
-                      continue
-                  try:
-                      text = p.read_text(errors='ignore')
-                  except Exception:
-                      continue
-                  if 'smartdns' in sp and re.search(r'^\s*config\s+smartdns\b', text, re.M):
-                      smartdns_candidates.append(p)
-
-          for p in smartdns_candidates:
-              text = p.read_text(errors='ignore')
-              text = re.sub(r"(?ms)(^\s*config\s+smartdns\b.*?^\s*option\s+enabled\s+)'1'", r"\g<1>'0'", text, count=1)
-              text = re.sub(r"(?ms)(^\s*config\s+smartdns\b.*?^\s*option\s+auto_set_dnsmasq\s+)'1'", r"\g<1>'0'", text, count=1)
-              p.write_text(text)
-              print('SmartDNS default checked:', p)
-          if not smartdns_candidates:
-              raise SystemExit('ERROR: SmartDNS UCI default not found')
-          PY_SERVICE_DEFAULTS
+          echo "===== SmartDNS clean default ====="
+          echo "SmartDNS clean-flash policy is enforced by first-boot UCI defaults."
+          echo "OTA preserved configuration is never rewritten here."
 
           echo "===== AdGuard Home: do not auto-start an unconfigured clean image ====="
           AGH_INIT="$(find openwrt/feeds openwrt/package -type f \( -name 'adguardhome.init' -o -path '*/root/etc/init.d/adguardhome' \) | head -n1)"
@@ -1244,13 +1215,36 @@ jobs:
 
           cat > openwrt/files/etc/uci-defaults/98-r76s-v227-clean-services <<'EOF_CLEAN_SERVICES'
           #!/bin/sh
-          # On a true clean image AdGuard is installed but remains stopped/disabled.
-          # During an online OTA, pending=1 makes this a no-op so the saved state wins.
-          if [ "$(uci -q get r76s_ota_state.state.pending)" != "1" ] && \
-             [ ! -s /etc/adguardhome.yaml ] && [ ! -s /etc/adguardhome/adguardhome.yaml ]; then
-              /etc/init.d/adguardhome stop >/dev/null 2>&1 || true
-              /etc/init.d/adguardhome disable >/dev/null 2>&1 || true
+
+          # Clean flash:
+          #   SmartDNS and AdGuard Home are installed but remain disabled.
+          #
+          # OTA upgrade:
+          #   pending=1 means existing user configuration/state must win.
+          #   Do not rewrite or disable anything here.
+
+          PENDING="$(uci -q get r76s_ota_state.state.pending)"
+
+          if [ "$PENDING" != "1" ]; then
+              # SmartDNS: clean-image default = disabled and no dnsmasq takeover.
+              if uci -q show smartdns >/dev/null 2>&1; then
+                  uci -q set smartdns.@smartdns[0].enabled='0' || true
+                  uci -q set smartdns.@smartdns[0].auto_set_dnsmasq='0' || true
+                  uci -q commit smartdns || true
+              fi
+
+              /etc/init.d/smartdns stop >/dev/null 2>&1 || true
+              /etc/init.d/smartdns disable >/dev/null 2>&1 || true
+
+              # AdGuard Home: clean-image default = stopped/disabled
+              # while no user YAML exists.
+              if [ ! -s /etc/adguardhome.yaml ] && \
+                 [ ! -s /etc/adguardhome/adguardhome.yaml ]; then
+                  /etc/init.d/adguardhome stop >/dev/null 2>&1 || true
+                  /etc/init.d/adguardhome disable >/dev/null 2>&1 || true
+              fi
           fi
+
           exit 0
           EOF_CLEAN_SERVICES
           chmod 0755 openwrt/files/etc/uci-defaults/98-r76s-v227-clean-services
