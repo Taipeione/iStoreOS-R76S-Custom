@@ -1560,10 +1560,19 @@ jobs:
 
           PW2_LANG_IPK="$(find bin -type f -name 'luci-i18n-passwall2-zh-cn*.ipk' | head -n1)"
           test -n "$PW2_LANG_IPK"
+          test -s "$PW2_LANG_IPK"
           echo "PassWall2 zh-cn package: $PW2_LANG_IPK"
-          ar p "$PW2_LANG_IPK" data.tar.gz 2>/dev/null | tar -tzf - | grep -q 'passwall2.zh-cn.lmo' || \
-          ar p "$PW2_LANG_IPK" data.tar.zst 2>/dev/null | zstd -dc | tar -tf - | grep -q 'passwall2.zh-cn.lmo'
-          echo "PassWall2 Simplified Chinese LMO verified."
+
+          PW2_LMO="$(find build_dir/target-* -type f \( \
+            -path '*/root-*/usr/lib/lua/luci/i18n/passwall2.zh-cn.lmo' -o \
+            -path '*/root-*/usr/share/luci/i18n/passwall2.zh-cn.lmo' \
+          \) | head -n1)"
+
+          test -n "$PW2_LMO"
+          test -s "$PW2_LMO"
+
+          echo "PassWall2 zh-cn LMO in final rootfs: $PW2_LMO"
+          echo "PassWall2 Simplified Chinese LMO verified in final rootfs."
 
       - name: Locate R76S firmware
         run: |
