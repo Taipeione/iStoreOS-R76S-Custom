@@ -2609,6 +2609,46 @@ jobs:
           EOF_OTA_TRIGGER
           chmod 0755 openwrt/files/etc/uci-defaults/99-r76s-v229-ota-restore
 
+          echo "===== Re-stage V2.2.9 critical files after openwrt/files reset ====="
+
+          PRESERVE_HELPER_FINAL_SRC="openwrt/package/custom/luci-app-r76s-updater/files/root/usr/libexec/r76s/r76s-ota-preserve-state"
+
+          FLASH_JS_FINAL_SRC="$(
+            find openwrt/feeds openwrt/package -type f               -path '*/luci-mod-system/htdocs/luci-static/resources/view/system/flash.js'               -print | head -n1
+          )"
+
+          UI_JS_FINAL_SRC="$(
+            find openwrt/feeds openwrt/package -type f               -path '*/luci-base/htdocs/luci-static/resources/ui.js'               -print | head -n1
+          )"
+
+          test -s "$PRESERVE_HELPER_FINAL_SRC"
+          test -s "$FLASH_JS_FINAL_SRC"
+          test -s "$UI_JS_FINAL_SRC"
+
+          grep -qF 'r76s_ota_state.state.pending'             "$PRESERVE_HELPER_FINAL_SRC"
+
+          grep -qF 'R76S_V229_FLASH_UPLOAD_PATCH'             "$FLASH_JS_FINAL_SRC"
+
+          grep -qF 'timeout: 0'             "$UI_JS_FINAL_SRC"
+
+          mkdir -p             openwrt/files/usr/libexec/r76s             openwrt/files/www/luci-static/resources/view/system
+
+          install -m 0755             "$PRESERVE_HELPER_FINAL_SRC"             openwrt/files/usr/libexec/r76s/r76s-ota-preserve-state
+
+          install -m 0644             "$UI_JS_FINAL_SRC"             openwrt/files/www/luci-static/resources/ui.js
+
+          install -m 0644             "$FLASH_JS_FINAL_SRC"             openwrt/files/www/luci-static/resources/view/system/flash.js
+
+          test -x             openwrt/files/usr/libexec/r76s/r76s-ota-preserve-state
+
+          grep -qF 'r76s_ota_state.state.pending'             openwrt/files/usr/libexec/r76s/r76s-ota-preserve-state
+
+          grep -qF 'timeout: 0'             openwrt/files/www/luci-static/resources/ui.js
+
+          grep -qF 'R76S_V229_FLASH_UPLOAD_PATCH'             openwrt/files/www/luci-static/resources/view/system/flash.js
+
+          echo "V2.2.9 critical files re-staged after overlay reset."
+
           echo "===== V2.2.9 safety assertions ====="
           grep -qF "github.com/${GITHUB_REPOSITORY}/releases/latest/download" openwrt/files/lib/upgrade/ota.sh
           grep -qF '/etc/config/passwall2' openwrt/files/lib/upgrade/keep.d/r76s-v229
