@@ -1,0 +1,3496 @@
+# R76S V1.0 Consolidated Build
+name: R76S Build V1.0
+run-name: "R76S V1.0 #${{ github.run_number }}"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify V1.0 workflow identity
+        run: |
+          echo "=========================================="
+          echo " WORKFLOW_REV=R76S-V1.0-CONSOLIDATED"
+          echo " EXPECTED_STEPS=31"
+          echo " COMMIT=$GITHUB_SHA"
+          echo "=========================================="
+          test -f .github/workflows/r76s-v1.0.yml
+          grep -qF 'R76S V1.0 Consolidated Build' .github/workflows/r76s-v1.0.yml
+          grep -qF 'name: Build firmware' .github/workflows/r76s-v1.0.yml
+          grep -qF 'name: Publish OTA assets to GitHub Release' .github/workflows/r76s-v1.0.yml
+          sha256sum .github/workflows/r76s-v1.0.yml
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo apt clean
+          df -h
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+
+          sudo apt install -y \
+            build-essential \
+            clang \
+            flex \
+            bison \
+            g++ \
+            gawk \
+            gcc-multilib \
+            gettext \
+            git \
+            libelf-dev \
+            libncurses-dev \
+            libssl-dev \
+            python3 \
+            python3-dev \
+            python3-pyelftools \
+            python3-setuptools \
+            rsync \
+            swig \
+            time \
+            unzip \
+            zlib1g-dev \
+            file \
+            wget \
+            curl \
+            xsltproc \
+            zstd \
+            pigz \
+            ca-certificates \
+            ccache
+
+          echo "===== Verify Python elftools ====="
+
+          python3 -c "from elftools.elf.elffile import ELFFile; print('pyelftools OK')"
+
+      - name: Download and verify R76S bootloader
+        run: |
+          OFFICIAL_URL="https://fw.koolcenter.com/iStoreOS/r76s/istoreos-24.10.8-2026073111-r76s-squashfs.img.gz"
+
+          OFFICIAL_GZ="/tmp/official-r76s-24.10.8.img.gz"
+          BOOT_BIN="/tmp/r76s-official-bootloader.bin"
+
+          echo "===== Download official R76S reference image ====="
+
+          curl -fL \
+            --retry 3 \
+            --retry-delay 5 \
+            "$OFFICIAL_URL" \
+            -o "$OFFICIAL_GZ"
+
+          test -s "$OFFICIAL_GZ"
+
+          echo
+          echo "===== Extract 32KB - 16MB bootloader region ====="
+
+          gzip -dc "$OFFICIAL_GZ" 2>/dev/null | \
+            dd \
+              of="$BOOT_BIN" \
+              bs=512 \
+              skip=64 \
+              count=32704 \
+              status=none
+
+          test -s "$BOOT_BIN"
+
+          BOOT_SIZE=$(stat -c%s "$BOOT_BIN")
+
+          echo "Bootloader size: $BOOT_SIZE bytes"
+
+          EXPECTED_SIZE=16744448
+
+          if [ "$BOOT_SIZE" -ne "$EXPECTED_SIZE" ]; then
+            echo "ERROR: Bootloader region size mismatch."
+            echo "Expected: $EXPECTED_SIZE"
+            echo "Actual:   $BOOT_SIZE"
+            exit 1
+          fi
+
+          BOOT_MD5=$(
+            md5sum "$BOOT_BIN" \
+              | awk '{print $1}'
+          )
+
+          EXPECTED_MD5="80f6bcbcbb912ecce884f24e275f2ac6"
+
+          echo "Bootloader MD5: $BOOT_MD5"
+
+          if [ "$BOOT_MD5" != "$EXPECTED_MD5" ]; then
+            echo "ERROR: Official bootloader hash mismatch."
+            echo "Expected: $EXPECTED_MD5"
+            echo "Actual:   $BOOT_MD5"
+            exit 1
+          fi
+
+          echo
+          echo "Official R76S bootloader verified successfully."
+
+          echo "BOOT_BIN=$BOOT_BIN" >> "$GITHUB_ENV"
+          echo "BOOT_MD5=$BOOT_MD5" >> "$GITHUB_ENV"
+
+      - name: Clone iStoreOS source
+        run: |
+          git clone \
+            --depth=1 \
+            --branch istoreos-24.10 \
+            https://github.com/istoreos/istoreos.git \
+            openwrt
+
+      - name: Restore download and compiler caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            openwrt/dl
+            ~/.ccache
+          key: r76s-v100-${{ runner.os }}-${{ hashFiles('config/R76S.config') }}
+          restore-keys: |
+            r76s-v100-${{ runner.os }}-
+            r76s-${{ runner.os }}-
+
+      - name: Set R76S v1.0 firmware identity
+        run: |
+          cd openwrt
+
+          RELEASE_FILE="package/base-files/files/etc/openwrt_release"
+          test -f "$RELEASE_FILE"
+
+          # iStoreOS OTA compares DISTRIB_RELEASE-DISTRIB_REVISION.
+          # Keep the 24.10.8 release number and give the custom firmware a
+          # stable revision identity that our GitHub Release metadata can match.
+          sed -i \
+            "s/^DISTRIB_REVISION=.*/DISTRIB_REVISION='V1.0'/" \
+            "$RELEASE_FILE"
+
+          grep -q "^DISTRIB_REVISION='V1.0'$" "$RELEASE_FILE"
+
+          echo "===== Custom release identity ====="
+          grep -E '^DISTRIB_(RELEASE|REVISION)=' "$RELEASE_FILE" || true
+
+      - name: Verify R76S prerequisites
+        run: |
+          cd openwrt
+
+          echo "===== Check RK3576 / R76S prerequisites ====="
+
+          test -f \
+            target/linux/rockchip/dts/rk3576/rk3576-nanopi-r76s.dts
+
+          grep -q \
+            'compatible = "friendlyarm,nanopi-r76s", "rockchip,rk3576"' \
+            target/linux/rockchip/dts/rk3576/rk3576-nanopi-r76s.dts
+
+          grep -q \
+            'define U-Boot/easepi-rk3576' \
+            package/boot/uboot-rk35xx/Makefile
+
+          grep -q \
+            'define Device/Legacy' \
+            target/linux/rockchip/image/Makefile
+
+          test -f \
+            target/linux/rockchip/image/legacy/default.bootscript
+
+          echo
+          echo "R76S prerequisites verified."
+
+      - name: Fix R76S boot console
+        run: |
+          cd openwrt
+
+          BOOT_SCRIPT="target/linux/rockchip/image/legacy/default.bootscript"
+
+          echo "===== Boot script before patch ====="
+
+          grep -n 'console=' "$BOOT_SCRIPT" || true
+
+          sed -i \
+            's/console=ttyS2,1500000/console=ttyS0,1500000/g' \
+            "$BOOT_SCRIPT"
+
+          echo
+          echo "===== Boot script after patch ====="
+
+          grep -n 'console=' "$BOOT_SCRIPT" || true
+
+          grep -q \
+            'console=ttyS0,1500000' \
+            "$BOOT_SCRIPT"
+
+          if grep -q \
+            'console=ttyS2,1500000' \
+            "$BOOT_SCRIPT"; then
+
+            echo "ERROR: ttyS2 still exists."
+            exit 1
+          fi
+
+          echo
+          echo "R76S boot console verified: ttyS0."
+
+      - name: Add R76S image profile
+        run: |
+          cd openwrt
+
+          ARMV8_MK="target/linux/rockchip/image/armv8.mk"
+
+          if grep -q \
+            '^define Device/friendlyarm_nanopi-r76s$' \
+            "$ARMV8_MK"; then
+
+            echo "R76S profile already exists."
+
+          else
+
+            echo >> "$ARMV8_MK"
+
+            cat >> "$ARMV8_MK" <<'EOF'
+
+          define Device/friendlyarm_nanopi-r76s
+            $(Device/Legacy)
+            DEVICE_VENDOR := FriendlyARM
+            DEVICE_MODEL := NanoPi R76S
+            SOC := rk3576
+            UBOOT_DEVICE_NAME := easepi-rk3576
+            DEVICE_PACKAGES := kmod-r8169 kmod-rtw88-8822cs wpad-basic-mbedtls
+          endef
+          TARGET_DEVICES += friendlyarm_nanopi-r76s
+          EOF
+
+
+          echo
+          echo "===== Final R76S profile ====="
+
+          sed -n \
+            '/define Device\/friendlyarm_nanopi-r76s/,/TARGET_DEVICES += friendlyarm_nanopi-r76s/p' \
+            "$ARMV8_MK"
+
+          grep -q \
+            '^define Device/friendlyarm_nanopi-r76s$' \
+            "$ARMV8_MK"
+
+          grep -q \
+            '^TARGET_DEVICES += friendlyarm_nanopi-r76s$' \
+            "$ARMV8_MK"
+
+          fi
+
+      - name: Load official iStoreOS 24.10 feeds
+        run: |
+          cd openwrt
+
+          curl -fL \
+            --retry 3 \
+            --retry-delay 3 \
+            https://fw.koolcenter.com/iStoreOS/r76s/24.10-feeds.conf \
+            -o feeds.conf
+
+          test -s feeds.conf
+
+          echo "===== feeds.conf ====="
+          cat feeds.conf
+
+      - name: Update feeds and stage current PassWall sources
+        run: |
+          cd openwrt
+
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+          echo "===== V1.0: patch LuCI large firmware upload ====="
+
+          FLASH_JS="$(find feeds package -type f \
+            -path '*/luci-mod-system/htdocs/luci-static/resources/view/system/flash.js' \
+            -print | head -n1)"
+
+          UI_JS="$(find feeds package -type f \
+            -path '*/luci-base/htdocs/luci-static/resources/ui.js' \
+            -print | head -n1)"
+
+          echo "FLASH_JS=$FLASH_JS"
+          echo "UI_JS=$UI_JS"
+
+          test -s "$FLASH_JS"
+          test -s "$UI_JS"
+
+          python3 - "$UI_JS" "$FLASH_JS" <<'PY_FLASH_UPLOAD'
+          from pathlib import Path
+          import sys
+
+          ui_path = Path(sys.argv[1])
+          flash_path = Path(sys.argv[2])
+
+          ui = ui_path.read_text()
+          flash = flash_path.read_text()
+
+          #
+          # 1. LuCI upload request must have no client-side total timeout.
+          #
+          pos = ui.find("cgi-upload")
+
+          if pos < 0:
+              raise SystemExit("ERROR: cgi-upload not found in ui.js")
+
+          region_start = max(0, pos - 500)
+          region_end = min(len(ui), pos + 1600)
+          region = ui[region_start:region_end]
+
+          if "timeout: 0" not in region:
+              req_start = ui.rfind("request.post(", 0, pos)
+
+              if req_start < 0:
+                  raise SystemExit(
+                      "ERROR: request.post for cgi-upload not found"
+                  )
+
+              progress_pos = ui.find("progress", pos)
+
+              if progress_pos < 0 or progress_pos > pos + 1600:
+                  raise SystemExit(
+                      "ERROR: cgi-upload progress option not found"
+                  )
+
+              line_start = ui.rfind("\n", 0, progress_pos) + 1
+              indent = ui[line_start:progress_pos]
+
+              ui = (
+                  ui[:progress_pos]
+                  + "timeout: 0,\n"
+                  + indent
+                  + ui[progress_pos:]
+              )
+
+          #
+          # 2. Standard firmware page must still upload through ui.uploadFile.
+          #
+          if "/tmp/firmware.bin" not in flash or "ui.uploadFile" not in flash:
+              raise SystemExit(
+                  "ERROR: standard LuCI sysupgrade upload anchor missing"
+              )
+
+          #
+          # 3. Explicitly explain preserve vs clean-flash semantics.
+          #
+          keep_anchor = (
+              "opts.keep[0], ' ', "
+              "_('Keep settings and retain the current configuration')"
+          )
+
+          if "清除全部配置（干净刷机）" not in flash:
+              if keep_anchor not in flash:
+                  raise SystemExit(
+                      "ERROR: keep-settings label anchor not found"
+                  )
+
+              flash = flash.replace(
+                  keep_anchor,
+                  keep_anchor
+                  + ", E('br'), "
+                  + "E('small', "
+                  + "{ 'style': 'opacity:.75' }, "
+                  + "'勾选：保留当前配置；"
+                  + "取消勾选：清除全部配置（干净刷机）')",
+                  1
+              )
+
+          #
+          # 4. Preserve-config stays enabled by default.
+          #
+          if "opts.keep[0].checked = true;" not in flash:
+              raise SystemExit(
+                  "ERROR: LuCI no longer defaults to keep settings"
+              )
+
+          #
+          # 5. Our clean image comes back on 192.168.50.1, not 192.168.1.1.
+          #
+          flash = flash.replace(
+              "'192.168.1.1'",
+              "'192.168.50.1'"
+          )
+
+          if "192.168.1.1" in flash:
+              raise SystemExit(
+                  "ERROR: stale 192.168.1.1 reconnect target remains"
+              )
+
+          #
+          # 6. Internal patch marker.
+          #
+          if "R76S_V100_FLASH_UPLOAD_PATCH" not in flash:
+              strict = "'use strict';"
+
+              if strict not in flash:
+                  raise SystemExit(
+                      "ERROR: flash.js use-strict anchor missing"
+                  )
+
+              flash = flash.replace(
+                  strict,
+                  strict
+                  + "\n\n"
+                  + "// R76S_V100_FLASH_UPLOAD_PATCH\n",
+                  1
+              )
+
+          ui_path.write_text(ui)
+          flash_path.write_text(flash)
+
+          print("LuCI large firmware upload patch applied.")
+          PY_FLASH_UPLOAD
+
+          grep -qF 'timeout: 0' "$UI_JS"
+          grep -qF 'R76S_V100_FLASH_UPLOAD_PATCH' "$FLASH_JS"
+          grep -qF '清除全部配置（干净刷机）' "$FLASH_JS"
+          grep -qF 'opts.keep[0].checked = true;' "$FLASH_JS"
+          grep -qF '192.168.50.1' "$FLASH_JS"
+
+          ! grep -qF '192.168.1.1' "$FLASH_JS"
+
+          echo "LuCI manual firmware upload patch verified."
+
+          echo "===== Stage patched LuCI files into final image overlay ====="
+          mkdir -p files/www/luci-static/resources/view/system
+          install -m 0644 "$UI_JS" files/www/luci-static/resources/ui.js
+          install -m 0644 "$FLASH_JS" files/www/luci-static/resources/view/system/flash.js
+          grep -qF 'timeout: 0' files/www/luci-static/resources/ui.js
+          grep -qF 'R76S_V100_FLASH_UPLOAD_PATCH' files/www/luci-static/resources/view/system/flash.js
+          echo "LuCI final-image overlay staged."
+
+
+          echo "===== Refresh Go toolchain for current PassWall cores ====="
+
+          GO_DIR="feeds/packages/lang/golang"
+          rm -rf "$GO_DIR"
+
+          CLONED=0
+          for attempt in 1 2 3; do
+            echo "Go toolchain clone attempt: $attempt/3"
+
+            if git -c http.version=HTTP/1.1 clone \
+              --filter=blob:none \
+              --depth=1 \
+              --single-branch \
+              --branch 26.x \
+              https://github.com/sbwml/packages_lang_golang.git \
+              "$GO_DIR"; then
+              CLONED=1
+              break
+            fi
+
+            rm -rf "$GO_DIR"
+            sleep 5
+          done
+
+          if [ "$CLONED" -ne 1 ]; then
+            echo "ERROR: Failed to clone Go 26.x toolchain after 3 attempts."
+            exit 1
+          fi
+
+          test -f "$GO_DIR/golang/Makefile"
+          test -f "$GO_DIR/golang-package.mk"
+          test -f "$GO_DIR/golang-build.sh"
+
+          echo "===== Remove conflicting/older proxy cores from OpenWrt feeds ====="
+
+          rm -rf feeds/packages/net/xray-core
+          rm -rf feeds/packages/net/v2ray-geodata
+          rm -rf feeds/packages/net/sing-box
+          rm -rf feeds/packages/net/chinadns-ng
+          rm -rf feeds/packages/net/dns2socks
+          rm -rf feeds/packages/net/hysteria
+          rm -rf feeds/packages/net/ipt2socks
+          rm -rf feeds/packages/net/microsocks
+          rm -rf feeds/packages/net/naiveproxy
+          rm -rf feeds/packages/net/shadowsocks-rust
+          rm -rf feeds/packages/net/shadowsocksr-libev
+          rm -rf feeds/packages/net/simple-obfs
+          rm -rf feeds/packages/net/tcping
+          rm -rf feeds/packages/net/v2ray-plugin
+          rm -rf feeds/packages/net/xray-plugin
+          rm -rf feeds/packages/net/geoview
+          rm -rf feeds/packages/net/shadow-tls
+
+          rm -rf feeds/luci/applications/luci-app-passwall
+
+          rm -rf package/passwall-packages
+          rm -rf package/passwall-luci
+
+          echo "===== Clone PassWall package sources directly ====="
+
+          PWPKG_OK=0
+          for attempt in 1 2 3; do
+            echo "PassWall packages clone attempt: $attempt/3"
+            if git -c http.version=HTTP/1.1 clone \
+              --filter=blob:none \
+              --depth=1 \
+              --single-branch \
+              --branch main \
+              https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git \
+              package/passwall-packages; then
+              PWPKG_OK=1
+              break
+            fi
+
+            rm -rf package/passwall-packages
+            sleep 5
+          done
+
+          if [ "$PWPKG_OK" -ne 1 ]; then
+            echo "ERROR: Failed to clone openwrt-passwall-packages after 3 attempts."
+            exit 1
+          fi
+
+          # Pin shadowsocks-rust to Rust-1.90-compatible v1.24.0
+          # shadowsocks-rust 1.25.0 requires Rust >= 1.91
+          # iStoreOS 24.10 currently provides rustc 1.90.0
+          SS_RUST_MK="package/passwall-packages/shadowsocks-rust/Makefile"
+          test -f "$SS_RUST_MK"
+
+          echo "===== Pin shadowsocks-rust v1.24.0 ====="
+          sed -i \
+            -e 's/^PKG_VERSION:=.*/PKG_VERSION:=1.24.0/' \
+            -e 's/^PKG_HASH:=.*/PKG_HASH:=a89865d1c5203de1b732017dd032e85f943d1592e8d3152eb7d2c4f3fca387bf/' \
+            "$SS_RUST_MK"
+
+          grep -qxF 'PKG_VERSION:=1.24.0' "$SS_RUST_MK"
+          grep -qxF 'PKG_HASH:=a89865d1c5203de1b732017dd032e85f943d1592e8d3152eb7d2c4f3fca387bf' "$SS_RUST_MK"
+          grep -E '^PKG_(VERSION|HASH):=' "$SS_RUST_MK"
+
+          # Xray 26.9.8+ requires Go >= 1.27, while the OpenWrt 24.10
+          # compatibility toolchain used here is Go 1.26.x. Keep Xray on
+          # the last Go-1.26-compatible release so Sing-box can also remain
+          # on the proven Go 1.26 toolchain.
+          XRAY_MK="package/passwall-packages/xray-core/Makefile"
+          test -f "$XRAY_MK"
+
+          echo "===== Pin Xray to Go 1.26-compatible v26.7.28 ====="
+          sed -i \
+            -e 's/^PKG_VERSION:=.*/PKG_VERSION:=26.7.28/' \
+            -e 's/^PKG_HASH:=.*/PKG_HASH:=a9afe86349c7bd3e6cae60125e62a5ada09d102e1a2760623e77c24a84dbfb46/' \
+            "$XRAY_MK"
+
+          grep -qxF 'PKG_VERSION:=26.7.28' "$XRAY_MK"
+          grep -qxF 'PKG_HASH:=a9afe86349c7bd3e6cae60125e62a5ada09d102e1a2760623e77c24a84dbfb46' "$XRAY_MK"
+          grep -E '^PKG_(VERSION|HASH):=' "$XRAY_MK"
+
+          PWLUC_OK=0
+          for attempt in 1 2 3; do
+            echo "PassWall LuCI clone attempt: $attempt/3"
+            if git -c http.version=HTTP/1.1 clone \
+              --filter=blob:none \
+              --depth=1 \
+              --single-branch \
+              --branch main \
+              https://github.com/Openwrt-Passwall/openwrt-passwall.git \
+              package/passwall-luci; then
+              PWLUC_OK=1
+              break
+            fi
+
+            rm -rf package/passwall-luci
+            sleep 5
+          done
+
+          if [ "$PWLUC_OK" -ne 1 ]; then
+            echo "ERROR: Failed to clone openwrt-passwall after 3 attempts."
+            exit 1
+          fi
+
+          test -f package/passwall-luci/luci-app-passwall/Makefile
+
+          echo "===== Clone PassWall2 LuCI source ====="
+
+          PWLUC2_OK=0
+          for attempt in 1 2 3; do
+            echo "PassWall2 LuCI clone attempt: $attempt/3"
+
+            if git -c http.version=HTTP/1.1 clone \
+              --filter=blob:none \
+              --depth=1 \
+              --single-branch \
+              --branch main \
+              https://github.com/Openwrt-Passwall/openwrt-passwall2.git \
+              package/passwall2-luci; then
+              PWLUC2_OK=1
+              break
+            fi
+
+            rm -rf package/passwall2-luci
+            sleep 5
+          done
+
+          if [ "$PWLUC2_OK" -ne 1 ]; then
+            echo "ERROR: Failed to clone openwrt-passwall2 after 3 attempts."
+            exit 1
+          fi
+
+          test -f package/passwall2-luci/luci-app-passwall2/Makefile
+          test -f package/passwall-packages/xray-core/Makefile
+          test -f package/passwall-packages/sing-box/Makefile
+          test -f package/passwall-packages/chinadns-ng/Makefile
+
+      - name: Verify PassWall source defaults
+        run: |
+          cd openwrt
+
+          PASSWALL_DIR="package/passwall-luci/luci-app-passwall"
+          PASSWALL_MK="$PASSWALL_DIR/Makefile"
+          PASSWALL_DEFAULT="$PASSWALL_DIR/root/usr/share/passwall/0_default_config"
+
+          test -f "$PASSWALL_MK"
+          test -f "$PASSWALL_DEFAULT"
+
+          grep -q 'Nftables Transparent Proxy' "$PASSWALL_MK"
+          grep -q 'PACKAGE_kmod-nft-socket' "$PASSWALL_MK"
+          grep -q 'PACKAGE_kmod-nft-tproxy' "$PASSWALL_MK"
+          grep -q 'PACKAGE_$(PKG_NAME)_INCLUDE_Xray' "$PASSWALL_MK"
+          grep -q 'PACKAGE_$(PKG_NAME)_INCLUDE_SingBox' "$PASSWALL_MK"
+
+          # Upstream package remains disabled in ROM; v1.0 first-boot defaults
+          # enable only the verified node-free shunt framework.
+          grep -q "option enabled '0'" "$PASSWALL_DEFAULT"
+
+          PASSWALL_APP="$PASSWALL_DIR/root/usr/share/passwall/app.sh"
+          test -f "$PASSWALL_APP"
+
+          # The runtime DNS guard uses this stable anchor when a PassWall App
+          # Update replaces app.sh. Fail before compilation if upstream changes
+          # the layout instead of shipping an unpatchable image.
+          grep -qF \
+            'uci -q delete dhcp.@dnsmasq[0].min_cache_ttl' \
+            "$PASSWALL_APP"
+
+          test -f package/diy/luci-app-ota/Makefile
+
+
+      - name: Stage official iStoreOS QuickStart UI
+        run: |
+          cd openwrt
+
+          echo "===== Stage official iStoreOS QuickStart ====="
+
+          # Use the official LinkEase/iStoreOS release sources directly.
+          # Do not use the refactoring-only istoreos/quickstart repository;
+          # its own README points release builds to these two package trees.
+          rm -rf \
+            /tmp/r76s-nas-packages \
+            /tmp/r76s-nas-packages-luci \
+            package/custom/quickstart \
+            package/custom/luci-app-quickstart
+
+          git clone \
+            --depth=1 \
+            --filter=blob:none \
+            --sparse \
+            --branch master \
+            https://github.com/linkease/nas-packages.git \
+            /tmp/r76s-nas-packages
+
+          git -C /tmp/r76s-nas-packages sparse-checkout set \
+            network/services/quickstart
+
+          git clone \
+            --depth=1 \
+            --filter=blob:none \
+            --sparse \
+            --branch main \
+            https://github.com/linkease/nas-packages-luci.git \
+            /tmp/r76s-nas-packages-luci
+
+          git -C /tmp/r76s-nas-packages-luci sparse-checkout set \
+            luci/luci-app-quickstart
+
+          mkdir -p package/custom
+
+          cp -a \
+            /tmp/r76s-nas-packages/network/services/quickstart \
+            package/custom/quickstart
+
+          cp -a \
+            /tmp/r76s-nas-packages-luci/luci/luci-app-quickstart \
+            package/custom/luci-app-quickstart
+
+          test -f package/custom/quickstart/Makefile
+          test -f package/custom/luci-app-quickstart/Makefile
+
+          grep -q '^PKG_NAME:=quickstart$' \
+            package/custom/quickstart/Makefile
+          grep -q 'LUCI_DEPENDS:=+quickstart +luci-app-store' \
+            package/custom/luci-app-quickstart/Makefile
+
+          echo "===== Official QuickStart package versions ====="
+          grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE):=' \
+            package/custom/quickstart/Makefile || true
+          grep -E '^(PKG_VERSION|PKG_RELEASE):=' \
+            package/custom/luci-app-quickstart/Makefile || true
+
+          echo "Official iStoreOS QuickStart sources staged."
+
+      - name: Copy and fix R76S status package
+        run: |
+          mkdir -p openwrt/package/custom
+
+          rm -rf \
+            openwrt/package/custom/luci-app-r76s-status
+
+          cp -r \
+            feeds/luci-app-r76s-status \
+            openwrt/package/custom/
+
+          STATUS_DIR="openwrt/package/custom/luci-app-r76s-status"
+          STATUS_CTRL="$STATUS_DIR/files/controller/r76s_status.lua"
+          STATUS_VIEW="$STATUS_DIR/files/view/r76s_status/status.htm"
+
+          test -f "$STATUS_DIR/Makefile"
+          test -f "$STATUS_CTRL"
+          test -f "$STATUS_VIEW"
+
+          cat > "$STATUS_CTRL" <<'EOF_STATUS_CTRL'
+          module("luci.controller.r76s_status", package.seeall)
+
+          function index()
+              local e = entry({"admin", "status", "r76s"}, call("action_status"), _("R76S 状态"), 90)
+              e.dependent = false
+          end
+
+          local function trim(s)
+              return (s or ""):gsub("%s+$", "")
+          end
+
+          local function running(cmd)
+              local sys = require "luci.sys"
+              return sys.call(cmd .. " >/dev/null 2>&1") == 0
+          end
+
+          function action_status()
+              local sys = require "luci.sys"
+              local data = {}
+
+              data.model = "FriendlyElec NanoPi R76S"
+              data.soc = "Rockchip RK3576"
+              data.kernel = trim(sys.exec("uname -r 2>/dev/null"))
+              data.arch = trim(sys.exec("uname -m 2>/dev/null"))
+              data.uptime = trim(sys.exec("uptime 2>/dev/null"))
+              data.load = trim(sys.exec("cut -d' ' -f1-3 /proc/loadavg 2>/dev/null"))
+              data.mem = trim(sys.exec([[awk '/MemTotal:/{t=$2}/MemAvailable:/{a=$2} END{if(t>0){printf "%.0f / %.0f MB",(t-a)/1024,t/1024}}' /proc/meminfo 2>/dev/null]]))
+              data.temp = trim(sys.exec("for f in /sys/class/thermal/thermal_zone*/temp; do [ -r \"$f\" ] && awk '{printf \"%.1f C\", $1/1000}' \"$f\" && break; done"))
+              data.lan = trim(sys.exec("uci -q get network.lan.ipaddr 2>/dev/null"))
+              data.wan = trim(sys.exec("ubus call network.interface.wan status 2>/dev/null | jsonfilter -e '@[\"ipv4-address\"][0].address' 2>/dev/null"))
+
+              local smartdns_running = running("pgrep -f '[s]martdns'")
+              local passwall_running = running("pgrep -f '/tmp/etc/passwall/'") or running("pgrep -f '[p]asswall/monitor.sh'")
+              local passwall2_running = running("pgrep -f '/tmp/etc/passwall2/'") or running("pgrep -f '[p]asswall2/monitor.sh'")
+              local adguard_running = running("pgrep -f '[A]dGuardHome'")
+
+              data.smartdns = smartdns_running and "运行中" or "已停止"
+              data.passwall = passwall_running and "运行中" or "已停止"
+              data.passwall2 = passwall2_running and "运行中" or "已停止"
+              data.adguard = adguard_running and "运行中" or "已停止"
+
+              luci.template.render("r76s_status/status", { data = data })
+          end
+          EOF_STATUS_CTRL
+
+          cat > "$STATUS_VIEW" <<'EOF_STATUS_VIEW'
+          <%+header%>
+
+          <style>
+          .r76s-status-wrap{max-width:1080px;margin:0 auto}
+          .r76s-status-card{background:var(--background-color-high,#fff);border:1px solid rgba(127,127,127,.22);border-radius:12px;padding:18px 20px;margin-top:14px}
+          .r76s-status-card h3{margin-top:0}
+          .r76s-status-table{width:100%;border-collapse:collapse}
+          .r76s-status-table td{padding:9px 10px;border-bottom:1px solid rgba(127,127,127,.16)}
+          .r76s-status-table td:first-child{width:180px;font-weight:600}
+          .r76s-status-table tr:last-child td{border-bottom:0}
+          </style>
+
+          <div class="r76s-status-wrap">
+            <h2>R76S 状态</h2>
+            <div class="r76s-status-card">
+              <h3>FriendlyElec NanoPi R76S / Rockchip RK3576</h3>
+              <table class="r76s-status-table">
+                <tr><td>设备</td><td><%=data.model%></td></tr>
+                <tr><td>SoC</td><td><%=data.soc%></td></tr>
+                <tr><td>架构</td><td><%=data.arch%></td></tr>
+                <tr><td>内核</td><td><%=data.kernel%></td></tr>
+                <tr><td>温度</td><td><%=data.temp%></td></tr>
+                <tr><td>内存</td><td><%=data.mem%></td></tr>
+                <tr><td>负载</td><td><%=data.load%></td></tr>
+                <tr><td>LAN</td><td><%=data.lan%></td></tr>
+                <tr><td>WAN</td><td><%=data.wan%></td></tr>
+                <tr><td>运行时间</td><td><%=data.uptime%></td></tr>
+                <tr><td>SmartDNS</td><td><%=data.smartdns%></td></tr>
+                <tr><td>PassWall</td><td><%=data.passwall%></td></tr>
+                <tr><td>PassWall2</td><td><%=data.passwall2%></td></tr>
+                <tr><td>AdGuard Home</td><td><%=data.adguard%></td></tr>
+              </table>
+            </div>
+          </div>
+
+          <%+footer%>
+          EOF_STATUS_VIEW
+
+          grep -qF 'data.passwall2' "$STATUS_CTRL"
+          grep -qF 'data.adguard' "$STATUS_CTRL"
+          grep -qF 'MemAvailable' "$STATUS_CTRL"
+          grep -qF 'PassWall2' "$STATUS_VIEW"
+          grep -qF 'AdGuard Home' "$STATUS_VIEW"
+      - name: Stage V1.0 component updater and SmartDNS Release48.4 runtime
+        run: |
+          mkdir -p openwrt/package/custom
+
+          rm -rf openwrt/package/custom/luci-app-r76s-updater
+          cp -r feeds/luci-app-r76s-updater openwrt/package/custom/
+
+          UPDATER_DIR="openwrt/package/custom/luci-app-r76s-updater"
+          SMARTDNS_TAG="Release48.4"
+          SMARTDNS_ASSET="smartdns.1.2026.08.05-0921.aarch64-linux-all.tar.gz"
+          SMARTDNS_URL="https://github.com/pymumu/smartdns/releases/download/${SMARTDNS_TAG}/${SMARTDNS_ASSET}"
+
+          echo "===== SmartDNS ${SMARTDNS_TAG} official asset ====="
+          echo "SmartDNS asset: $SMARTDNS_URL"
+
+          rm -f /tmp/smartdns-aarch64.tar.gz
+
+          curl -fL --retry 5 --retry-delay 3 --retry-all-errors "$SMARTDNS_URL" -o /tmp/smartdns-aarch64.tar.gz
+
+          test -s /tmp/smartdns-aarch64.tar.gz
+          gzip -t /tmp/smartdns-aarch64.tar.gz
+
+          echo "SmartDNS archive SHA256:"
+          sha256sum /tmp/smartdns-aarch64.tar.gz
+
+          rm -rf /tmp/smartdns-extract
+          mkdir -p /tmp/smartdns-extract
+          tar -xzf /tmp/smartdns-aarch64.tar.gz -C /tmp/smartdns-extract
+
+          SMARTDNS_BIN="$(find /tmp/smartdns-extract -type f -name smartdns | head -n 1)"
+          test -n "$SMARTDNS_BIN"
+
+          file "$SMARTDNS_BIN" | grep -Eqi 'ARM aarch64|aarch64' || {
+            echo "ERROR: SmartDNS runtime is not aarch64."
+            file "$SMARTDNS_BIN"
+            exit 1
+          }
+
+          install -m 0755 \
+            "$SMARTDNS_BIN" \
+            "$UPDATER_DIR/files/root/usr/libexec/r76s/smartdns.bin"
+
+          CTRL="$UPDATER_DIR/files/controller/r76s_updater.lua"
+          VIEW="$UPDATER_DIR/files/view/r76s_updater/index.htm"
+          POLICY="$UPDATER_DIR/files/root/usr/libexec/r76s/r76s-smartdns-policy"
+          BOOT_HOOK="$UPDATER_DIR/files/root/etc/init.d/r76s-fix3-boot"
+          PRESERVE_HELPER="$UPDATER_DIR/files/root/usr/libexec/r76s/r76s-ota-preserve-state"
+
+          for required in \
+            "$UPDATER_DIR/Makefile" \
+            "$CTRL" \
+            "$VIEW" \
+            "$UPDATER_DIR/files/root/usr/libexec/r76s/r76s-component-updater" \
+            "$POLICY" \
+            "$BOOT_HOOK" \
+            "$UPDATER_DIR/files/root/usr/libexec/r76s/smartdns.bin"; do
+            test -s "$required"
+          done
+
+          echo "===== V1.0: remove automatic DNS takeover from component package ====="
+
+          cat > "$POLICY" <<'EOF_POLICY'
+          #!/bin/sh
+          # R76S V1.0 policy: SmartDNS is user-controlled.
+          # Component updates must not rewrite DNS, WAN, dnsmasq or user settings.
+          exit 0
+          EOF_POLICY
+          chmod 0755 "$POLICY"
+
+          cat > "$BOOT_HOOK" <<'EOF_BOOT_HOOK'
+          #!/bin/sh /etc/rc.common
+          # R76S V1.0: intentionally no automatic DNS/proxy configuration.
+          # User-enabled services keep their own normal init/procd state.
+          START=99
+          STOP=10
+          USE_PROCD=1
+
+          start_service() {
+              return 0
+          }
+
+          stop_service() {
+              return 0
+          }
+          EOF_BOOT_HOOK
+          chmod 0755 "$BOOT_HOOK"
+
+          echo "===== V1.0: install online-OTA service state capture helper ====="
+
+          cat > "$PRESERVE_HELPER" <<'EOF_PRESERVE_HELPER'
+          #!/bin/sh
+          # Save service/UCI state immediately before online sysupgrade.
+          # /etc/config/r76s_ota_state is retained by the V1.0 keep.d list.
+          init_enabled() {
+              name="$1"
+              if [ -x "/etc/init.d/$name" ] && /etc/init.d/"$name" enabled >/dev/null 2>&1; then
+                  echo 1
+              else
+                  echo 0
+              fi
+          }
+
+          uci -q delete r76s_ota_state.state
+          uci -q set r76s_ota_state.state='state'
+          uci -q set r76s_ota_state.state.pending='1'
+          uci -q set r76s_ota_state.state.passwall_init="$(init_enabled passwall)"
+          uci -q set r76s_ota_state.state.passwall2_init="$(init_enabled passwall2)"
+          uci -q set r76s_ota_state.state.smartdns_init="$(init_enabled smartdns)"
+          uci -q set r76s_ota_state.state.adguardhome_init="$(init_enabled adguardhome)"
+          uci -q set r76s_ota_state.state.passwall_uci="$(uci -q get passwall.@global[0].enabled || echo 0)"
+          uci -q set r76s_ota_state.state.passwall2_uci="$(uci -q get passwall2.@global[0].enabled || echo 0)"
+          uci -q set r76s_ota_state.state.smartdns_uci="$(uci -q get smartdns.@smartdns[0].enabled || echo 0)"
+          uci -q commit r76s_ota_state
+          sync
+          exit 0
+          EOF_PRESERVE_HELPER
+          chmod 0755 "$PRESERVE_HELPER"
+
+          echo "===== Stage OTA preserve helper into final image overlay ====="
+          mkdir -p openwrt/files/usr/libexec/r76s
+          install -m 0755 "$PRESERVE_HELPER" openwrt/files/usr/libexec/r76s/r76s-ota-preserve-state
+          test -x openwrt/files/usr/libexec/r76s/r76s-ota-preserve-state
+          grep -qF 'r76s_ota_state.state.pending' openwrt/files/usr/libexec/r76s/r76s-ota-preserve-state
+          echo "OTA preserve helper final-image overlay staged."
+
+          echo "===== V1.0: patch firmware OTA controller ====="
+
+          python3 - "$CTRL" <<'PY_OTA_PATCH'
+          from pathlib import Path
+          import sys
+
+          p = Path(sys.argv[1])
+          t = p.read_text()
+
+          import re
+
+          t, marker_count = re.subn(
+              r'-- R76S_UPDATER_UI_PATCH=\d+',
+              '-- R76S_UPDATER_UI_PATCH=6',
+              t,
+              count=1,
+          )
+          if marker_count != 1:
+              raise SystemExit('ERROR: updater UI patch marker not found')
+
+          old_return = '    return rc, trim(out)'
+          new_return = "\n".join([
+              '    -- /bin/ota download starts an asynchronous curl job. Some builds',
+              '    -- return a non-zero launcher rc even though the download is alive.',
+              '    if cmd:find("/bin/ota download", 1, true) and rc ~= 0 then',
+              '        sys.call("sleep 1")',
+              '        local active = fs.access("/tmp/firmware.img.part")',
+              '            or sys.call("pgrep -f \'[/]bin/ota\' >/dev/null 2>&1") == 0',
+              '            or sys.call("pgrep -f \'[c]url.*firmware.img\' >/dev/null 2>&1") == 0',
+              '        if active then',
+              '            rc = 0',
+              '            if trim(out) == "" then',
+              '                out = "下载任务已启动"',
+              '            end',
+              '        end',
+              '    end',
+              '    return rc, trim(out)',
+          ])
+          if old_return not in t:
+              raise SystemExit('ERROR: run_with_rc return anchor not found in updater controller')
+          t = t.replace(old_return, new_return, 1)
+
+          old_download = "\n".join([
+              '    elseif progress_exists then',
+              '        state = "failed"',
+              '        message = trim(progress_text:match("([^\\r\\n]+)%s*$") or "下载失败")',
+          ])
+          new_download = "\n".join([
+              '    elseif progress_exists and (',
+              '        sys.call("pgrep -f \'[/]bin/ota\' >/dev/null 2>&1") == 0',
+              '        or sys.call("pgrep -f \'[c]url.*firmware.img\' >/dev/null 2>&1") == 0',
+              '    ) then',
+              '        state = "downloading"',
+              '        message = "正在下载"',
+              '    elseif progress_exists then',
+              '        state = "failed"',
+              '        message = trim(progress_text:match("([^\\r\\n]+)%s*$") or "下载失败")',
+          ])
+          if old_download not in t:
+              raise SystemExit('ERROR: download_info progress anchor not found in updater controller')
+          t = t.replace(old_download, new_download, 1)
+
+          old_safe = '    local safe = (dev == "mmcblk0" or dev == "mmcblk2") and romdev:find("/dev/" .. dev, 1, true) == 1'
+          new_safe = "\n".join([
+              '    -- /rom can be /dev/root; resolve root=PARTUUID through blkid first.',
+              '    local resolved_root = romdev',
+              '    if romdev == "/dev/root" or romdev == "rootfs" then',
+              '        local cmdline = readfile("/proc/cmdline")',
+              '        local partuuid = cmdline:match("root=PARTUUID=([%w%-]+)")',
+              '        if partuuid and partuuid ~= "" then',
+              '            resolved_root = trim(sys.exec(',
+              '                "blkid 2>/dev/null | grep -i \'PARTUUID=\\\"" .. partuuid .. "\\\"\' | head -n1 | cut -d: -f1"',
+              '            ))',
+              '        end',
+              '    end',
+              '',
+              '    local allowed = (dev == "mmcblk0" or dev == "mmcblk2")',
+              '    local expected = dev ~= "" and ("/dev/" .. dev) or ""',
+              '    local safe = allowed and expected ~= "" and (',
+              '        romdev:find(expected, 1, true) == 1',
+              '        or (resolved_root ~= "" and resolved_root:find(expected, 1, true) == 1)',
+              '    )',
+          ])
+          if old_safe not in t:
+              raise SystemExit('ERROR: boot_info safety anchor not found in updater controller')
+          t = t.replace(old_safe, new_safe, 1)
+
+          install_old = 'sys.call("(sleep 2; /sbin/sysupgrade " .. FIRMWARE .. " >/tmp/r76s-sysupgrade.log 2>&1) >/dev/null 2>&1 &")'
+          install_new = 'sys.call("(sleep 2; /usr/libexec/r76s/r76s-ota-preserve-state && /sbin/sysupgrade " .. FIRMWARE .. " >/tmp/r76s-sysupgrade.log 2>&1) >/dev/null 2>&1 &")'
+          if install_old in t:
+              t = t.replace(install_old, install_new, 1)
+          elif '/usr/libexec/r76s/r76s-ota-preserve-state && /sbin/sysupgrade ' not in t:
+              raise SystemExit('ERROR: OTA install call anchor not found')
+
+          if '/sbin/sysupgrade -n' in t or 'sysupgrade -n' in t:
+              raise SystemExit('ERROR: updater would erase settings by default (sysupgrade -n found)')
+          if '/usr/libexec/r76s/r76s-ota-preserve-state && /sbin/sysupgrade " .. FIRMWARE' not in t:
+              raise SystemExit('ERROR: OTA preserve-state helper is not chained before sysupgrade')
+
+          verify_anchor = 'local verified = verify_image()'
+          verify_fail_anchor = 'if not verified.ok then'
+          install_anchor = '/usr/libexec/r76s/r76s-ota-preserve-state && /sbin/sysupgrade " .. FIRMWARE'
+
+          if verify_anchor not in t or verify_fail_anchor not in t:
+              raise SystemExit('ERROR: OTA install path does not re-run verify_image() before flashing')
+
+          if t.find(verify_anchor) > t.find(install_anchor):
+              raise SystemExit('ERROR: OTA verify_image() occurs after sysupgrade install call')
+
+          p.write_text(t)
+          PY_OTA_PATCH
+
+          echo "===== V1.0: install full OTA UI with additive-upgrade status ====="
+
+          python3 - "$VIEW" <<'PY_OTA_VIEW'
+          from pathlib import Path
+          import sys
+
+          p = Path(sys.argv[1])
+
+          view = r'''<!-- R76S_UPDATER_UI_PATCH=6 -->
+          <!-- R76S_V100_LAYOUT -->
+          <%+header%>
+          <%
+          local dsp = require "luci.dispatcher"
+          local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
+          %>
+
+          <style>
+          .r76s-wrap {
+              width: 100%;
+              max-width: 1080px;
+              margin: 0 auto;
+              box-sizing: border-box;
+          }
+
+          .r76s-title {
+              margin: 4px 0 16px;
+          }
+
+          .r76s-card {
+              width: 100%;
+              margin-top: 12px;
+              box-sizing: border-box;
+          }
+
+          .r76s-section {
+              padding: 18px 22px 22px;
+              box-sizing: border-box;
+          }
+
+          .r76s-table {
+              width: 100%;
+              table-layout: fixed;
+          }
+
+          .r76s-table .td:first-child {
+              width: 210px;
+              font-weight: 600;
+          }
+
+          .r76s-mode {
+              font-weight: 600;
+          }
+
+          .r76s-actions {
+              display: flex;
+              gap: 12px;
+              flex-wrap: wrap;
+              margin: 20px 0;
+          }
+
+          .r76s-actions .cbi-button {
+              min-width: 140px;
+          }
+
+          .r76s-progress {
+              width: 100%;
+              height: 18px;
+              border-radius: 9px;
+              overflow: hidden;
+              background: rgba(127,127,127,.18);
+              position: relative;
+          }
+
+          .r76s-progress-bar {
+              width: 0%;
+              height: 100%;
+              transition: width .35s ease;
+              background: linear-gradient(90deg,#5e72e4,#825ee4);
+          }
+
+          .r76s-progress-text {
+              margin-top: 7px;
+              font-size: 12px;
+              opacity: .8;
+          }
+
+          .r76s-pass {
+              font-weight: 600;
+          }
+
+          .r76s-fail {
+              font-weight: 600;
+          }
+
+          .r76s-muted {
+              opacity: .7;
+          }
+
+          .r76s-install {
+              margin: 26px 0 16px;
+              text-align: center;
+          }
+
+          .r76s-install .cbi-button {
+              min-width: 230px;
+              min-height: 38px;
+          }
+
+          .r76s-install .cbi-button:disabled,
+          .r76s-actions .cbi-button:disabled {
+              opacity: .45;
+              cursor: not-allowed;
+              filter: grayscale(1);
+          }
+
+          .r76s-message {
+              margin-top: 14px;
+              white-space: pre-wrap;
+          }
+
+          .r76s-notice {
+              margin-top: 20px;
+              padding: 15px 18px;
+              border-radius: 8px;
+              background: rgba(127,127,127,.10);
+              line-height: 1.7;
+          }
+
+          .r76s-notice strong {
+              font-size: 14px;
+          }
+
+          .r76s-notice ul {
+              margin: 8px 0 0 20px;
+          }
+
+          .r76s-notice li {
+              margin: 3px 0;
+          }
+
+          @media (max-width: 700px) {
+              .r76s-section {
+                  padding: 14px;
+              }
+
+              .r76s-table .td:first-child {
+                  width: 130px;
+              }
+
+              .r76s-actions {
+                  display: block;
+              }
+
+              .r76s-actions .cbi-button {
+                  width: 100%;
+                  margin-bottom: 8px;
+              }
+
+              .r76s-install .cbi-button {
+                  width: 100%;
+              }
+          }
+          </style>
+
+          <div class="r76s-wrap">
+
+            <h2 class="r76s-title">R76S 在线升级</h2>
+
+            <div class="cbi-map r76s-card">
+              <div class="cbi-section r76s-section">
+
+                <table class="table r76s-table">
+
+                  <tr class="tr">
+                    <td class="td">当前版本</td>
+                    <td class="td" id="r76s-current">读取中...</td>
+                  </tr>
+
+                  <tr class="tr">
+                    <td class="td">最新版本</td>
+                    <td class="td" id="r76s-latest">尚未检查</td>
+                  </tr>
+
+                  <tr class="tr">
+                    <td class="td">当前启动盘</td>
+                    <td class="td" id="r76s-boot">读取中...</td>
+                  </tr>
+
+                  <tr class="tr">
+                    <td class="td">升级方式</td>
+                    <td class="td r76s-mode">
+                      保留用户配置 + 增量补齐新版本内容
+                    </td>
+                  </tr>
+
+                  <tr class="tr">
+                    <td class="td">状态</td>
+                    <td class="td" id="r76s-status">读取中...</td>
+                  </tr>
+
+                </table>
+
+                <div class="r76s-actions">
+                  <button
+                    class="cbi-button cbi-button-action"
+                    id="r76s-check"
+                    type="button">
+                    检查更新
+                  </button>
+
+                  <button
+                    class="cbi-button cbi-button-apply"
+                    id="r76s-download"
+                    type="button"
+                    disabled>
+                    请先检查更新
+                  </button>
+                </div>
+
+                <table class="table r76s-table">
+
+                  <tr class="tr">
+                    <td class="td">下载进度</td>
+                    <td class="td">
+                      <div class="r76s-progress">
+                        <div
+                          class="r76s-progress-bar"
+                          id="r76s-progress-bar">
+                        </div>
+                      </div>
+
+                      <div
+                        class="r76s-progress-text"
+                        id="r76s-progress-text">
+                        0%
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr class="tr">
+                    <td class="td">SHA256</td>
+                    <td class="td" id="r76s-sha">
+                      — 未校验
+                    </td>
+                  </tr>
+
+                  <tr class="tr">
+                    <td class="td">Metadata</td>
+                    <td class="td" id="r76s-metadata">
+                      — 未校验
+                    </td>
+                  </tr>
+
+                  <tr class="tr">
+                    <td class="td">Sysupgrade</td>
+                    <td class="td" id="r76s-sysupgrade">
+                      — 未校验
+                    </td>
+                  </tr>
+
+                  <tr class="tr">
+                    <td class="td">启动盘安全检查</td>
+                    <td class="td" id="r76s-boot-safe">
+                      — 检查中
+                    </td>
+                  </tr>
+
+                </table>
+
+                <div class="r76s-install">
+                  <button
+                    class="cbi-button cbi-button-negative"
+                    id="r76s-install"
+                    type="button"
+                    disabled>
+                    请先检查更新
+                  </button>
+                </div>
+
+                <pre
+                  class="r76s-message"
+                  id="r76s-message"
+                  style="display:none"></pre>
+
+                <div class="r76s-notice">
+                  <strong>
+                    在线升级：保留用户配置 + 增量补齐新版本内容
+                  </strong>
+
+                  <ul>
+                    <li>保留 LAN / WAN 网络设置。</li>
+                    <li>保留 PassWall / PassWall2 节点、订阅、规则和启用状态。</li>
+                    <li>保留 SmartDNS、AdGuard Home 和其他用户配置。</li>
+                    <li>新固件存在而当前系统缺失的固件管理内容会自动补齐。</li>
+                    <li>已经存在的内容不会重复添加。</li>
+                    <li>不会删除或覆盖用户已有的自定义内容。</li>
+                  </ul>
+                </div>
+
+              </div>
+            </div>
+
+          </div>
+
+          <script type="text/javascript">
+          (function() {
+            'use strict';
+
+            var API = '<%=api_base%>';
+            var pollTimer = null;
+            var verifying = false;
+
+            function byId(id) {
+              return document.getElementById(id);
+            }
+
+            function request(action, method, done) {
+              var xhr = new XMLHttpRequest();
+
+              xhr.open(
+                method || 'GET',
+                API + '/' + action + '?_=' + Date.now(),
+                true
+              );
+
+              xhr.setRequestHeader(
+                'X-Requested-With',
+                'XMLHttpRequest'
+              );
+
+              xhr.onreadystatechange = function() {
+                if (xhr.readyState !== 4)
+                  return;
+
+                var data = null;
+
+                try {
+                  data = JSON.parse(xhr.responseText || '{}');
+                }
+                catch (e) {}
+
+                if (!data)
+                  data = {
+                    ok: false,
+                    message: '返回数据解析失败'
+                  };
+
+                if (done)
+                  done(data, xhr.status);
+              };
+
+              xhr.send(null);
+            }
+
+            function verifyText(state, okText, failText) {
+              if (state === 'pass')
+                return '<span class="r76s-pass">✓ ' +
+                  okText + '</span>';
+
+              if (state === 'fail')
+                return '<span class="r76s-fail">✗ ' +
+                  failText + '</span>';
+
+              return '<span class="r76s-muted">— 未校验</span>';
+            }
+
+            function setBusy(button, busy, text) {
+              button.disabled = !!busy;
+
+              if (text)
+                button.textContent = text;
+            }
+
+            function showMessage(text) {
+              var el = byId('r76s-message');
+
+              if (!text) {
+                el.style.display = 'none';
+                el.textContent = '';
+                return;
+              }
+
+              el.style.display = 'block';
+              el.textContent = text;
+            }
+
+            function render(s) {
+              if (!s)
+                return;
+
+              byId('r76s-current').textContent =
+                (s.current && s.current.revision) || '未知';
+
+              byId('r76s-latest').textContent =
+                s.checked
+                  ? ((s.latest && s.latest.revision) || '未知')
+                  : '尚未检查';
+
+              byId('r76s-status').textContent =
+                s.status_text || '未知';
+
+              var boot = s.boot || {};
+
+              byId('r76s-boot').textContent =
+                (boot.medium || '未知') +
+                ' (' + (boot.path || '未知') + ')';
+
+              byId('r76s-boot-safe').innerHTML =
+                verifyText(
+                  boot.safe ? 'pass' : 'fail',
+                  '通过',
+                  '未通过'
+                );
+
+              var pct =
+                (s.download &&
+                 typeof s.download.percent === 'number')
+                  ? s.download.percent
+                  : 0;
+
+              if (pct < 0)
+                pct = 0;
+
+              if (pct > 100)
+                pct = 100;
+
+              byId('r76s-progress-bar').style.width =
+                pct + '%';
+
+              byId('r76s-progress-text').textContent =
+                pct.toFixed(pct % 1 ? 1 : 0) +
+                '%' +
+                (
+                  s.download && s.download.message
+                    ? ' · ' + s.download.message
+                    : ''
+                );
+
+              var verify = s.verify || {};
+
+              byId('r76s-sha').innerHTML =
+                verifyText(
+                  verify.sha256,
+                  '通过',
+                  '失败'
+                );
+
+              byId('r76s-metadata').innerHTML =
+                verifyText(
+                  verify.metadata,
+                  '通过',
+                  '失败'
+                );
+
+              byId('r76s-sysupgrade').innerHTML =
+                verifyText(
+                  verify.sysupgrade,
+                  '通过',
+                  '失败'
+                );
+
+              var downloading =
+                s.download &&
+                s.download.state === 'downloading';
+
+              var downloadBtn = byId('r76s-download');
+
+              if (downloading) {
+                downloadBtn.disabled = true;
+                downloadBtn.textContent = '正在下载...';
+              }
+              else if (!s.checked) {
+                downloadBtn.disabled = true;
+                downloadBtn.textContent = '请先检查更新';
+              }
+              else if (s.is_latest) {
+                downloadBtn.disabled = true;
+                downloadBtn.textContent = '已是最新版';
+              }
+              else if (s.update_available) {
+                downloadBtn.disabled = false;
+                downloadBtn.textContent = '下载固件';
+              }
+              else {
+                downloadBtn.disabled = true;
+                downloadBtn.textContent = '暂无可用更新';
+              }
+
+              var installBtn = byId('r76s-install');
+
+              installBtn.disabled = !s.can_install;
+
+              if (s.can_install) {
+                installBtn.textContent =
+                  '在线升级并保留配置';
+              }
+              else if (!s.checked) {
+                installBtn.textContent =
+                  '请先检查更新';
+              }
+              else if (s.is_latest) {
+                installBtn.textContent =
+                  '已是最新版';
+              }
+              else if (s.update_available) {
+                installBtn.textContent =
+                  '等待安全校验';
+              }
+              else {
+                installBtn.textContent =
+                  '暂不可安装';
+              }
+
+              if (downloading) {
+                startPolling();
+              }
+              else if (pollTimer) {
+                clearInterval(pollTimer);
+                pollTimer = null;
+              }
+
+              var downloadDone =
+                s.download &&
+                s.download.state === 'done';
+
+              var neverVerified =
+                verify.sha256 !== 'pass' &&
+                verify.sha256 !== 'fail' &&
+                verify.metadata !== 'pass' &&
+                verify.metadata !== 'fail' &&
+                verify.sysupgrade !== 'pass' &&
+                verify.sysupgrade !== 'fail';
+
+              if (
+                downloadDone &&
+                neverVerified &&
+                !verifying
+              ) {
+                verifyFirmware();
+              }
+            }
+
+            function refreshStatus() {
+              request(
+                'status',
+                'GET',
+                function(data) {
+                  if (data && data.status)
+                    render(data.status);
+                }
+              );
+            }
+
+            function startPolling() {
+              if (pollTimer)
+                return;
+
+              pollTimer = setInterval(
+                refreshStatus,
+                1000
+              );
+            }
+
+            function verifyFirmware() {
+              if (verifying)
+                return;
+
+              verifying = true;
+
+              byId('r76s-sha').textContent =
+                '正在校验...';
+
+              byId('r76s-metadata').textContent =
+                '正在检查...';
+
+              byId('r76s-sysupgrade').textContent =
+                '正在检查...';
+
+              request(
+                'verify',
+                'GET',
+                function(data) {
+                  verifying = false;
+
+                  if (data && data.status)
+                    render(data.status);
+
+                  if (!data || !data.ok) {
+                    showMessage(
+                      (data &&
+                       data.verify &&
+                       data.verify.message) ||
+                      (data && data.message) ||
+                      '固件校验失败'
+                    );
+                  }
+                  else {
+                    showMessage(
+                      '固件安全校验完成：' +
+                      'SHA256、Metadata、Sysupgrade ' +
+                      '和启动盘安全检查全部通过。'
+                    );
+                  }
+                }
+              );
+            }
+
+            byId('r76s-check').onclick = function() {
+              var btn = this;
+
+              showMessage('');
+
+              setBusy(
+                btn,
+                true,
+                '检查中...'
+              );
+
+              request(
+                'check',
+                'GET',
+                function(data) {
+                  setBusy(
+                    btn,
+                    false,
+                    '检查更新'
+                  );
+
+                  if (data && data.status)
+                    render(data.status);
+
+                  if (!data || !data.ok) {
+                    showMessage(
+                      (data && data.output) ||
+                      '检查更新失败'
+                    );
+                  }
+                }
+              );
+            };
+
+            byId('r76s-download').onclick = function() {
+              var btn = this;
+
+              if (btn.disabled)
+                return;
+
+              showMessage('');
+
+              setBusy(
+                btn,
+                true,
+                '准备下载...'
+              );
+
+              request(
+                'download',
+                'GET',
+                function(data) {
+                  if (data && data.status)
+                    render(data.status);
+
+                  if (!data || !data.ok) {
+                    showMessage(
+                      (data && data.output) ||
+                      '启动下载失败'
+                    );
+
+                    refreshStatus();
+                    return;
+                  }
+
+                  startPolling();
+                }
+              );
+            };
+
+            byId('r76s-install').onclick = function() {
+              if (this.disabled)
+                return;
+
+              var boot =
+                byId('r76s-boot').textContent;
+
+              if (
+                !confirm(
+                  '确认在线升级并保留现有配置？\n\n' +
+                  '当前启动盘：' + boot + '\n' +
+                  '升级方式：保留用户配置 + 增量补齐新版本内容\n\n' +
+                  '升级过程中请勿断电。'
+                )
+              ) {
+                return;
+              }
+
+              this.disabled = true;
+              this.textContent =
+                '正在启动升级...';
+
+              showMessage(
+                '正在重新校验镜像并启动 sysupgrade，' +
+                '请勿断电。'
+              );
+
+              request(
+                'install',
+                'POST',
+                function(data) {
+                  if (!data || !data.ok) {
+                    byId('r76s-install').textContent =
+                      '在线升级并保留配置';
+
+                    refreshStatus();
+
+                    showMessage(
+                      (data && data.message) ||
+                      '启动升级失败'
+                    );
+
+                    return;
+                  }
+
+                  showMessage(
+                    data.message ||
+                    '升级已启动，设备即将重启。'
+                  );
+
+                  byId('r76s-install').textContent =
+                    '设备正在升级...';
+                }
+              );
+            };
+
+            refreshStatus();
+
+          })();
+          </script>
+
+          <%+footer%>
+          '''
+
+          p.write_text(view)
+          PY_OTA_VIEW
+
+          grep -qF 'R76S_UPDATER_UI_PATCH=6' "$CTRL"
+          grep -qF 'root=PARTUUID' "$CTRL"
+          grep -qF 'firmware.img.part' "$CTRL"
+          grep -qF '下载任务已启动' "$CTRL"
+          grep -qF 'R76S_V100_LAYOUT' "$VIEW"
+          grep -qF '保留用户配置 + 增量补齐新版本内容' "$VIEW"
+          grep -qF 'id="r76s-metadata"' "$VIEW"
+          grep -qF 'id="r76s-boot-safe"' "$VIEW"
+          grep -qF '在线升级并保留配置' "$VIEW"
+          grep -qF "downloadBtn.disabled = true" "$VIEW"
+          grep -qF 'r76s-ota-preserve-state' "$CTRL"
+          test -x "$PRESERVE_HELPER"
+          grep -qF 'r76s_ota_state.state.pending' "$PRESERVE_HELPER"
+          ! grep -qF 'sysupgrade -n' "$CTRL"
+          grep -qF 'R76S V1.0 policy: SmartDNS is user-controlled.' "$POLICY"
+          grep -qF 'intentionally no automatic DNS/proxy configuration' "$BOOT_HOOK"
+
+          if grep -RnsE --exclude='r76s-ota-preserve-state' \
+            'sysupgrade|dd[[:space:]].*of=/dev/|mmcblk[0-9]|partx[[:space:]]|fdisk[[:space:]]|sfdisk[[:space:]]|blkdiscard' \
+            "$UPDATER_DIR/files/root"; then
+            echo "ERROR: forbidden firmware/block-device operation in component updater."
+            exit 1
+          fi
+
+          PKG_MK="$UPDATER_DIR/Makefile"
+          grep -qF '$(INSTALL_BIN)' "$PKG_MK"
+
+      - name: Install R76S v1.0 clean defaults, dual 42-rule libraries and preservation hooks
+        run: |
+          set -e
+
+          echo "===== V1.0 clean-flash policy ====="
+          echo "LAN: 192.168.50.1/24"
+          echo "WAN: upstream R76S default DHCP client"
+          echo "DNS: dnsmasq uses WAN DNS unless the user later enables another DNS service"
+          echo "PassWall/PassWall2: 42-rule shunt libraries present, service disabled by default"
+          echo "SmartDNS/AdGuard Home: installed but disabled by default"
+          echo "Preserved user settings remain authoritative; V1.0 only adds firmware-managed content that is missing"
+
+          echo "===== Set clean-image default root password ====="
+          SHADOW="openwrt/package/base-files/files/etc/shadow"
+          test -f "$SHADOW"
+          PASSWORD_HASH="$(openssl passwd -6 -salt R76Sv100 password)"
+          test -n "$PASSWORD_HASH"
+          sed -i "s#^root:[^:]*:#root:${PASSWORD_HASH}:#" "$SHADOW"
+          grep -q '^root:\$6\$R76Sv100\$' "$SHADOW"
+
+          echo "===== Solidify clean-image LAN default at generator source ====="
+          CFGGEN="openwrt/package/base-files/files/bin/config_generate"
+          test -f "$CFGGEN"
+          python3 - "$CFGGEN" <<'PY_LAN_DEFAULT'
+          from pathlib import Path
+          import sys
+          p = Path(sys.argv[1])
+          s = p.read_text()
+          old = 'lan) ipad=${ipaddr:-"192.168.1.1"} ;;'
+          new = 'lan) ipad=${ipaddr:-"192.168.50.1"} ;;'
+          if old in s:
+              s = s.replace(old, new, 1)
+          elif new not in s:
+              raise SystemExit('ERROR: LAN default anchor not found in config_generate')
+          p.write_text(s)
+          PY_LAN_DEFAULT
+          grep -qF 'lan) ipad=${ipaddr:-"192.168.50.1"} ;;' "$CFGGEN"
+
+          echo "===== Default LuCI language: Simplified Chinese on clean flash ====="
+          LUCI_CFG="$(find openwrt/feeds openwrt/package -path '*/luci-base/root/etc/config/luci' -type f | head -n1)"
+          test -n "$LUCI_CFG"
+          python3 - "$LUCI_CFG" <<'PY_LUCI_LANG'
+          from pathlib import Path
+          import re, sys
+          p = Path(sys.argv[1])
+          s = p.read_text()
+          # Change only the ROM/default language. A retained /etc/config/luci overrides it after sysupgrade.
+          if re.search(r"(?m)^\s*option\s+lang\s+", s):
+              s = re.sub(r"(?m)^(\s*option\s+lang\s+)(?:'[^']*'|\S+)", r"\1'zh_cn'", s, count=1)
+          else:
+              # Main section exists in all supported LuCI builds; fail instead of guessing a new layout.
+              m = re.search(r"(?m)^config\s+core(?:\s+'?main'?)?\s*$", s)
+              if not m:
+                  raise SystemExit('ERROR: LuCI main language anchor not found')
+              pos = s.find('\n', m.end()) + 1
+              s = s[:pos] + "\toption lang 'zh_cn'\n" + s[pos:]
+          p.write_text(s)
+          PY_LUCI_LANG
+          grep -q "option lang 'zh_cn'" "$LUCI_CFG"
+
+          echo "===== Build exact V2.2.5 42-rule library into PassWall + PassWall2 ROM defaults ====="
+          RULE_SOURCE="files/etc/uci-defaults/99-r76s-v2-defaults"
+          PW1_DEFAULT="openwrt/package/passwall-luci/luci-app-passwall/root/usr/share/passwall/0_default_config"
+          PW2_DEFAULT="openwrt/package/passwall2-luci/luci-app-passwall2/root/usr/share/passwall2/0_default_config"
+          test -s "$RULE_SOURCE"
+          test -s "$PW1_DEFAULT"
+          test -s "$PW2_DEFAULT"
+
+          python3 - "$RULE_SOURCE" "$PW1_DEFAULT" "$PW2_DEFAULT" <<'PY_RULES'
+          from pathlib import Path
+          import re, sys
+
+          source = Path(sys.argv[1]).read_text()
+          pw1 = Path(sys.argv[2])
+          pw2 = Path(sys.argv[3])
+
+          def parse_rules(text):
+              lines = text.splitlines()
+              rules = []
+              i = 0
+              while i < len(lines):
+                  m = re.match(r"\s*uci -q set passwall\.([A-Za-z0-9_]+)='shunt_rules'\s*$", lines[i])
+                  if not m:
+                      i += 1
+                      continue
+                  name = m.group(1)
+                  props = []
+                  i += 1
+                  while i < len(lines):
+                      if re.match(r"\s*uci -q delete passwall\.", lines[i]) or re.match(r"\s*uci -q set passwall\.[A-Za-z0-9_]+='shunt_rules'\s*$", lines[i]):
+                          break
+                      pm = re.match(r"\s*uci -q set passwall\." + re.escape(name) + r"\.([A-Za-z0-9_]+)='(.*)$", lines[i])
+                      if pm:
+                          key = pm.group(1)
+                          value = pm.group(2)
+                          while not value.endswith("'"):
+                              i += 1
+                              if i >= len(lines):
+                                  raise SystemExit(f'ERROR: unterminated value for {name}.{key}')
+                              value += "\n" + lines[i]
+                          value = value[:-1]
+                          if "'" in value:
+                              raise SystemExit(f"ERROR: single quote in {name}.{key}; parser must be extended")
+                          props.append((key, value))
+                      i += 1
+                  rules.append((name, props))
+              return rules
+
+          rules = parse_rules(source)
+          if len(rules) != 42:
+              raise SystemExit(f'ERROR: expected 42 source rules, got {len(rules)}')
+          names = [n for n,_ in rules]
+          if len(set(names)) != 42:
+              raise SystemExit('ERROR: duplicate rule names in V2.2.5 source')
+
+          def sections(text):
+              starts = list(re.finditer(r"(?m)^config\s+([^\s]+)(?:\s+'([^']+)')?\s*$", text))
+              if not starts:
+                  raise SystemExit('ERROR: UCI default has no config sections')
+              prefix = text[:starts[0].start()]
+              out = []
+              for idx,m in enumerate(starts):
+                  e = starts[idx+1].start() if idx+1 < len(starts) else len(text)
+                  out.append((m.group(1), m.group(2), text[m.start():e].rstrip() + '\n'))
+              return prefix, out
+
+          def set_option(block, key, value):
+              pat = re.compile(r"(?m)^(\s*option\s+" + re.escape(key) + r"\s+)'[^']*'\s*$")
+              if pat.search(block):
+                  return pat.sub(r"\1'" + value + "'", block, count=1)
+              lines = block.rstrip().splitlines()
+              lines.insert(1, "\toption %s '%s'" % (key, value))
+              return '\n'.join(lines) + '\n'
+
+          def rule_fragment(app):
+              out = []
+              for name, props in rules:
+                  out.append("config shunt_rules '%s'" % name)
+                  for k,v in props:
+                      out.append("\toption %s '%s'" % (k, v))
+                  out.append('')
+              out.append("config nodes 'myshunt'")
+              out.append("\toption remarks '分流总节点'")
+              out.append("\toption type 'Xray'")
+              out.append("\toption protocol '_shunt'")
+              out.append("\toption Direct '_direct'")
+              out.append("\toption WeChatTencent '_direct'")
+              out.append("\toption default_node '_direct'")
+              out.append("\toption domainStrategy 'IPOnDemand'")
+              out.append("\toption domainMatcher 'hybrid'")
+              if app == 'passwall2':
+                  out.append("\toption write_ipset_direct '1'")
+                  out.append("\toption enable_geoview_ip '1'")
+                  out.append("\toption shunt_group 'CN'")
+              out.append('')
+              return '\n'.join(out) + '\n'
+
+          def transform(path, app):
+              text = path.read_text()
+              prefix, secs = sections(text)
+              kept = []
+              global_done = False
+              for typ, name, block in secs:
+                  if typ == 'shunt_rules':
+                      continue
+                  if typ == 'nodes':
+                      # Drop upstream shunt/demo nodes; clean firmware contains no personal proxy node.
+                      if name in {'myshunt','rulenode','examplenode'} or "option protocol '_shunt'" in block or "passwall2.github" in block:
+                          continue
+                  if typ == 'global' and not global_done:
+                      block = set_option(block, 'enabled', '0')
+                      block = set_option(block, 'node', 'myshunt')
+                      if app == 'passwall2':
+                          block = set_option(block, 'auto_lang', 'zh_cn')
+                      global_done = True
+                  kept.append(block.rstrip() + '\n\n')
+              if not global_done:
+                  raise SystemExit(f'ERROR: no global section in {path}')
+              final = prefix.rstrip() + ('\n\n' if prefix.strip() else '') + ''.join(kept).rstrip() + '\n\n' + rule_fragment(app)
+              path.write_text(final)
+
+          transform(pw1, 'passwall')
+          transform(pw2, 'passwall2')
+
+          for p in (pw1,pw2):
+              s = p.read_text()
+              count = len(re.findall(r"(?m)^config\s+shunt_rules\s+'[^']+'\s*$", s))
+              if count != 42:
+                  raise SystemExit(f'ERROR: {p} has {count} shunt_rules after transform')
+              for required in ["config nodes 'myshunt'", "option remarks '分流总节点'", "option default_node '_direct'", "option enabled '0'"]:
+                  if required not in s:
+                      raise SystemExit(f'ERROR: {required!r} missing from {p}')
+          print('PassWall and PassWall2 42-rule libraries generated successfully.')
+          PY_RULES
+
+          PW1_COUNT="$(grep -c '^config shunt_rules ' "$PW1_DEFAULT")"
+          PW2_COUNT="$(grep -c '^config shunt_rules ' "$PW2_DEFAULT")"
+          echo "PassWall rule count:  $PW1_COUNT"
+          echo "PassWall2 rule count: $PW2_COUNT"
+          test "$PW1_COUNT" -eq 42
+          test "$PW2_COUNT" -eq 42
+          grep -qF "config nodes 'myshunt'" "$PW1_DEFAULT"
+          grep -qF "config nodes 'myshunt'" "$PW2_DEFAULT"
+          grep -qF "option auto_lang 'zh_cn'" "$PW2_DEFAULT"
+          grep -qF "option enabled '0'" "$PW1_DEFAULT"
+          grep -qF "option enabled '0'" "$PW2_DEFAULT"
+
+          echo "===== SmartDNS clean default ====="
+          echo "SmartDNS clean-flash policy is enforced by first-boot UCI defaults."
+          echo "OTA preserved configuration is never rewritten here."
+
+          echo "===== AdGuard Home: do not auto-start an unconfigured clean image ====="
+          AGH_INIT="$(find openwrt/feeds openwrt/package -type f \( -name 'adguardhome.init' -o -path '*/root/etc/init.d/adguardhome' \) | head -n1)"
+          test -n "$AGH_INIT"
+          python3 - "$AGH_INIT" <<'PY_AGH_INIT'
+          from pathlib import Path
+          import sys
+          p=Path(sys.argv[1]); s=p.read_text()
+          marker='# R76S_V100_ADGUARD_BOOT_GUARD'
+          if marker not in s:
+              anchor='boot() {'
+              if anchor not in s:
+                  raise SystemExit('ERROR: AdGuard Home boot() anchor missing')
+              guard='''boot() {\n  # R76S_V100_ADGUARD_BOOT_GUARD\n  # Clean image has no YAML: remain stopped. During OTA, honor the saved init state.\n  if [ "$(uci -q get r76s_ota_state.state.pending)" = "1" ] && \\\n     [ "$(uci -q get r76s_ota_state.state.adguardhome_init)" = "0" ]; then\n    return 0\n  fi\n  [ -s /etc/adguardhome.yaml ] || [ -s /etc/adguardhome/adguardhome.yaml ] || return 0\n'''
+              s=s.replace(anchor, guard, 1)
+          p.write_text(s)
+          PY_AGH_INIT
+          grep -qF 'R76S_V100_ADGUARD_BOOT_GUARD' "$AGH_INIT"
+
+          echo "===== Rootfs overlay: OTA source + keep list + restore hook ====="
+          rm -rf openwrt/files
+          mkdir -p \
+            openwrt/files/lib/upgrade/keep.d \
+            openwrt/files/etc/init.d \
+            openwrt/files/etc/uci-defaults
+
+          cat > openwrt/files/lib/upgrade/ota.sh <<EOF
+          #!/bin/sh
+
+          export_ota_url() {
+              OTA_URL_BASE="https://github.com/${GITHUB_REPOSITORY}/releases/latest/download"
+          }
+          EOF
+          chmod 0755 openwrt/files/lib/upgrade/ota.sh
+
+          cat > openwrt/files/lib/upgrade/keep.d/r76s-v100 <<'EOF_KEEP'
+          /etc/config/passwall
+          /etc/config/passwall2
+          /etc/config/smartdns
+          /etc/config/adguardhome
+          /etc/config/r76s_ota_state
+          /etc/adguardhome.yaml
+          /etc/adguardhome/adguardhome.yaml
+          EOF_KEEP
+
+          echo "===== Install V1.0 preserve-upgrade detector ====="
+
+          cat > openwrt/files/etc/uci-defaults/09-r76s-v100-preserve-detect <<'EOF_PRESERVE_DETECT'
+          #!/bin/sh
+          #
+          # R76S_V100_PRESERVE_DETECT
+          #
+          # Standard OpenWrt/LuCI preserve-config sysupgrade injects
+          # /etc/uci-defaults/10_disable_services into the restored archive.
+          #
+          # This 09 script executes before 10_disable_services and records
+          # that this boot came from a preserve-config upgrade.
+          #
+
+          if [ -e /etc/uci-defaults/10_disable_services ]; then
+              if ! uci -q get r76s_ota_state.state >/dev/null 2>&1; then
+                  uci -q set r76s_ota_state.state='state'
+              fi
+
+              service_was_enabled() {
+                  name="$1"
+                  if grep -qF "/etc/init.d/$name disable" \
+                      /etc/uci-defaults/10_disable_services; then
+                      echo 0
+                  else
+                      echo 1
+                  fi
+              }
+
+              uci -q set r76s_ota_state.state.standard_preserve='1'
+              uci -q set r76s_ota_state.state.standard_passwall_init="$(service_was_enabled passwall)"
+              uci -q set r76s_ota_state.state.standard_passwall2_init="$(service_was_enabled passwall2)"
+              uci -q set r76s_ota_state.state.standard_smartdns_init="$(service_was_enabled smartdns)"
+              uci -q set r76s_ota_state.state.standard_adguardhome_init="$(service_was_enabled adguardhome)"
+              uci -q commit r76s_ota_state
+
+              logger -t r76s-v100 \
+                  "standard preserve-config sysupgrade detected and init states captured" \
+                  2>/dev/null || true
+          fi
+
+          exit 0
+          EOF_PRESERVE_DETECT
+
+          chmod 0755 \
+            openwrt/files/etc/uci-defaults/09-r76s-v100-preserve-detect
+
+          echo "===== Install V1.0 large-upload timeout defaults ====="
+
+          cat > openwrt/files/etc/uci-defaults/96-r76s-v100-upload-timeout <<'EOF_UPLOAD_TIMEOUT'
+          #!/bin/sh
+          #
+          # R76S_V100_UPLOAD_TIMEOUT
+          #
+          # Large firmware images can take longer than the historical
+          # uhttpd defaults during upload/checksum/validation.
+          #
+          # Preserve custom user values. Only migrate missing values or
+          # the old standard defaults used by previous firmware.
+          #
+
+          changed=0
+
+          if uci -q show uhttpd.main >/dev/null 2>&1; then
+              script_timeout="$(uci -q get uhttpd.main.script_timeout)"
+              network_timeout="$(uci -q get uhttpd.main.network_timeout)"
+
+              if [ -z "$script_timeout" ] || [ "$script_timeout" = "60" ]; then
+                  uci -q set uhttpd.main.script_timeout='600'
+                  changed=1
+              fi
+
+              if [ -z "$network_timeout" ] || [ "$network_timeout" = "30" ]; then
+                  uci -q set uhttpd.main.network_timeout='120'
+                  changed=1
+              fi
+
+              if [ "$changed" = "1" ]; then
+                  uci -q commit uhttpd
+              fi
+          fi
+
+          exit 0
+          EOF_UPLOAD_TIMEOUT
+
+          chmod 0755 \
+            openwrt/files/etc/uci-defaults/96-r76s-v100-upload-timeout
+
+          echo "===== Install V1.0 additive migration engine ====="
+
+          mkdir -p openwrt/files/usr/libexec/r76s
+
+          cat > openwrt/files/usr/libexec/r76s/r76s-v100-additive-merge <<'EOF_V100_MERGE'
+          #!/bin/sh
+          #
+          # R76S_V100_ADDITIVE_MERGE
+          #
+          # V1.0 additive configuration migration:
+          # - preserve every existing user value
+          # - add firmware-managed named sections missing from the old config
+          # - add scalar options missing from an existing managed section
+          # - never delete existing sections/options
+          # - never overwrite existing values
+          # - run once for V1.0
+          #
+
+          STATE_PKG="r76s_ota_state"
+          MIGRATION_SECTION="migration"
+          MIGRATION_KEY="v100"
+
+          already="$(uci -q get "${STATE_PKG}.${MIGRATION_SECTION}.${MIGRATION_KEY}" 2>/dev/null)"
+          [ "$already" = "1" ] && exit 0
+
+          TMP="/tmp/r76s-v100-merge.$$"
+
+          rm -rf "$TMP"
+          mkdir -p "$TMP" || exit 1
+          trap 'rm -rf "$TMP"' EXIT INT TERM
+
+          log() {
+              logger -t r76s-v100-merge "$*" 2>/dev/null || true
+              echo "r76s-v100-merge: $*"
+          }
+
+          prepare_source() {
+              pkg="$1"
+              src="$2"
+
+              [ -s "$src" ] || return 1
+              cp "$src" "$TMP/$pkg" || return 1
+              return 0
+          }
+
+          named_option_keys() {
+              src="$1"
+              wanted="$2"
+
+              awk -v wanted="$wanted" '
+              function unquote(v, q) {
+                  q = sprintf("%c", 39)
+                  if (substr(v,1,1) == q && substr(v,length(v),1) == q)
+                      return substr(v,2,length(v)-2)
+                  return v
+              }
+
+              $1 == "config" {
+                  if (inside)
+                      exit
+
+                  inside = 0
+
+                  if (NF >= 3) {
+                      name = unquote($3)
+                      if (name == wanted) {
+                          inside = 1
+                          next
+                      }
+                  }
+              }
+
+              inside && $1 == "option" {
+                  print $2
+              }
+              ' "$src"
+          }
+
+          first_type_option_keys() {
+              src="$1"
+              wanted="$2"
+
+              awk -v wanted="$wanted" '
+              function unquote(v, q) {
+                  q = sprintf("%c", 39)
+                  if (substr(v,1,1) == q && substr(v,length(v),1) == q)
+                      return substr(v,2,length(v)-2)
+                  return v
+              }
+
+              $1 == "config" {
+                  if (inside)
+                      exit
+
+                  inside = 0
+                  type = unquote($2)
+
+                  if (type == wanted) {
+                      inside = 1
+                      next
+                  }
+              }
+
+              inside && $1 == "option" {
+                  print $2
+              }
+              ' "$src"
+          }
+
+          merge_named_sections() {
+              pkg="$1"
+              src="$2"
+
+              prepare_source "$pkg" "$src" || {
+                  log "$pkg: source default missing: $src"
+                  return 1
+              }
+
+              if [ ! -e "/etc/config/$pkg" ]; then
+                  cp "$src" "/etc/config/$pkg" || return 1
+                  chmod 0600 "/etc/config/$pkg" 2>/dev/null || true
+                  log "$pkg: current config missing; installed complete firmware default"
+                  return 0
+              fi
+
+              section_file="$TMP/${pkg}.named-sections"
+
+              uci -q -c "$TMP" show "$pkg" 2>/dev/null \
+                  | grep -E "^${pkg}\.[A-Za-z0-9_][A-Za-z0-9_-]*=" \
+                  > "$section_file" || true
+
+              while IFS= read -r sec_line; do
+                  [ -n "$sec_line" ] || continue
+
+                  lhs="${sec_line%%=*}"
+                  sec="${lhs#${pkg}.}"
+
+                  stype="$(uci -q -c "$TMP" get "$pkg.$sec" 2>/dev/null)"
+                  [ -n "$stype" ] || continue
+
+                  current_type="$(uci -q get "$pkg.$sec" 2>/dev/null)"
+
+                  if [ -z "$current_type" ]; then
+                      uci -q set "$pkg.$sec=$stype" || return 1
+                      log "$pkg: added missing section $sec ($stype)"
+                  elif [ "$current_type" != "$stype" ]; then
+                      log "$pkg: kept user section $sec because type differs ($current_type != $stype)"
+                      continue
+                  fi
+
+                  option_file="$TMP/${pkg}.${sec}.scalar-options"
+                  named_option_keys "$src" "$sec" > "$option_file"
+
+                  while IFS= read -r opt; do
+                      [ -n "$opt" ] || continue
+
+                      if uci -q get "$pkg.$sec.$opt" >/dev/null 2>&1; then
+                          continue
+                      fi
+
+                      value="$(uci -q -c "$TMP" get "$pkg.$sec.$opt" 2>/dev/null)"
+                      rc=$?
+
+                      [ "$rc" -eq 0 ] || continue
+
+                      uci -q set "$pkg.$sec.$opt=$value" || return 1
+                      log "$pkg: added missing option $sec.$opt"
+                  done < "$option_file"
+
+              done < "$section_file"
+
+              uci -q commit "$pkg" || return 1
+              return 0
+          }
+
+          merge_first_type_options() {
+              pkg="$1"
+              src="$2"
+              stype="$3"
+
+              [ -s "$src" ] || return 0
+
+              prepare_source "$pkg" "$src" || return 1
+
+              if [ ! -e "/etc/config/$pkg" ]; then
+                  cp "$src" "/etc/config/$pkg" || return 1
+                  chmod 0600 "/etc/config/$pkg" 2>/dev/null || true
+                  log "$pkg: installed missing firmware config"
+                  return 0
+              fi
+
+              src_ref="$(uci -q -c "$TMP" show "$pkg" 2>/dev/null \
+                  | sed -n "s/^${pkg}\.\(@${stype}\[[0-9][0-9]*\]\)=${stype}$/\1/p" \
+                  | head -n1)"
+
+              [ -n "$src_ref" ] || return 0
+
+              dst_ref="$(uci -q show "$pkg" 2>/dev/null \
+                  | sed -n "s/^${pkg}\.\(@${stype}\[[0-9][0-9]*\]\)=${stype}$/\1/p" \
+                  | head -n1)"
+
+              if [ -z "$dst_ref" ]; then
+                  new_section="$(uci -q add "$pkg" "$stype" 2>/dev/null)"
+                  [ -n "$new_section" ] || return 1
+                  dst_ref="$new_section"
+                  log "$pkg: added missing anonymous $stype section"
+              fi
+
+              option_file="$TMP/${pkg}.${stype}.scalar-options"
+              first_type_option_keys "$src" "$stype" > "$option_file"
+
+              while IFS= read -r opt; do
+                  [ -n "$opt" ] || continue
+
+                  if uci -q get "$pkg.$dst_ref.$opt" >/dev/null 2>&1; then
+                      continue
+                  fi
+
+                  value="$(uci -q -c "$TMP" get "$pkg.$src_ref.$opt" 2>/dev/null)"
+                  rc=$?
+
+                  [ "$rc" -eq 0 ] || continue
+
+                  uci -q set "$pkg.$dst_ref.$opt=$value" || return 1
+                  log "$pkg: added missing option $dst_ref.$opt"
+              done < "$option_file"
+
+              uci -q commit "$pkg" || return 1
+              return 0
+          }
+
+          log "starting V1.0 additive migration"
+
+          #
+          # PassWall / PassWall2
+          #
+          # The new ROM 0_default_config is the authoritative firmware-managed
+          # default library. Existing user values win; only missing content is added.
+          #
+
+          merge_named_sections \
+              passwall \
+              /usr/share/passwall/0_default_config || exit 1
+
+          merge_first_type_options \
+              passwall \
+              /usr/share/passwall/0_default_config \
+              global || exit 1
+
+          merge_named_sections \
+              passwall2 \
+              /usr/share/passwall2/0_default_config || exit 1
+
+          merge_first_type_options \
+              passwall2 \
+              /usr/share/passwall2/0_default_config \
+              global || exit 1
+
+          #
+          # SmartDNS
+          #
+          # Merge only missing UCI content from the new ROM configuration.
+          # Existing DNS choices are never replaced.
+          #
+
+          if [ -s /rom/etc/config/smartdns ]; then
+              merge_named_sections \
+                  smartdns \
+                  /rom/etc/config/smartdns || exit 1
+
+              merge_first_type_options \
+                  smartdns \
+                  /rom/etc/config/smartdns \
+                  smartdns || exit 1
+          fi
+
+          #
+          # AdGuard Home
+          #
+          # Preserve user YAML exactly. Only named UCI wrapper sections can be
+          # supplemented from the new ROM config when one exists.
+          #
+
+          if [ -s /rom/etc/config/adguardhome ]; then
+              merge_named_sections \
+                  adguardhome \
+                  /rom/etc/config/adguardhome || exit 1
+          fi
+
+          pw_count="$(uci -q show passwall 2>/dev/null | grep -c '=shunt_rules$')"
+          pw2_count="$(uci -q show passwall2 2>/dev/null | grep -c '=shunt_rules$')"
+
+          log "PassWall shunt_rules after merge: $pw_count"
+          log "PassWall2 shunt_rules after merge: $pw2_count"
+
+          if ! uci -q get "${STATE_PKG}.${MIGRATION_SECTION}" >/dev/null 2>&1; then
+              uci -q set "${STATE_PKG}.${MIGRATION_SECTION}=migration" || exit 1
+          fi
+
+          uci -q set "${STATE_PKG}.${MIGRATION_SECTION}.${MIGRATION_KEY}=1" || exit 1
+          uci -q commit "$STATE_PKG" || exit 1
+
+          log "V1.0 additive migration complete"
+          exit 0
+          EOF_V100_MERGE
+
+          chmod 0755 openwrt/files/usr/libexec/r76s/r76s-v100-additive-merge
+
+          cat > openwrt/files/etc/uci-defaults/97-r76s-v100-additive-merge <<'EOF_V100_MERGE_TRIGGER'
+          #!/bin/sh
+
+          /usr/libexec/r76s/r76s-v100-additive-merge || exit 1
+
+          exit 0
+          EOF_V100_MERGE_TRIGGER
+
+          chmod 0755 openwrt/files/etc/uci-defaults/97-r76s-v100-additive-merge
+
+          cat > openwrt/files/etc/uci-defaults/98-r76s-v100-clean-services <<'EOF_CLEAN_SERVICES'
+          #!/bin/sh
+
+          # Clean flash:
+          #   SmartDNS and AdGuard Home are installed but remain disabled.
+          #
+          # Preserve-config upgrade:
+          #   custom OTA pending=1 OR standard_preserve=1
+          #   means existing user configuration/state must win.
+          #   Do not rewrite or disable anything here.
+
+          PENDING="$(uci -q get r76s_ota_state.state.pending)"
+          STANDARD_PRESERVE="$(uci -q get r76s_ota_state.state.standard_preserve)"
+
+          # Two supported preserve-config paths:
+          #
+          # 1. R76S online OTA:
+          #    r76s-ota-preserve-state writes pending=1.
+          #
+          # 2. Standard LuCI / sysupgrade preserve:
+          #    09-r76s-v100-preserve-detect observes
+          #    10_disable_services before it is executed/removed,
+          #    then records standard_preserve=1.
+          #
+          # Clean sysupgrade -n has neither marker.
+          PRESERVE_UPGRADE=0
+
+          [ "$PENDING" = "1" ] && PRESERVE_UPGRADE=1
+          [ "$STANDARD_PRESERVE" = "1" ] && PRESERVE_UPGRADE=1
+
+          if [ "$PRESERVE_UPGRADE" != "1" ]; then
+              # PassWall / PassWall2: clean-image default = disabled and no autostart.
+              if uci -q show passwall >/dev/null 2>&1; then
+                  uci -q set passwall.@global[0].enabled='0' || true
+                  uci -q commit passwall || true
+              fi
+              /etc/init.d/passwall stop >/dev/null 2>&1 || true
+              /etc/init.d/passwall disable >/dev/null 2>&1 || true
+
+              if uci -q show passwall2 >/dev/null 2>&1; then
+                  uci -q set passwall2.@global[0].enabled='0' || true
+                  uci -q commit passwall2 || true
+              fi
+              /etc/init.d/passwall2 stop >/dev/null 2>&1 || true
+              /etc/init.d/passwall2 disable >/dev/null 2>&1 || true
+
+              # SmartDNS: clean-image default = disabled and no dnsmasq takeover.
+              if uci -q show smartdns >/dev/null 2>&1; then
+                  uci -q set smartdns.@smartdns[0].enabled='0' || true
+                  uci -q set smartdns.@smartdns[0].auto_set_dnsmasq='0' || true
+                  uci -q commit smartdns || true
+              fi
+
+              /etc/init.d/smartdns stop >/dev/null 2>&1 || true
+              /etc/init.d/smartdns disable >/dev/null 2>&1 || true
+
+              # AdGuard Home: clean-image default = stopped/disabled
+              # while no user YAML exists.
+              if [ ! -s /etc/adguardhome.yaml ] && \
+                 [ ! -s /etc/adguardhome/adguardhome.yaml ]; then
+                  /etc/init.d/adguardhome stop >/dev/null 2>&1 || true
+                  /etc/init.d/adguardhome disable >/dev/null 2>&1 || true
+              fi
+          fi
+
+          exit 0
+          EOF_CLEAN_SERVICES
+          chmod 0755 openwrt/files/etc/uci-defaults/98-r76s-v100-clean-services
+
+          cat > openwrt/files/etc/init.d/r76s-ota-restore <<'EOF_OTA_RESTORE'
+          #!/bin/sh /etc/rc.common
+          START=98
+          STOP=10
+
+          service_init_state() {
+              name="$1"
+              enabled="$2"
+              if [ ! -x "/etc/init.d/$name" ]; then
+                  return 0
+              fi
+              if [ "$enabled" = "1" ]; then
+                  /etc/init.d/"$name" enable >/dev/null 2>&1 || true
+              else
+                  /etc/init.d/"$name" stop >/dev/null 2>&1 || true
+                  /etc/init.d/"$name" disable >/dev/null 2>&1 || true
+              fi
+          }
+
+          start() {
+              [ "$(uci -q get r76s_ota_state.state.pending)" = "1" ] || return 0
+
+              pw_uci="$(uci -q get r76s_ota_state.state.passwall_uci)"
+              pw2_uci="$(uci -q get r76s_ota_state.state.passwall2_uci)"
+              sd_uci="$(uci -q get r76s_ota_state.state.smartdns_uci)"
+              [ -n "$pw_uci" ] && uci -q set passwall.@global[0].enabled="$pw_uci"
+              [ -n "$pw2_uci" ] && uci -q set passwall2.@global[0].enabled="$pw2_uci"
+              [ -n "$sd_uci" ] && uci -q set smartdns.@smartdns[0].enabled="$sd_uci"
+              uci -q commit passwall || true
+              uci -q commit passwall2 || true
+              uci -q commit smartdns || true
+
+              service_init_state passwall "$(uci -q get r76s_ota_state.state.passwall_init)"
+              service_init_state passwall2 "$(uci -q get r76s_ota_state.state.passwall2_init)"
+              service_init_state smartdns "$(uci -q get r76s_ota_state.state.smartdns_init)"
+              service_init_state adguardhome "$(uci -q get r76s_ota_state.state.adguardhome_init)"
+
+              # Start only services that were enabled and logically active before OTA.
+              [ "$(uci -q get r76s_ota_state.state.passwall_init)" = "1" ] && [ "$pw_uci" = "1" ] && /etc/init.d/passwall restart >/dev/null 2>&1 || true
+              [ "$(uci -q get r76s_ota_state.state.passwall2_init)" = "1" ] && [ "$pw2_uci" = "1" ] && /etc/init.d/passwall2 restart >/dev/null 2>&1 || true
+              [ "$(uci -q get r76s_ota_state.state.smartdns_init)" = "1" ] && [ "$sd_uci" = "1" ] && /etc/init.d/smartdns restart >/dev/null 2>&1 || true
+              [ "$(uci -q get r76s_ota_state.state.adguardhome_init)" = "1" ] && /etc/init.d/adguardhome restart >/dev/null 2>&1 || true
+
+              uci -q set r76s_ota_state.state.pending='0'
+              uci -q commit r76s_ota_state
+          }
+          EOF_OTA_RESTORE
+          chmod 0755 openwrt/files/etc/init.d/r76s-ota-restore
+
+          cat > openwrt/files/etc/uci-defaults/99-r76s-v100-ota-restore <<'EOF_OTA_TRIGGER'
+          #!/bin/sh
+          #
+          # R76S_V100_STANDARD_PRESERVE_RESTORE
+          #
+          # Custom R76S OTA (pending=1) has priority and uses the dedicated
+          # preserve-state snapshot. Standard LuCI/sysupgrade preserve uses
+          # the init states captured by 09-r76s-v100-preserve-detect.
+          #
+
+          CUSTOM_PENDING="$(uci -q get r76s_ota_state.state.pending)"
+          STANDARD_PRESERVE="$(uci -q get r76s_ota_state.state.standard_preserve)"
+
+          # Custom R76S OTA restore.
+          /etc/init.d/r76s-ota-restore start >/dev/null 2>&1 || true
+
+          service_init_state() {
+              name="$1"
+              enabled="$2"
+
+              [ -x "/etc/init.d/$name" ] || return 0
+
+              case "$enabled" in
+                  1)
+                      /etc/init.d/"$name" enable >/dev/null 2>&1 || true
+                      ;;
+                  0)
+                      /etc/init.d/"$name" stop >/dev/null 2>&1 || true
+                      /etc/init.d/"$name" disable >/dev/null 2>&1 || true
+                      ;;
+                  *)
+                      # Unknown/missing state: do not change user state.
+                      return 0
+                      ;;
+              esac
+          }
+
+          if [ "$CUSTOM_PENDING" != "1" ] && \
+             [ "$STANDARD_PRESERVE" = "1" ]; then
+
+              pw_init="$(uci -q get r76s_ota_state.state.standard_passwall_init)"
+              pw2_init="$(uci -q get r76s_ota_state.state.standard_passwall2_init)"
+              sd_init="$(uci -q get r76s_ota_state.state.standard_smartdns_init)"
+              agh_init="$(uci -q get r76s_ota_state.state.standard_adguardhome_init)"
+
+              service_init_state passwall "$pw_init"
+              service_init_state passwall2 "$pw2_init"
+              service_init_state smartdns "$sd_init"
+              service_init_state adguardhome "$agh_init"
+
+              # Start only services that were enabled and logically active.
+              pw_uci="$(uci -q get passwall.@global[0].enabled)"
+              pw2_uci="$(uci -q get passwall2.@global[0].enabled)"
+              sd_uci="$(uci -q get smartdns.@smartdns[0].enabled)"
+
+              [ "$pw_init" = "1" ] && [ "$pw_uci" = "1" ] && \
+                  /etc/init.d/passwall restart >/dev/null 2>&1 || true
+
+              [ "$pw2_init" = "1" ] && [ "$pw2_uci" = "1" ] && \
+                  /etc/init.d/passwall2 restart >/dev/null 2>&1 || true
+
+              [ "$sd_init" = "1" ] && [ "$sd_uci" = "1" ] && \
+                  /etc/init.d/smartdns restart >/dev/null 2>&1 || true
+
+              if [ "$agh_init" = "1" ] && \
+                 { [ -s /etc/adguardhome.yaml ] || \
+                   [ -s /etc/adguardhome/adguardhome.yaml ]; }; then
+                  /etc/init.d/adguardhome restart >/dev/null 2>&1 || true
+              fi
+          fi
+
+          # Standard-preserve markers are needed only during this first boot.
+          for key in \
+              standard_preserve \
+              standard_passwall_init \
+              standard_passwall2_init \
+              standard_smartdns_init \
+              standard_adguardhome_init; do
+              uci -q delete "r76s_ota_state.state.$key" || true
+          done
+
+          uci -q commit r76s_ota_state || true
+
+          exit 0
+          EOF_OTA_TRIGGER
+          chmod 0755 openwrt/files/etc/uci-defaults/99-r76s-v100-ota-restore
+
+          echo "===== Re-stage V1.0 critical files after openwrt/files reset ====="
+
+          PRESERVE_HELPER_FINAL_SRC="openwrt/package/custom/luci-app-r76s-updater/files/root/usr/libexec/r76s/r76s-ota-preserve-state"
+
+          FLASH_JS_FINAL_SRC="$(
+            find openwrt/feeds openwrt/package -type f               -path '*/luci-mod-system/htdocs/luci-static/resources/view/system/flash.js'               -print | head -n1
+          )"
+
+          UI_JS_FINAL_SRC="$(
+            find openwrt/feeds openwrt/package -type f               -path '*/luci-base/htdocs/luci-static/resources/ui.js'               -print | head -n1
+          )"
+
+          test -s "$PRESERVE_HELPER_FINAL_SRC"
+          test -s "$FLASH_JS_FINAL_SRC"
+          test -s "$UI_JS_FINAL_SRC"
+
+          grep -qF 'r76s_ota_state.state.pending'             "$PRESERVE_HELPER_FINAL_SRC"
+
+          grep -qF 'R76S_V100_FLASH_UPLOAD_PATCH'             "$FLASH_JS_FINAL_SRC"
+
+          grep -qF 'timeout: 0'             "$UI_JS_FINAL_SRC"
+
+          mkdir -p             openwrt/files/usr/libexec/r76s             openwrt/files/www/luci-static/resources/view/system
+
+          install -m 0755             "$PRESERVE_HELPER_FINAL_SRC"             openwrt/files/usr/libexec/r76s/r76s-ota-preserve-state
+
+          install -m 0644             "$UI_JS_FINAL_SRC"             openwrt/files/www/luci-static/resources/ui.js
+
+          install -m 0644             "$FLASH_JS_FINAL_SRC"             openwrt/files/www/luci-static/resources/view/system/flash.js
+
+          test -x             openwrt/files/usr/libexec/r76s/r76s-ota-preserve-state
+
+          grep -qF 'r76s_ota_state.state.pending'             openwrt/files/usr/libexec/r76s/r76s-ota-preserve-state
+
+          grep -qF 'timeout: 0'             openwrt/files/www/luci-static/resources/ui.js
+
+          grep -qF 'R76S_V100_FLASH_UPLOAD_PATCH'             openwrt/files/www/luci-static/resources/view/system/flash.js
+
+          echo "V1.0 critical files re-staged after overlay reset."
+
+          echo "===== V1.0 safety assertions ====="
+          grep -qF "github.com/${GITHUB_REPOSITORY}/releases/latest/download" openwrt/files/lib/upgrade/ota.sh
+          grep -qF '/etc/config/passwall2' openwrt/files/lib/upgrade/keep.d/r76s-v100
+          grep -qF '/etc/adguardhome.yaml' openwrt/files/lib/upgrade/keep.d/r76s-v100
+          grep -qF 'r76s_ota_state.state.pending' openwrt/files/etc/init.d/r76s-ota-restore
+          test -x openwrt/files/etc/uci-defaults/09-r76s-v100-preserve-detect
+          grep -qF 'R76S_V100_PRESERVE_DETECT' openwrt/files/etc/uci-defaults/09-r76s-v100-preserve-detect
+          grep -qF '/etc/uci-defaults/10_disable_services' openwrt/files/etc/uci-defaults/09-r76s-v100-preserve-detect
+          grep -qF 'standard_preserve' openwrt/files/etc/uci-defaults/98-r76s-v100-clean-services
+          grep -qF 'standard_preserve' openwrt/files/etc/uci-defaults/99-r76s-v100-ota-restore
+          grep -qF 'PRESERVE_UPGRADE=1' openwrt/files/etc/uci-defaults/98-r76s-v100-clean-services
+
+          # Clean flash must leave PassWall / PassWall2 installed but disabled.
+          grep -qF '/etc/init.d/passwall disable' openwrt/files/etc/uci-defaults/98-r76s-v100-clean-services
+          grep -qF '/etc/init.d/passwall2 disable' openwrt/files/etc/uci-defaults/98-r76s-v100-clean-services
+
+          # Standard LuCI preserve-config upgrades must capture and restore
+          # the original init/autostart state without interfering with custom OTA.
+          grep -qF 'standard_passwall_init' openwrt/files/etc/uci-defaults/09-r76s-v100-preserve-detect
+          grep -qF 'standard_passwall2_init' openwrt/files/etc/uci-defaults/09-r76s-v100-preserve-detect
+          grep -qF 'standard_smartdns_init' openwrt/files/etc/uci-defaults/09-r76s-v100-preserve-detect
+          grep -qF 'standard_adguardhome_init' openwrt/files/etc/uci-defaults/09-r76s-v100-preserve-detect
+          grep -qF 'R76S_V100_STANDARD_PRESERVE_RESTORE' openwrt/files/etc/uci-defaults/99-r76s-v100-ota-restore
+          grep -qF 'CUSTOM_PENDING' openwrt/files/etc/uci-defaults/99-r76s-v100-ota-restore
+          grep -qF 'standard_passwall_init' openwrt/files/etc/uci-defaults/99-r76s-v100-ota-restore
+
+          # Fail early if this iStoreOS/OpenWrt source no longer provides the
+          # standard preserve-config marker semantics we rely on.
+          grep -qF '10_disable_services' openwrt/package/base-files/files/sbin/sysupgrade
+          test -x openwrt/files/etc/uci-defaults/96-r76s-v100-upload-timeout
+          grep -qF 'R76S_V100_UPLOAD_TIMEOUT' openwrt/files/etc/uci-defaults/96-r76s-v100-upload-timeout
+          grep -qF "script_timeout='600'" openwrt/files/etc/uci-defaults/96-r76s-v100-upload-timeout
+          grep -qF "network_timeout='120'" openwrt/files/etc/uci-defaults/96-r76s-v100-upload-timeout
+          test -x openwrt/files/usr/libexec/r76s/r76s-v100-additive-merge
+          test -x openwrt/files/etc/uci-defaults/97-r76s-v100-additive-merge
+          grep -qF 'R76S_V100_ADDITIVE_MERGE' openwrt/files/usr/libexec/r76s/r76s-v100-additive-merge
+          grep -qF 'merge_named_sections' openwrt/files/usr/libexec/r76s/r76s-v100-additive-merge
+          grep -qF 'migration.v100' openwrt/files/usr/libexec/r76s/r76s-v100-additive-merge ||             grep -qF 'MIGRATION_KEY="v100"' openwrt/files/usr/libexec/r76s/r76s-v100-additive-merge
+          test -x openwrt/files/etc/uci-defaults/98-r76s-v100-clean-services
+          test -x openwrt/files/etc/uci-defaults/99-r76s-v100-ota-restore
+          ! grep -RnsE '127\.0\.0\.1#(3053|6053)|R76S_EXTERNAL_DNS_BEGIN|noresolv=.1.|noresolv=.0.' openwrt/files 2>/dev/null
+
+          echo "R76S v1.0 clean defaults and OTA preservation hooks verified."
+      - name: Verify R76S status package
+        run: |
+          echo "===== R76S custom package ====="
+
+          find \
+            openwrt/package/custom/luci-app-r76s-status \
+            -maxdepth 4 \
+            -type f \
+            -print
+
+          grep -q \
+            'Rockchip RK3576' \
+            openwrt/package/custom/luci-app-r76s-status/files/view/r76s_status/status.htm
+
+          grep -qF 'PassWall2' \
+            openwrt/package/custom/luci-app-r76s-status/files/view/r76s_status/status.htm
+          grep -qF 'AdGuard Home' \
+            openwrt/package/custom/luci-app-r76s-status/files/view/r76s_status/status.htm
+          grep -qF "pgrep -f '[s]martdns'" \
+            openwrt/package/custom/luci-app-r76s-status/files/controller/r76s_status.lua
+          grep -qF "pgrep -f '/tmp/etc/passwall/'" \
+            openwrt/package/custom/luci-app-r76s-status/files/controller/r76s_status.lua
+
+          grep -q \
+            'view/r76s_status/\*' \
+            openwrt/package/custom/luci-app-r76s-status/Makefile
+
+          echo
+          echo "R76S status page verified."
+
+      - name: Apply R76S config and verify v1.0 selections
+        run: |
+          cd openwrt
+
+          cp ../config/R76S.config .config
+
+          echo "===== Input R76S.config PassWall selections ====="
+          grep -E \
+            '^CONFIG_PACKAGE_(luci-app-passwall|chinadns-ng|xray-core|sing-box|kmod-nft-(socket|tproxy)|firewall4)' \
+            .config \
+            || true
+
+          # The repository config is the single source of truth.
+          # Do not call ./scripts/config here: in OpenWrt this path is a
+          # directory containing Kconfig helper sources, not an executable.
+          for required in \
+            'CONFIG_PACKAGE_firewall4=y' \
+            'CONFIG_PACKAGE_dnsmasq-full=y' \
+            'CONFIG_PACKAGE_luci-app-ota=y' \
+            'CONFIG_PACKAGE_luci-app-package-manager=y' \
+            'CONFIG_PACKAGE_luci-app-r76s-updater=y' \
+            'CONFIG_PACKAGE_quickstart=y' \
+            'CONFIG_PACKAGE_luci-app-quickstart=y' \
+            'CONFIG_PACKAGE_luci-i18n-quickstart-zh-cn=y' \
+            'CONFIG_PACKAGE_kmod-tun=y' \
+            'CONFIG_PACKAGE_luci-app-passwall=y' \
+            'CONFIG_PACKAGE_luci-app-passwall2=y' \
+            'CONFIG_PACKAGE_luci-i18n-passwall2-zh-cn=y' \
+            'CONFIG_PACKAGE_luci-app-passwall_Nftables_Transparent_Proxy=y' \
+            'CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Geoview=y' \
+            'CONFIG_PACKAGE_luci-app-passwall_INCLUDE_SingBox=y' \
+            'CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray_Geodata=y' \
+            'CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=y' \
+            'CONFIG_PACKAGE_chinadns-ng=y' \
+            'CONFIG_PACKAGE_kmod-nft-socket=y' \
+            'CONFIG_PACKAGE_kmod-nft-tproxy=y'; do
+            if ! grep -qxF "$required" .config; then
+              echo "ERROR: Required v1.0 selection missing from config/R76S.config:"
+              echo "$required"
+              exit 1
+            fi
+          done
+
+          make defconfig
+
+          echo
+          echo "===== Final PassWall selections after make defconfig ====="
+          grep -E \
+            '^CONFIG_PACKAGE_(luci-app-passwall|chinadns-ng|xray-core|sing-box|kmod-nft-(socket|tproxy)|firewall4)' \
+            .config \
+            || true
+
+          if ! grep -qxF 'CONFIG_PACKAGE_luci-app-passwall=y' .config; then
+            echo "ERROR: luci-app-passwall was removed by make defconfig."
+            echo
+            echo "===== PassWall package definition ====="
+            sed -n '1,190p' package/passwall-luci/luci-app-passwall/Makefile 2>/dev/null || true
+            echo
+            echo "===== Kconfig block for luci-app-passwall ====="
+            LINE=$(
+              grep -n '^config PACKAGE_luci-app-passwall$' \
+                tmp/.config-package.in 2>/dev/null \
+                | head -n 1 \
+                | cut -d: -f1
+            )
+            if [ -n "$LINE" ]; then
+              START=$((LINE > 12 ? LINE - 12 : 1))
+              END=$((LINE + 35))
+              sed -n "${START},${END}p" tmp/.config-package.in
+            else
+              echo "PACKAGE_luci-app-passwall symbol was not generated."
+              echo
+            echo "===== Direct dependency symbols ====="
+            grep -E \
+              '^(config PACKAGE_(coreutils|coreutils-base64|coreutils-nohup|coreutils-timeout|curl|chinadns-ng|dns2socks|dnsmasq-full|ip-full|libuci-lua|lua|luci-compat|luci-lib-jsonc|microsocks|resolveip|tcping|lyaml)|# CONFIG_PACKAGE_(coreutils|coreutils-base64|coreutils-nohup|coreutils-timeout|curl|chinadns-ng|dns2socks|dnsmasq-full|ip-full|libuci-lua|lua|luci-compat|luci-lib-jsonc|microsocks|resolveip|tcping|lyaml))' \
+              .config tmp/.config-package.in 2>/dev/null \
+              | head -n 250 \
+              || true
+            fi
+            exit 1
+          fi
+
+      - name: Verify final R76S configuration
+        run: |
+          cd openwrt
+
+          echo "===== TARGET ====="
+
+          grep -E \
+            '^CONFIG_TARGET_(rockchip|rockchip_armv8)' \
+            .config
+
+          echo
+          echo "===== DEVICE ====="
+
+          grep \
+            '^CONFIG_TARGET_rockchip_armv8_DEVICE_.*=y$' \
+            .config \
+            || true
+
+          echo
+          echo "===== PARTITIONS ====="
+
+          grep -E \
+            '^CONFIG_TARGET_(KERNEL_PARTSIZE|ROOTFS_PARTSIZE)=' \
+            .config
+
+          echo
+          echo "===== ROOTFS ====="
+
+          grep -E \
+            '^CONFIG_TARGET_ROOTFS_|^# CONFIG_TARGET_ROOTFS_' \
+            .config \
+            || true
+
+          for required in \
+            'CONFIG_TARGET_rockchip=y' \
+            'CONFIG_TARGET_rockchip_armv8=y' \
+            'CONFIG_TARGET_rockchip_armv8_DEVICE_friendlyarm_nanopi-r76s=y' \
+            'CONFIG_TARGET_KERNEL_PARTSIZE=64' \
+            'CONFIG_TARGET_ROOTFS_PARTSIZE=256' \
+            'CONFIG_TARGET_ROOTFS_SQUASHFS=y' \
+            '# CONFIG_TARGET_ROOTFS_EXT4FS is not set' \
+            'CONFIG_PACKAGE_luci-app-r76s-status=y' \
+            'CONFIG_PACKAGE_luci-app-r76s-updater=y' \
+            'CONFIG_PACKAGE_quickstart=y' \
+            'CONFIG_PACKAGE_luci-app-quickstart=y' \
+            'CONFIG_PACKAGE_luci-i18n-quickstart-zh-cn=y' \
+            'CONFIG_PACKAGE_luci-theme-argon=y' \
+            'CONFIG_PACKAGE_luci-app-ota=y' \
+            'CONFIG_PACKAGE_luci-app-package-manager=y' \
+            'CONFIG_PACKAGE_kmod-tun=y' \
+            'CONFIG_PACKAGE_smartdns=y' \
+            'CONFIG_PACKAGE_luci-app-smartdns=y' \
+            'CONFIG_PACKAGE_luci-i18n-smartdns-zh-cn=y' \
+            'CONFIG_PACKAGE_adguardhome=y' \
+            'CONFIG_PACKAGE_dockerd=y' \
+            'CONFIG_PACKAGE_luci-app-dockerman=y' \
+            'CONFIG_PACKAGE_luci-app-passwall=y' \
+            'CONFIG_PACKAGE_luci-app-passwall2=y' \
+            'CONFIG_PACKAGE_luci-i18n-passwall2-zh-cn=y' \
+            'CONFIG_PACKAGE_luci-app-passwall_Nftables_Transparent_Proxy=y' \
+            'CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=y' \
+            'CONFIG_PACKAGE_luci-app-passwall_INCLUDE_SingBox=y' \
+            'CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Geoview=y' \
+            'CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray_Geodata=y' \
+            'CONFIG_PACKAGE_kmod-nft-socket=y' \
+            'CONFIG_PACKAGE_kmod-nft-tproxy=y' \
+            'CONFIG_PACKAGE_chinadns-ng=y' \
+            'CONFIG_PACKAGE_xray-core=y' \
+            'CONFIG_PACKAGE_sing-box=y'; do
+            if ! grep -qxF "$required" .config; then
+              echo "ERROR: required config missing after defconfig: $required"
+              exit 1
+            fi
+          done
+
+          echo
+          echo "===== PASSWALL ====="
+          grep -E \
+            '^CONFIG_PACKAGE_(luci-app-passwall|chinadns-ng|xray-core|sing-box|kmod-nft-(socket|tproxy))' \
+            .config \
+            | sort
+
+          DEVICE_COUNT=$(
+            grep -c \
+              '^CONFIG_TARGET_rockchip_armv8_DEVICE_.*=y$' \
+              .config \
+              || true
+          )
+
+          echo
+          echo "Enabled device count: $DEVICE_COUNT"
+
+          if [ "$DEVICE_COUNT" -ne 1 ]; then
+            echo "ERROR: Exactly one Rockchip device must be selected."
+            exit 1
+          fi
+
+          echo
+          echo "===== FINAL V1.0 ROOTFS OVERLAY ASSERTIONS ====="
+          test -x files/usr/libexec/r76s/r76s-ota-preserve-state
+          grep -qF 'r76s_ota_state.state.pending' files/usr/libexec/r76s/r76s-ota-preserve-state
+          test -s files/www/luci-static/resources/ui.js
+          grep -qF 'timeout: 0' files/www/luci-static/resources/ui.js
+          test -s files/www/luci-static/resources/view/system/flash.js
+          grep -qF 'R76S_V100_FLASH_UPLOAD_PATCH' files/www/luci-static/resources/view/system/flash.js
+          echo "Final rootfs overlay assertions: PASS"
+
+          echo "R76S v1.0 configuration verified successfully."
+
+      - name: Build firmware
+        run: |
+          cd openwrt
+
+          JOBS="$(nproc)"
+          echo "===== Build with $JOBS parallel jobs + ccache ====="
+
+          export CCACHE_DIR="$HOME/.ccache"
+          ccache -M 5G >/dev/null 2>&1 || true
+          ccache -z >/dev/null 2>&1 || true
+
+          if ! make -j"$JOBS"; then
+            echo "Parallel build failed; retrying once with -j1 V=s for diagnosis."
+            make -j1 V=s
+          fi
+
+          ccache -s || true
+
+      - name: Verify built PassWall2 Chinese package and rule defaults
+        run: |
+          cd openwrt
+          echo "===== Verify FINAL built rootfs critical V1.0 files ====="
+          ROOTFS_DIR="$(find build_dir -type d -name 'root-rockchip' -print | head -n1)"
+          echo "ROOTFS_DIR=$ROOTFS_DIR"
+          test -n "$ROOTFS_DIR"
+          test -d "$ROOTFS_DIR"
+          test -x "$ROOTFS_DIR/usr/libexec/r76s/r76s-ota-preserve-state"
+          grep -qF 'r76s_ota_state.state.pending' "$ROOTFS_DIR/usr/libexec/r76s/r76s-ota-preserve-state"
+          test -s "$ROOTFS_DIR/www/luci-static/resources/ui.js"
+          grep -qF 'timeout: 0' "$ROOTFS_DIR/www/luci-static/resources/ui.js"
+          test -s "$ROOTFS_DIR/www/luci-static/resources/view/system/flash.js"
+          grep -qF 'R76S_V100_FLASH_UPLOAD_PATCH' "$ROOTFS_DIR/www/luci-static/resources/view/system/flash.js"
+          echo "FINAL built rootfs critical files: PASS"
+
+          echo "===== Verify PassWall / PassWall2 package defaults after build ====="
+          PW1_DEFAULT="package/passwall-luci/luci-app-passwall/root/usr/share/passwall/0_default_config"
+          PW2_DEFAULT="package/passwall2-luci/luci-app-passwall2/root/usr/share/passwall2/0_default_config"
+          PW1_COUNT="$(grep -c '^config shunt_rules ' "$PW1_DEFAULT")"
+          PW2_COUNT="$(grep -c '^config shunt_rules ' "$PW2_DEFAULT")"
+          test "$PW1_COUNT" -eq 42
+          test "$PW2_COUNT" -eq 42
+          grep -qF "config nodes 'myshunt'" "$PW1_DEFAULT"
+          grep -qF "config nodes 'myshunt'" "$PW2_DEFAULT"
+
+          PW2_LANG_IPK="$(find bin -type f -name 'luci-i18n-passwall2-zh-cn*.ipk' | head -n1)"
+          test -n "$PW2_LANG_IPK"
+          test -s "$PW2_LANG_IPK"
+          echo "PassWall2 zh-cn package: $PW2_LANG_IPK"
+
+          PW2_LMO="$(find build_dir/target-* -type f \( \
+            -path '*/root-*/usr/lib/lua/luci/i18n/passwall2.zh-cn.lmo' -o \
+            -path '*/root-*/usr/share/luci/i18n/passwall2.zh-cn.lmo' \
+          \) | head -n1)"
+
+          test -n "$PW2_LMO"
+          test -s "$PW2_LMO"
+
+          echo "PassWall2 zh-cn LMO in final rootfs: $PW2_LMO"
+          echo "PassWall2 Simplified Chinese LMO verified in final rootfs."
+
+      - name: Locate R76S firmware
+        run: |
+          TARGET_DIR="openwrt/bin/targets/rockchip/armv8"
+
+          echo "===== Build output ====="
+
+          find \
+            "$TARGET_DIR" \
+            -maxdepth 1 \
+            -type f \
+            -printf '%f\n' \
+            | sort
+
+          CUSTOM_IMAGE=$(
+            find \
+              "$TARGET_DIR" \
+              -maxdepth 1 \
+              -type f \
+              -name '*friendlyarm_nanopi-r76s*squashfs*.img.gz' \
+              | head -n 1
+          )
+
+          if [ -z "$CUSTOM_IMAGE" ]; then
+            echo "ERROR: R76S image not found."
+            exit 1
+          fi
+
+          echo
+          echo "Found:"
+          echo "$CUSTOM_IMAGE"
+
+          echo "CUSTOM_IMAGE=$CUSTOM_IMAGE" >> "$GITHUB_ENV"
+          echo "TARGET_DIR=$TARGET_DIR" >> "$GITHUB_ENV"
+
+      - name: Patch R76S bootloader
+        run: |
+          RAW_IMAGE="/tmp/R76S-V1.0.img"
+          STRIPPED_IMAGE="/tmp/R76S-V1.0-stripped.img.gz"
+          SYSUPGRADE_META="/tmp/R76S-V1.0.sysupgrade.meta"
+          FWTOOL="$GITHUB_WORKSPACE/openwrt/staging_dir/host/bin/fwtool"
+
+          test -x "$FWTOOL"
+          cp -f "$CUSTOM_IMAGE" "$STRIPPED_IMAGE"
+
+          echo "===== Preserve and strip OpenWrt sysupgrade metadata ====="
+          rm -f "$SYSUPGRADE_META" /tmp/r76s-build.ucert
+          "$FWTOOL" -s /tmp/r76s-build.ucert -t "$STRIPPED_IMAGE" >/dev/null 2>&1 || true
+          "$FWTOOL" -i "$SYSUPGRADE_META" -t "$STRIPPED_IMAGE"
+          test -s "$SYSUPGRADE_META"
+
+          python3 - "$SYSUPGRADE_META" <<'PY_META'
+          import json, sys
+          p=sys.argv[1]
+          with open(p, 'r', encoding='utf-8') as f: meta=json.load(f)
+          if 'friendlyarm,nanopi-r76s' not in meta.get('supported_devices', []):
+              raise SystemExit('ERROR: source sysupgrade metadata lacks friendlyarm,nanopi-r76s')
+          meta['metadata_version']='1.1'
+          meta['compat_version']=meta.get('compat_version','1.0')
+          v=meta.setdefault('version',{})
+          v.update({'dist':'iStoreOS','version':'24.10.8','revision':'V1.0','target':'rockchip/armv8','board':'friendlyarm,nanopi-r76s'})
+          with open(p,'w',encoding='utf-8') as f:
+              json.dump(meta,f,ensure_ascii=False,separators=(',',':')); f.write('\n')
+          PY_META
+          cat "$SYSUPGRADE_META"
+
+          gzip -t "$STRIPPED_IMAGE"
+          echo "===== Decompress stripped custom image ====="
+          gzip -dc "$STRIPPED_IMAGE" > "$RAW_IMAGE"
+          test -s "$RAW_IMAGE"
+          echo "SYSUPGRADE_META=$SYSUPGRADE_META" >> "$GITHUB_ENV"
+          echo "FWTOOL=$FWTOOL" >> "$GITHUB_ENV"
+
+          echo
+          echo "===== Preserve first 32KB hash ====="
+
+          FIRST32_BEFORE=$(
+            dd \
+              if="$RAW_IMAGE" \
+              bs=512 \
+              count=64 \
+              status=none \
+              | md5sum \
+              | awk '{print $1}'
+          )
+
+          echo "First 32KB before: $FIRST32_BEFORE"
+
+          echo
+          echo "===== Current custom bootloader ====="
+
+          CUSTOM_BOOT_BEFORE=$(
+            dd \
+              if="$RAW_IMAGE" \
+              bs=512 \
+              skip=64 \
+              count=32704 \
+              status=none \
+              | md5sum \
+              | awk '{print $1}'
+          )
+
+          echo "Custom bootloader before: $CUSTOM_BOOT_BEFORE"
+
+          echo
+          echo "===== Patch official bootloader into custom image ====="
+
+          dd \
+            if="$BOOT_BIN" \
+            of="$RAW_IMAGE" \
+            bs=512 \
+            seek=64 \
+            count=32704 \
+            conv=notrunc,fsync \
+            status=progress
+
+          sync
+
+          echo
+          echo "===== Verify bootloader after patch ====="
+
+          PATCHED_BOOT=$(
+            dd \
+              if="$RAW_IMAGE" \
+              bs=512 \
+              skip=64 \
+              count=32704 \
+              status=none \
+              | md5sum \
+              | awk '{print $1}'
+          )
+
+          echo "Patched bootloader: $PATCHED_BOOT"
+          echo "Expected bootloader: $BOOT_MD5"
+
+          if [ "$PATCHED_BOOT" != "$BOOT_MD5" ]; then
+            echo "ERROR: Bootloader patch verification failed."
+            exit 1
+          fi
+          echo
+          echo "===== Verify first 32KB was NOT modified ====="
+
+          FIRST32_AFTER=$(
+            dd \
+              if="$RAW_IMAGE" \
+              bs=512 \
+              count=64 \
+              status=none \
+              | md5sum \
+              | awk '{print $1}'
+          )
+
+          echo "First 32KB before: $FIRST32_BEFORE"
+          echo "First 32KB after:  $FIRST32_AFTER"
+
+          if [ "$FIRST32_BEFORE" != "$FIRST32_AFTER" ]; then
+            echo "ERROR: Partition table area was modified."
+            exit 1
+          fi
+          echo
+          echo "===== Partition table ====="
+
+          fdisk -l "$RAW_IMAGE"
+
+          echo "RAW_IMAGE=$RAW_IMAGE" >> "$GITHUB_ENV"
+
+      - name: Create final v1.0 image and OTA metadata
+        run: |
+          RELEASE_DIR="$TARGET_DIR/release-v1.0"
+
+          FINAL_NAME="R76S-V1.0-TF-squashfs.img.gz"
+          FINAL_IMAGE="$RELEASE_DIR/$FINAL_NAME"
+
+          mkdir -p "$RELEASE_DIR"
+
+          echo "===== Compress final patched image ====="
+
+          pigz -9 -c \
+            "$RAW_IMAGE" \
+            > "$FINAL_IMAGE"
+
+          # Verify gzip payload BEFORE appending fwtool metadata.
+          gzip -t "$FINAL_IMAGE"
+
+          echo
+          echo "===== Restore OpenWrt sysupgrade metadata ====="
+          test -x "$FWTOOL"
+          test -s "$SYSUPGRADE_META"
+          "$FWTOOL" -I "$SYSUPGRADE_META" "$FINAL_IMAGE"
+
+          FINAL_META_CHECK="/tmp/R76S-V1.0.final.meta"
+          rm -f "$FINAL_META_CHECK"
+          "$FWTOOL" -i "$FINAL_META_CHECK" "$FINAL_IMAGE"
+          test -s "$FINAL_META_CHECK"
+          python3 - "$FINAL_META_CHECK" <<'PY_FINAL_META'
+          import json, sys
+          with open(sys.argv[1], 'r', encoding='utf-8') as f: meta=json.load(f)
+          if 'friendlyarm,nanopi-r76s' not in meta.get('supported_devices', []):
+              raise SystemExit('ERROR: final metadata lacks R76S support')
+          v=meta.get('version',{})
+          exp={'dist':'iStoreOS','version':'24.10.8','revision':'V1.0','target':'rockchip/armv8'}
+          for k,val in exp.items():
+              if v.get(k) != val: raise SystemExit(f'ERROR: metadata {k}={v.get(k)!r}, expected {val!r}')
+          PY_FINAL_META
+          cat "$FINAL_META_CHECK"
+
+          echo
+          echo "===== SHA256 ====="
+
+          cd "$RELEASE_DIR"
+
+          FINAL_SHA="$(
+            sha256sum "$FINAL_NAME" | awk '{print $1}'
+          )"
+
+          printf '%s  %s\n' \
+            "$FINAL_SHA" \
+            "$FINAL_NAME" \
+            | tee sha256sums
+
+          # iStoreOS luci-app-ota reads version.latest/version.index from the
+          # device-specific OTA_URL_BASE. Our ota.sh points that base to this
+          # repository's latest GitHub Release assets.
+          cat > version.latest <<EOF
+          [24.10.8-V1.0]($FINAL_NAME)
+          R76S V1.0 / RK3576 / TF
+          SHA256: $FINAL_SHA
+          EOF
+
+          cat > version.index <<'EOF'
+          24.10.8-V1.0
+          EOF
+
+          cat > ota.footer.html <<'EOF'
+          <p>R76S Custom OTA: TF-first / eMMC-fallback boot policy. Online upgrade preserves configuration by default.</p>
+          EOF
+
+          printf '%s\n' \
+            'R76S V1.0 OTA / PassWall2 / PassWall' \
+            '' \
+            'Target:' \
+            'rockchip/armv8' \
+            '' \
+            'Device:' \
+            'FriendlyElec NanoPi R76S' \
+            '' \
+            'SoC:' \
+            'Rockchip RK3576' \
+            '' \
+            'Bootloader source:' \
+            'iStoreOS 24.10.8-2026073111 R76S' \
+            '' \
+            'Patched range:' \
+            '32KB - 16MB' \
+            '' \
+            "Bootloader MD5: $BOOT_MD5" \
+            '' \
+            'The first 32KB of the custom image is preserved.' \
+            '' \
+            'v1.0 features:' \
+            'LAN: 192.168.50.1/24' \
+            'WAN clean default: DHCP client' \
+            'DHCP/DNS: dnsmasq uses WAN DNS without forced SmartDNS/AdGuard chain' \
+            'LuCI theme: Argon' \
+            'System login clean default: root / password' \
+            'PassWall: installed, clean default disabled, user settings persist' \
+            'PassWall2: installed, clean default disabled, user settings persist' \
+            'SmartDNS: bundled Release48.4 runtime, clean default disabled/user-controlled' \
+            'AdGuard Home: installed, clean default disabled and not preconfigured by R76S custom scripts' \
+            'Enabled services keep normal init/procd state across reboot/power loss' \
+            'Online firmware upgrade: preserves existing configuration by default' \
+            'OTA fixes: async download state + PARTUUID boot safety + centered UI' \
+            'R76S status fixes: SmartDNS/PassWall/PassWall2/AdGuard runtime state + memory units' \
+            'Xray core: pinned to 26.7.28 for Go 1.26 compatibility' \
+            'PassWall transparent proxy: nftables' \
+            'PassWall cores: Xray + Sing-box' \
+            'QuickStart: official iStoreOS UI unchanged' \
+            'UU accelerator: not included' \
+            'Firmware OTA: GitHub Releases latest/download' \
+            'Component online update: PassWall + PassWall2 + SmartDNS + AdGuard Home without forced DNS reset' \
+            'Boot policy: TF-first / eMMC fallback' \
+            > BOOTLOADER_INFO.txt
+
+          echo
+          echo "===== Final image and OTA metadata ====="
+
+          ls -lh \
+            "$FINAL_NAME" \
+            sha256sums \
+            version.latest \
+            version.index \
+            ota.footer.html \
+            BOOTLOADER_INFO.txt
+
+      - name: Copy build metadata
+        run: |
+          RELEASE_DIR="$TARGET_DIR/release-v1.0"
+
+          for file in \
+            config.buildinfo \
+            feeds.buildinfo \
+            version.buildinfo \
+            profiles.json; do
+
+            if [ -f "$TARGET_DIR/$file" ]; then
+              cp \
+                "$TARGET_DIR/$file" \
+                "$RELEASE_DIR/"
+
+          fi
+          done
+
+          find \
+            "$TARGET_DIR" \
+            -maxdepth 1 \
+            -type f \
+            -name '*friendlyarm_nanopi-r76s*.manifest' \
+            -exec cp {} "$RELEASE_DIR/" \; \
+            || true
+
+      - name: Final verification
+        run: |
+          RELEASE_DIR="$TARGET_DIR/release-v1.0"
+
+          FINAL_IMAGE="$RELEASE_DIR/R76S-V1.0-TF-squashfs.img.gz"
+
+          echo "===== Final verification ====="
+
+          test -s "$FINAL_IMAGE"
+
+          echo "===== Verify final sysupgrade metadata ====="
+          FINAL_META="/tmp/R76S-V1.0.verify.meta"
+          FINAL_STRIPPED="/tmp/R76S-V1.0.verify.img.gz"
+          cp -f "$FINAL_IMAGE" "$FINAL_STRIPPED"
+          "$FWTOOL" -i "$FINAL_META" -t "$FINAL_STRIPPED"
+          grep -qF 'friendlyarm,nanopi-r76s' "$FINAL_META"
+          grep -qF 'V1.0' "$FINAL_META"
+          gzip -t "$FINAL_STRIPPED"
+
+          for ota_file in version.latest version.index sha256sums ota.footer.html; do
+            test -s "$RELEASE_DIR/$ota_file"
+          done
+
+          grep -qF '24.10.8-V1.0' "$RELEASE_DIR/version.latest"
+          grep -qxF '24.10.8-V1.0' "$RELEASE_DIR/version.index"
+
+          echo
+          echo "Final image:"
+          ls -lh "$FINAL_IMAGE"
+
+          echo
+          echo "===== Verify final bootloader directly ====="
+
+          FINAL_BOOT_MD5=$(
+            gzip -dc "$FINAL_STRIPPED" \
+              | dd \
+                  bs=512 \
+                  skip=64 \
+                  count=32704 \
+                  status=none \
+              | md5sum \
+              | awk '{print $1}'
+          )
+
+          echo "Final bootloader MD5: $FINAL_BOOT_MD5"
+          echo "Expected bootloader MD5: $BOOT_MD5"
+
+          if [ "$FINAL_BOOT_MD5" != "$BOOT_MD5" ]; then
+            echo "ERROR: Final image bootloader mismatch."
+            exit 1
+          fi
+
+          echo
+          echo "R76S v1.0 OTA / PassWall2 / PassWall verified successfully."
+
+      - name: Upload final v1.0 firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: R76S-V1.0-OTA
+          path: openwrt/bin/targets/rockchip/armv8/release-v1.0/*
+          if-no-files-found: error
+
+      - name: Publish OTA assets to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: r76s-v1.0-${{ github.run_number }}
+          name: R76S V1.0 build ${{ github.run_number }}
+          make_latest: true
+          generate_release_notes: false
+          body: |
+            R76S V1.0
+            RK3576 / TF-first / eMMC-fallback
+            OTA + PassWall + PassWall2 + SmartDNS + AdGuard Home
+            Clean flash defaults to DHCP + dnsmasq; online upgrade preserves existing configuration.
+          files: |
+            openwrt/bin/targets/rockchip/armv8/release-v1.0/R76S-V1.0-TF-squashfs.img.gz
+            openwrt/bin/targets/rockchip/armv8/release-v1.0/version.latest
+            openwrt/bin/targets/rockchip/armv8/release-v1.0/version.index
+            openwrt/bin/targets/rockchip/armv8/release-v1.0/sha256sums
+            openwrt/bin/targets/rockchip/armv8/release-v1.0/ota.footer.html
+            openwrt/bin/targets/rockchip/armv8/release-v1.0/BOOTLOADER_INFO.txt
+
+      - name: Build finished
+        run: |
+          echo "===================================="
+          echo " R76S V1.0 BUILD COMPLETE "
+          echo " RK3576 / rockchip / armv8 "
+          echo " OTA Preserve-Config / Clean DHCP+DNS / Status Fix / Bootloader Fix "
+          echo "===================================="
