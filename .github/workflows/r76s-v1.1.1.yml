@@ -696,8 +696,8 @@ jobs:
           # R76S_V111_PASSWALL_GROUP_SCOPED_GUARD
           # Patch only psw-shunt-direct, never the adjacent proxy mapping.
           # Already-correct upstream files are accepted without rewriting groups.
-          python3 scripts/r76s-v111-passwall-groups.py --patch "$PW_SMARTDNS_HELPER"
-          python3 scripts/r76s-v111-passwall-groups.py --verify "$PW_SMARTDNS_HELPER"
+          python3 ../scripts/r76s-v111-passwall-groups.py --patch "$PW_SMARTDNS_HELPER"
+          python3 ../scripts/r76s-v111-passwall-groups.py --verify "$PW_SMARTDNS_HELPER"
 
           test -f package/diy/luci-app-ota/Makefile
 
@@ -3191,7 +3191,7 @@ jobs:
           echo "V1.1.1 critical files re-staged after overlay reset."
 
           echo "===== V1.1.1: install read-only DNS diagnostics, no autostart ====="
-          test -s scripts/r76s-v111-dns-transition-plan.py
+          test -s ../scripts/r76s-v111-dns-transition-plan.py
           echo "DNS_64_TRANSITIONS=OFFLINE_PLAN_ONLY"
           DNS_READONLY_DIR="openwrt/files/usr/libexec/r76s/v111-dns-readonly"
           mkdir -p "$DNS_READONLY_DIR"
@@ -3203,16 +3203,16 @@ jobs:
             r76s-v111-dns-runtime-audit.sh \
             r76s-v111-agh-upstream.sh \
             r76s-v111-agh-yaml-render.sh; do
-              test -s "scripts/$dns_script"
-              sh -n "scripts/$dns_script"
-              install -m 0755 "scripts/$dns_script" "$DNS_READONLY_DIR/$dns_script"
-              cmp -s "scripts/$dns_script" "$DNS_READONLY_DIR/$dns_script"
+              test -s "../scripts/$dns_script"
+              sh -n "../scripts/$dns_script"
+              install -m 0755 "../scripts/$dns_script" "$DNS_READONLY_DIR/$dns_script"
+              cmp -s "../scripts/$dns_script" "$DNS_READONLY_DIR/$dns_script"
           done
           # Explicit exclusions: the transaction lab and Python YAML lab must
           # never be installed as router runtime services.
           # Python topology checker is an offline build-time diagnostic only.
-          test -s scripts/r76s-v111-dns-transition-plan.py
-          test -s scripts/r76s-v111-dns-topology.py
+          test -s ../scripts/r76s-v111-dns-transition-plan.py
+          test -s ../scripts/r76s-v111-dns-topology.py
           test ! -e "$DNS_READONLY_DIR/r76s-v111-dns-transaction.sh"
           test ! -e "openwrt/files/etc/init.d/r76s-v111-dns-manager"
           echo "DNS_READONLY_TOOLS_STAGED=PASS"
@@ -3267,7 +3267,7 @@ jobs:
               echo 'ERROR: unauthorized DNS overlay override' >&2
               exit 1
           fi
-          cmp -s scripts/r76s-v111-dns-manager.sh \
+          cmp -s ../scripts/r76s-v111-dns-manager.sh \
             openwrt/files/usr/libexec/r76s/v111-dns-readonly/r76s-v111-dns-manager.sh
 
           echo "R76S-V1.1.1 clean defaults and online-upgrade preservation hooks verified."

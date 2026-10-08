@@ -495,6 +495,22 @@ def main():
                 'Symbolic dependency check missing from workflow')
         require('scripts/r76s-v111-prebuild-tests.py' in t,
                 'Offline suite not called in workflow')
+        # An OpenWrt source checkout contains its own scripts/ directory.
+        # After `cd openwrt`, repository-maintained helpers live in ../scripts/.
+        # A misplaced relative path fails Actions late in the build.
+        bad = []
+        for step in re.split(r'(?m)^      - name: ', t):
+            if re.search(r'(?m)^          cd openwrt\s*$', step):
+                for line in step.splitlines():
+                    if re.search(r'(?<![./])scripts/r76s-v111-', line) or '"scripts/$dns_script"' in line:
+                        bad.append(line.strip())
+        require(not bad, 'relative helper paths wrong after cd openwrt: ' + repr(bad))
+        require('python3 ../scripts/r76s-v111-passwall-groups.py --patch' in t,
+                'PassWall group patch helper path wrong')
+        require('test -s ../scripts/r76s-v111-dns-transition-plan.py' in t,
+                'Transition-plan check path wrong')
+        require('install -m 0755 "../scripts/$dns_script"' in t,
+                'Read-only overlay staging source path wrong')
     print_pass('release gating, overlay re-stage ordering, disabled unsafe hook')
     print('R76S_V111_PREBUILD_TESTS=PASS')
     print('IMPORTANT: DNS_AUTOMATIC_EIGHT_STATES=NOT_IMPLEMENTED')
