@@ -597,6 +597,62 @@ def main():
                 'Runtime-manager selftest path must be root-relative')
         require('cmp -s scripts/r76s-v111-dns-runtime-manager.sh' in overlay_step,
                 'Runtime-manager copy check path must be root-relative')
+        # BUILD3: run the identical rootfs policy scanner used by Actions
+        # against allowed and forbidden staged-file layouts.
+        require('python3 scripts/r76s-v111-overlay-dns-scan.py openwrt/files' in overlay_step,
+                'Prebuild rootfs scan not called from repository-root step')
+        require('cmp -s scripts/r76s-v111-dns-guard.sh' in overlay_step,
+                'Exempted classifier not exact-byte-verified')
+        scanner = HERE / 'r76s-v111-overlay-dns-scan.py'
+        require(scanner.exists(), 'Standalone strict overlay scanner is missing')
+        with tempfile.TemporaryDirectory(prefix='r76s-v111-policy-lab-') as tmp:
+            overlay = Path(tmp) / 'openwrt/files'
+            for rel, data in (
+                ('usr/libexec/r76s/v111-dns-readonly/r76s-v111-dns-guard.sh',
+                 'server == "127.0.0.1#3053" &&\n'),
+                ('usr/libexec/r76s/v111-dns-readonly/r76s-v111-dns-manager.sh',
+                 'server=127.0.0.1#6053\n'),
+                ('usr/libexec/r76s/v111-dns-runtime/r76s-v111-dns-runtime-manager.sh',
+                 'server=127.0.0.1#3053\n'),
+                ('etc/config/network', 'config interface lan\n'),
+            ):
+                p = overlay / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(data)
+            def run_policy(fail=False):
+                p = subprocess.run([sys.executable, '-B', scanner, overlay],
+                                   text=True, capture_output=True)
+                if fail:
+                    require(p.returncode != 0 and
+                            'DNS_ROOTFS_POLICY_SCAN=FAIL' in p.stderr,
+                            'Malformed rootfs was accepted: ' + p.stdout + p.stderr)
+                else:
+                    require(p.returncode == 0 and
+                            'DNS_ROOTFS_POLICY_SCAN=PASS' in p.stdout,
+                            'Normal readonly classifier rejected: ' + p.stdout + p.stderr)
+            run_policy()
+            for rel, content in (
+                ('etc/config/dhcp', 'server=127.0.0.1#3053\n'),
+                ('etc/uci-defaults/10-dns', 'R76S_EXTERNAL_DNS_BEGIN\n'),
+                ('etc/init.d/force-noresolv', "noresolv='1'\n"),
+                ('etc/init.d/force-smartdns', 'server=127.0.0.1#6053\n'),
+            ):
+                p = overlay / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(content)
+                run_policy(fail=True)
+                p.unlink()
+            run_policy()
+            guard = overlay / 'usr/libexec/r76s/v111-dns-readonly/r76s-v111-dns-guard.sh'
+            guard.unlink()
+            run_policy(fail=True)
+            guard.write_text('server == "127.0.0.1#3053" &&\n')
+            link = overlay / 'etc/config/suspicious-symlink'
+            link.symlink_to(overlay / 'etc/config/network')
+            run_policy(fail=True)
+            link.unlink()
+            run_policy()
+        print_pass('real DNS policy scanner: readonly 3053 allowed, four unsafe defaults, missing helper and symlink blocked')
         print_pass('workflow helper paths checked against each step working directory')
     print_pass('release gating, overlay re-stage ordering, disabled runtime manager and preserve state')
     print('R76S_V111_PREBUILD_TESTS=PASS')

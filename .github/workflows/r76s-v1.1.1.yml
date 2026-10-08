@@ -3276,17 +3276,12 @@ jobs:
           grep -qF 'migration.v110' openwrt/files/usr/libexec/r76s/r76s-v110-additive-merge ||             grep -qF 'MIGRATION_KEY="v110"' openwrt/files/usr/libexec/r76s/r76s-v110-additive-merge
           test -x openwrt/files/etc/uci-defaults/98-r76s-v110-clean-services
           test -x openwrt/files/etc/uci-defaults/99-r76s-v110-ota-restore
-          # Only the audited read-only renderer and the explicitly disabled
-          # runtime coordinator may contain managed 3053/6053 targets.  No
-          # uci-default, default config, or enabled boot hook may hard-code them.
-          if find openwrt/files -type f \
-             ! -path '*/usr/libexec/r76s/v111-dns-readonly/r76s-v111-dns-manager.sh' \
-             ! -path '*/usr/libexec/r76s/v111-dns-runtime/r76s-v111-dns-runtime-manager.sh' \
-             -print0 | xargs -0 -r grep -nE \
-             '127\.0\.0\.1#(3053|6053)|R76S_EXTERNAL_DNS_BEGIN|noresolv=.1.|noresolv=.0.'; then
-              echo 'ERROR: unauthorized DNS overlay override' >&2
-              exit 1
-          fi
+          # Evaluate actual overlay files, not the read-only classifiers'
+          # comparisons to legacy DNS ports.  An empty overlay, unreadable
+          # file or unexpected symlink is a hard error, never a silent PASS.
+          python3 scripts/r76s-v111-overlay-dns-scan.py openwrt/files
+          cmp -s scripts/r76s-v111-dns-guard.sh \
+            openwrt/files/usr/libexec/r76s/v111-dns-readonly/r76s-v111-dns-guard.sh
           cmp -s scripts/r76s-v111-dns-manager.sh \
             openwrt/files/usr/libexec/r76s/v111-dns-readonly/r76s-v111-dns-manager.sh
           cmp -s scripts/r76s-v111-dns-runtime-manager.sh \
