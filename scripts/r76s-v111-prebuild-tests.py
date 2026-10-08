@@ -567,6 +567,15 @@ def main():
                     if re.search(r'(?<![./])scripts/r76s-v111-', line) or '"scripts/$dns_script"' in line:
                         bad.append(line.strip())
         require(not bad, 'relative helper paths wrong after cd openwrt: ' + repr(bad))
+        require('SMARTDNS_S18_PATCH_DEFERRED_UNTIL_PREPARED_SOURCE=YES' in t,
+                'SmartDNS patched before prepared package source exists')
+        require('make -j1 package/smartdns/prepare V=s' in t,
+                'SmartDNS prepared source stage missing')
+        require('SMARTDNS_INIT_CANDIDATES' in t and
+                "'*/smartdns*/package/openwrt/files/etc/init.d/smartdns'" in t,
+                'Prepared SmartDNS init discovery missing')
+        require('SMARTDNS_S18_FINAL_ROOTFS=PASS' in t,
+                'Built rootfs does not verify installed SmartDNS S18')
         require('python3 ../scripts/r76s-v111-passwall-groups.py --patch' in t,
                 'PassWall group patch helper path wrong')
         require('test -s ../scripts/r76s-v111-dns-transition-plan.py' in t,

@@ -2262,59 +2262,7 @@ jobs:
           echo "SmartDNS clean-flash policy is enforced by first-boot UCI defaults."
           echo "Preserved upgrade configuration is never rewritten here."
 
-          echo "===== V1.1.1: SmartDNS boot order S18 ====="
-
-          SMARTDNS_INIT="$(
-            find openwrt/feeds openwrt/package -type f \
-              \( -name 'smartdns.init' -o -path '*/root/etc/init.d/smartdns' \) \
-              -print | head -n1
-          )"
-
-          test -n "$SMARTDNS_INIT"
-          test -f "$SMARTDNS_INIT"
-
-          echo "SMARTDNS_INIT=$SMARTDNS_INIT"
-
-          python3 - "$SMARTDNS_INIT" <<'PY_SMARTDNS_INIT'
-          from pathlib import Path
-          import re
-          import sys
-
-          p = Path(sys.argv[1])
-          s = p.read_text()
-
-          marker = '# R76S_V111_SMARTDNS_BOOT_ORDER'
-
-          if marker not in s:
-              m = re.search(r'(?m)^START=([0-9]+)[ \t]*$', s)
-
-              if not m:
-                  raise SystemExit(
-                      'ERROR: SmartDNS START= line not found'
-                  )
-
-              current = m.group(1)
-
-              if current not in {'18', '19'}:
-                  raise SystemExit(
-                      f'ERROR: unexpected SmartDNS START={current}'
-                  )
-
-              s = (
-                  s[:m.start()]
-                  + 'START=18\n'
-                  + marker + '\n'
-                  + s[m.end():]
-              )
-
-          p.write_text(s)
-          PY_SMARTDNS_INIT
-
-          grep -qxF 'START=18' "$SMARTDNS_INIT"
-          grep -qF 'R76S_V111_SMARTDNS_BOOT_ORDER' "$SMARTDNS_INIT"
-          sh -n "$SMARTDNS_INIT"
-
-          echo "SMARTDNS_BOOT_ORDER=PASS"
+          echo "SMARTDNS_S18_PATCH_DEFERRED_UNTIL_PREPARED_SOURCE=YES"
 
           echo "===== AdGuard Home: do not auto-start an unconfigured clean image ====="
           AGH_INIT="$(find openwrt/feeds openwrt/package -type f \( -name 'adguardhome.init' -o -path '*/root/etc/init.d/adguardhome' \) | head -n1)"
@@ -3570,6 +3518,66 @@ jobs:
         run: |
           cd openwrt
 
+          echo "===== V1.1.1: Prepare SmartDNS source before S18 patch ====="
+
+          # The package Makefile installs init from PKG_BUILD_DIR; it is not
+          # necessarily available in feeds/ before package preparation.
+          make -j1 package/smartdns/prepare V=s
+          mapfile -t SMARTDNS_INIT_CANDIDATES < <(
+            find build_dir -type f -path '*/smartdns*/package/openwrt/files/etc/init.d/smartdns' -print
+          )
+          if [ "${#SMARTDNS_INIT_CANDIDATES[@]}" -ne 1 ]; then
+            echo "ERROR: expected one prepared SmartDNS init script, got ${#SMARTDNS_INIT_CANDIDATES[@]}" >&2
+            find build_dir -type f -path '*/etc/init.d/smartdns' -print | head -n 20 >&2 || true
+            exit 1
+          fi
+          SMARTDNS_INIT="${SMARTDNS_INIT_CANDIDATES[0]}"
+          test -f "$SMARTDNS_INIT"
+
+          echo "SMARTDNS_INIT=$SMARTDNS_INIT"
+
+          python3 - "$SMARTDNS_INIT" <<'PY_SMARTDNS_INIT'
+          from pathlib import Path
+          import re
+          import sys
+
+          p = Path(sys.argv[1])
+          s = p.read_text()
+
+          marker = '# R76S_V111_SMARTDNS_BOOT_ORDER'
+
+          if marker not in s:
+              m = re.search(r'(?m)^START=([0-9]+)[ \t]*$', s)
+
+              if not m:
+                  raise SystemExit(
+                      'ERROR: SmartDNS START= line not found'
+                  )
+
+              current = m.group(1)
+
+              if current not in {'18', '19'}:
+                  raise SystemExit(
+                      f'ERROR: unexpected SmartDNS START={current}'
+                  )
+
+              s = (
+                  s[:m.start()]
+                  + 'START=18\n'
+                  + marker + '\n'
+                  + s[m.end():]
+              )
+
+          p.write_text(s)
+          PY_SMARTDNS_INIT
+
+          grep -qxF 'START=18' "$SMARTDNS_INIT"
+          grep -qF 'R76S_V111_SMARTDNS_BOOT_ORDER' "$SMARTDNS_INIT"
+          sh -n "$SMARTDNS_INIT"
+
+          echo "SMARTDNS_BOOT_ORDER=PASS"
+
+
           JOBS="$(nproc)"
           echo "===== Build with $JOBS parallel jobs + ccache ====="
 
@@ -3615,6 +3623,12 @@ jobs:
           test ! -e "$ROOTFS_DIR/etc/rc.d/S99r76s-v111-dns-manager"
           test ! -e "$ROOTFS_DIR/usr/libexec/r76s/v111-dns-readonly/r76s-v111-dns-transaction.sh"
           test ! -e "$ROOTFS_DIR/usr/libexec/r76s/v111-dns-readonly/r76s-v111-dns-topology.py"
+          test -f "$ROOTFS_DIR/etc/init.d/smartdns"
+          grep -qxF 'START=18' "$ROOTFS_DIR/etc/init.d/smartdns" || {
+            echo 'ERROR: SmartDNS S18 was not included in the final rootfs' >&2
+            exit 1
+          }
+          echo "SMARTDNS_S18_FINAL_ROOTFS=PASS"
           echo "FINAL built DNS diagnostics and disabled runtime manager: PASS"
           echo "FINAL built rootfs critical files: PASS"
 
