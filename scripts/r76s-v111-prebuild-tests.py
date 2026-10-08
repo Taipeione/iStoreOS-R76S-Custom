@@ -360,6 +360,122 @@ def main():
         shutil.rmtree(lab)
     print_pass('tmp-only transaction lab, invalid state and external edit guard')
 
+    # R76S_V111_MULTI_FILE_TRANSACTION_LAB (explicitly not deployed to rootfs).
+    # Models crashes, candidate drift, external edits and exact-byte recovery.
+    snapshot_script = HERE / 'r76s-v111-dns-snapshot-lab.py'
+    snap_spec = importlib.util.spec_from_file_location('v111_snapshot_lab', snapshot_script)
+    snap_module = importlib.util.module_from_spec(snap_spec)
+    snap_spec.loader.exec_module(snap_module)
+    def make_lab():
+        lab = Path('/tmp/r76s-v111-lab.' + uuid.uuid4().hex)
+        lab.mkdir(mode=0o700)
+        os.chmod(lab, 0o700)
+        (lab / 'current').mkdir(mode=0o700)
+        (lab / 'candidate').mkdir(mode=0o700)
+        names = ('dhcp.conf', 'adguardhome.yaml', 'passwall-dnsmasq.conf',
+                 'smartdns.conf')
+        originals = {}
+        for name in names:
+            original = (f'# original untouched {name}\n' +
+                        ('users: - private-placeholder\n' if name == 'adguardhome.yaml' else '')).encode()
+            target = (f'# planned candidate for {name}\n').encode()
+            originals[name] = original
+            (lab / 'current' / name).write_bytes(original)
+            (lab / 'candidate' / name).write_bytes(target)
+        return lab, names, originals
+
+    def snap(action, lab, state=None, ok=True):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        output = StringIO()
+        try:
+            with redirect_stdout(output):
+                if action == 'prepare':
+                    snap_module.prepare(snap_module.root_dir(str(lab)), state)
+                elif action == 'apply':
+                    snap_module.apply(snap_module.root_dir(str(lab)))
+                elif action == 'rollback':
+                    snap_module.rollback(snap_module.root_dir(str(lab)))
+            if not ok:
+                raise AssertionError('failed-open transaction: ' + action)
+        except snap_module.Blocked as exc:
+            if ok:
+                raise AssertionError('transaction was unexpectedly blocked: ' + str(exc))
+            output.write(str(exc))
+        return output.getvalue()
+
+    for target in STATES:
+        lab, names, before = make_lab()
+        try:
+            out = snap('prepare', lab, target)
+            require('LAB_TRANSACTION=PREPARED' in out, 'snapshot not prepared')
+            out = snap('apply', lab)
+            require('LAB_TRANSACTION=COMMITTED' in out, 'lab apply failed')
+            for name in names:
+                require((lab / 'current' / name).read_bytes() ==
+                        (lab / 'candidate' / name).read_bytes(), 'candidate not staged')
+            snap('rollback', lab)
+            for name in names:
+                require((lab / 'current' / name).read_bytes() == before[name],
+                        'original bytes not recovered')
+            require('ALREADY_ROLLED_BACK' in snap('rollback', lab),
+                    'rollback idempotence failed')
+            snap('apply', lab, ok=False)
+        finally:
+            shutil.rmtree(lab)
+
+    lab, names, before = make_lab()
+    try:
+        snap('prepare', lab, '110')
+        (lab / 'current' / names[0]).write_bytes(b'# external change\n')
+        require('EXTERNAL_EDIT_BLOCKED' in snap('apply', lab, ok=False),
+                'external current change accepted')
+        (lab / 'current' / names[0]).write_bytes(before[names[0]])
+        (lab / 'candidate' / names[1]).write_bytes(b'# drifted candidate\n')
+        require('CANDIDATE_CHANGED_BLOCKED' in snap('apply', lab, ok=False),
+                'candidate drift accepted')
+        (lab / 'candidate' / names[1]).write_bytes(b'# planned candidate for adguardhome.yaml\n')
+        # Simulate a power cut after only one file was staged, but before
+        # transaction journal could be marked committed.
+        (lab / 'current' / names[0]).write_bytes(
+            (lab / 'candidate' / names[0]).read_bytes())
+        snap('apply', lab, ok=False)
+        snap('rollback', lab)
+        for name in names:
+            require((lab / 'current' / name).read_bytes() == before[name],
+                    'interrupted transaction not recovered')
+    finally:
+        shutil.rmtree(lab)
+
+    lab, names, before = make_lab()
+    try:
+        snap('prepare', lab, '001')
+        snap('apply', lab)
+        (lab / 'current' / names[2]).write_bytes(b'# user edited after apply\n')
+        require('EXTERNAL_EDIT_BLOCKED' in snap('rollback', lab, ok=False),
+                'rollback clobbered external edit')
+        require((lab / 'current' / names[2]).read_bytes() ==
+                b'# user edited after apply\n', 'external edit not preserved')
+    finally:
+        shutil.rmtree(lab)
+
+    lab, names, before = make_lab()
+    try:
+        (lab / 'candidate' / names[0]).unlink()
+        (lab / 'candidate' / names[0]).symlink_to(lab / 'current' / names[0])
+        require('SYMLINK_BLOCKED' in snap('prepare', lab, '101', ok=False),
+                'symlink escape admitted')
+    finally:
+        shutil.rmtree(lab)
+
+    try:
+        snap_module.root_dir('/etc')
+    except snap_module.Blocked as exc:
+        require('ONLY_TMP_LAB_PATHS_ALLOWED' in str(exc), 'wrong live-path guard')
+    else:
+        raise AssertionError('live /etc path accepted')
+    print_pass('eight lab multi-file snapshots, exact rollback, interrupted staging, edit guards')
+
     wf = ROOT / '.github/workflows/r76s-v1.1.1.yml'
     if wf.exists():
         t = wf.read_text()
