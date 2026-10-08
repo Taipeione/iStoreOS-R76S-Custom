@@ -36,23 +36,45 @@ for f in "$(path /var/etc)"/dnsmasq.conf.*; do
 done
 
 pw_file=$(path /tmp/etc/passwall/acl/default/dnsmasq.conf)
+pw_dir=$(path /tmp/etc/passwall/acl/default/dnsmasq.d)
 pw_present=0
 pw_agh=0
 pw_split=0
 pw_other=0
-if [ -r "$pw_file" ]; then
-    pw_present=1
-    result=$(awk '
+pw_native_proxy=0
+scan_pw_file() {
+    awk '
       /^[[:space:]]*#/ {next}
       /^server=/ {
         if ($0 ~ /127[.]0[.]0[.]1#3053([^0-9]|$)/) agh++
         else if ($0 ~ /(127[.]0[.]0[.]1|::1)#15355([^0-9]|$)/) shunt++
-        else other++
+        else {
+          other++
+          # Native PassWall proxy DNS: a domain/default server which is not
+          # AdGuard, SmartDNS main, or SmartDNS split.  This is file-grounded
+          # evidence only; the runtime manager separately checks live owners.
+          if ($0 ~ /(127[.]0[.]0[.]1|::1)#[0-9]+([^0-9]|$)/ &&
+              $0 !~ /(127[.]0[.]0[.]1|::1)#(53|3053|6053|11400|15355)([^0-9]|$)/) native++
+          else if ($0 ~ /[0-9]+[.][0-9]+[.][0-9]+[.][0-9]+#[0-9]+([^0-9]|$)/ &&
+                   $0 !~ /127[.]0[.]0[.]1#(53|3053|6053|11400|15355)([^0-9]|$)/) native++
+        }
       }
-      END {printf "%d %d %d", agh+0, shunt+0, other+0}
-    ' "$pw_file")
+      END {printf "%d %d %d %d", agh+0, shunt+0, other+0, native+0}
+    ' "$1"
+}
+if [ -r "$pw_file" ]; then
+    pw_present=1
+    result=$(scan_pw_file "$pw_file")
     set -- $result
-    pw_agh=$1; pw_split=$2; pw_other=$3
+    pw_agh=$((pw_agh+$1)); pw_split=$((pw_split+$2)); pw_other=$((pw_other+$3)); pw_native_proxy=$((pw_native_proxy+$4))
+fi
+if [ -d "$pw_dir" ]; then
+    for f in "$pw_dir"/*.conf; do
+        [ -r "$f" ] || continue
+        result=$(scan_pw_file "$f")
+        set -- $result
+        pw_agh=$((pw_agh+$1)); pw_split=$((pw_split+$2)); pw_other=$((pw_other+$3)); pw_native_proxy=$((pw_native_proxy+$4))
+    done
 fi
 
 agh_file=$(path /etc/adguardhome.yaml)
@@ -143,6 +165,7 @@ echo "MAIN_NO_RESOLV=$main_noresolv"
 echo "PASSWALL_GENERATED_PRESENT=$pw_present"
 echo "PASSWALL_TO_AGH=$pw_agh"
 echo "PASSWALL_TO_SPLIT=$pw_split"
+echo "PASSWALL_NATIVE_PROXY_REFS=$pw_native_proxy"
 echo "ADGUARD_YAML_PRESENT=$agh_present"
 echo "ADGUARD_MAIN_TO_SMARTDNS=$agh_primary_sd"
 echo "ADGUARD_OTHER_MAIN_UPSTREAMS=$agh_primary_other"
@@ -180,9 +203,8 @@ if [ "$pw" = 1 ]; then
     [ "$pw_present" -eq 1 ] || issue PASSWALL_GENERATED_CONFIG_NOT_FOUND
     [ "$agh" = 1 ] || { [ "$pw_agh" -eq 0 ] || issue PASSWALL_DANGLING_ADGUARD_REFERENCE; }
     [ "$sd" = 1 ] || { [ "$pw_split" -eq 0 ] || issue PASSWALL_DANGLING_SPLIT_REFERENCE; }
-    if [ "$state" = 101 ]; then
-        # Presence of a native upstream is not proof of independent proxy DNS.
-        issue PROXY_DNS_ISOLATION_NOT_VERIFIED
+    if [ "$sd" = 0 ]; then
+        [ "$pw_native_proxy" -ge 1 ] || issue PROXY_DNS_ISOLATION_NOT_VERIFIED
     fi
 fi
 if [ "$sd" = 1 ]; then
@@ -190,6 +212,8 @@ if [ "$sd" = 1 ]; then
     if [ "$pw" = 0 ] && [ "$sd_pw_count" -gt 0 ]; then
         issue STALE_PASSWALL_SMARTDNS_INCLUDE
     fi
+else
+    [ "$sd_pw_count" -eq 0 ] || issue STALE_PASSWALL_SMARTDNS_INCLUDE
 fi
 if [ "$sd" = 0 ] && [ "$agh" = 1 ] && [ "$agh_primary_sd" -gt 0 ]; then
     : # Already reported above; only count once.

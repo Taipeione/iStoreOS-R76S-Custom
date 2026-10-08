@@ -2356,6 +2356,8 @@ jobs:
           /etc/config/smartdns
           /etc/config/adguardhome
           /etc/config/r76s_ota_state
+          /etc/config/r76s_v111_dns
+          /etc/r76s-v111-dns/
           /etc/adguardhome.yaml
           /etc/adguardhome/adguardhome.yaml
           EOF_KEEP
@@ -3199,11 +3201,13 @@ jobs:
 
           echo "V1.1.1 critical files re-staged after overlay reset."
 
-          echo "===== V1.1.1: install read-only DNS diagnostics, no autostart ====="
+          echo "===== V1.1.1: install DNS diagnostics and disabled runtime coordinator ====="
           test -s ../scripts/r76s-v111-dns-transition-plan.py
-          echo "DNS_64_TRANSITIONS=OFFLINE_PLAN_ONLY"
+          echo "DNS_64_TRANSITIONS=OFFLINE_REFERENCE"
           DNS_READONLY_DIR="openwrt/files/usr/libexec/r76s/v111-dns-readonly"
-          mkdir -p "$DNS_READONLY_DIR"
+          DNS_RUNTIME_DIR="openwrt/files/usr/libexec/r76s/v111-dns-runtime"
+          mkdir -p "$DNS_READONLY_DIR" "$DNS_RUNTIME_DIR" \
+            openwrt/files/etc/init.d openwrt/files/etc/config
           for dns_script in \
             r76s-v111-dns-detect.sh \
             r76s-v111-dns-guard.sh \
@@ -3217,19 +3221,77 @@ jobs:
               install -m 0755 "../scripts/$dns_script" "$DNS_READONLY_DIR/$dns_script"
               cmp -s "../scripts/$dns_script" "$DNS_READONLY_DIR/$dns_script"
           done
-          # Explicit exclusions: the transaction lab and Python YAML lab must
-          # never be installed as router runtime services.
-          # Python topology checker is an offline build-time diagnostic only.
+
+          test -s ../scripts/r76s-v111-dns-runtime-manager.sh
+          sh -n ../scripts/r76s-v111-dns-runtime-manager.sh
+          sh ../scripts/r76s-v111-dns-runtime-manager.sh --selftest | grep -qF 'RUNTIME_MANAGER_SELFTEST=PASS'
+          install -m 0755 ../scripts/r76s-v111-dns-runtime-manager.sh \
+            "$DNS_RUNTIME_DIR/r76s-v111-dns-runtime-manager.sh"
+          cmp -s ../scripts/r76s-v111-dns-runtime-manager.sh \
+            "$DNS_RUNTIME_DIR/r76s-v111-dns-runtime-manager.sh"
+
+          cat > openwrt/files/etc/config/r76s_v111_dns <<'EOF_V111_DNS_CONFIG'
+          config manager 'main'
+              option enabled '0'
+              option poll_seconds '10'
+          EOF_V111_DNS_CONFIG
+
+          cat > openwrt/files/etc/init.d/r76s-v111-dns-manager <<'EOF_V111_DNS_INIT'
+          #!/bin/sh /etc/rc.common
+          # R76S V1.1.1 eight-state DNS coordinator.
+          # Deliberately disabled until live validation is complete.
+          USE_PROCD=1
+          START=99
+          STOP=10
+          PROG=/usr/libexec/r76s/v111-dns-runtime/r76s-v111-dns-runtime-manager.sh
+
+          start_service() {
+              [ -x "$PROG" ] || return 1
+              # Recovery is allowed even while the coordinator is disabled.
+              # The init script itself must first be explicitly enabled during
+              # live validation; then a power cut can safely roll back a journal.
+              "$PROG" boot-recover || return 1
+              [ "$(uci -q get r76s_v111_dns.main.enabled 2>/dev/null)" = "1" ] || return 0
+              procd_open_instance
+              procd_set_param command "$PROG" daemon
+              procd_set_param respawn 3600 5 5
+              procd_set_param stdout 1
+              procd_set_param stderr 1
+              procd_close_instance
+          }
+
+          reload_service() {
+              stop
+              start
+          }
+
+          service_triggers() {
+              procd_add_reload_trigger r76s_v111_dns passwall smartdns
+          }
+          EOF_V111_DNS_INIT
+          chmod 0755 openwrt/files/etc/init.d/r76s-v111-dns-manager
+
+          # Explicit exclusions: lab-only transaction/Python tooling stays out
+          # of the router runtime.  The coordinator itself is installed but
+          # neither config-enabled nor rc-enabled by this development build.
           test -s ../scripts/r76s-v111-dns-transition-plan.py
           test -s ../scripts/r76s-v111-dns-topology.py
           test ! -e "$DNS_READONLY_DIR/r76s-v111-dns-transaction.sh"
-          test ! -e "openwrt/files/etc/init.d/r76s-v111-dns-manager"
-          echo "DNS_READONLY_TOOLS_STAGED=PASS"
+          test ! -e "$DNS_RUNTIME_DIR/r76s-v111-dns-transaction.sh"
+          grep -qF "option enabled '0'" openwrt/files/etc/config/r76s_v111_dns
+          grep -qF 'Deliberately disabled until live validation is complete' \
+            openwrt/files/etc/init.d/r76s-v111-dns-manager
+          echo "DNS_RUNTIME_MANAGER_STAGED_DISABLED=PASS"
 
           echo "===== V1.1.1 safety assertions ====="
           grep -qF "github.com/${GITHUB_REPOSITORY}/releases/latest/download" openwrt/files/lib/upgrade/ota.sh
           grep -qF '/etc/config/passwall2' openwrt/files/lib/upgrade/keep.d/r76s-v110
+          grep -qF '/etc/config/r76s_v111_dns' openwrt/files/lib/upgrade/keep.d/r76s-v110
+          grep -qF '/etc/r76s-v111-dns/' openwrt/files/lib/upgrade/keep.d/r76s-v110
           grep -qF '/etc/adguardhome.yaml' openwrt/files/lib/upgrade/keep.d/r76s-v110
+          test -x openwrt/files/usr/libexec/r76s/v111-dns-runtime/r76s-v111-dns-runtime-manager.sh
+          test -x openwrt/files/etc/init.d/r76s-v111-dns-manager
+          grep -qF "option enabled '0'" openwrt/files/etc/config/r76s_v111_dns
           grep -qF 'r76s_ota_state.state.pending' openwrt/files/etc/init.d/r76s-ota-restore
           test -x openwrt/files/etc/uci-defaults/09-r76s-v110-preserve-detect
           grep -qF 'R76S_V110_PRESERVE_DETECT' openwrt/files/etc/uci-defaults/09-r76s-v110-preserve-detect
@@ -3266,11 +3328,12 @@ jobs:
           grep -qF 'migration.v110' openwrt/files/usr/libexec/r76s/r76s-v110-additive-merge ||             grep -qF 'MIGRATION_KEY="v110"' openwrt/files/usr/libexec/r76s/r76s-v110-additive-merge
           test -x openwrt/files/etc/uci-defaults/98-r76s-v110-clean-services
           test -x openwrt/files/etc/uci-defaults/99-r76s-v110-ota-restore
-          # Check every other overlay file. Only the exact read-only planner
-          # is allowed to print candidate dnsmasq upstream lines, never a boot
-          # hook, default configuration or enabled DNS takeover file.
+          # Only the audited read-only renderer and the explicitly disabled
+          # runtime coordinator may contain managed 3053/6053 targets.  No
+          # uci-default, default config, or enabled boot hook may hard-code them.
           if find openwrt/files -type f \
              ! -path '*/usr/libexec/r76s/v111-dns-readonly/r76s-v111-dns-manager.sh' \
+             ! -path '*/usr/libexec/r76s/v111-dns-runtime/r76s-v111-dns-runtime-manager.sh' \
              -print0 | xargs -0 -r grep -nE \
              '127\.0\.0\.1#(3053|6053)|R76S_EXTERNAL_DNS_BEGIN|noresolv=.1.|noresolv=.0.'; then
               echo 'ERROR: unauthorized DNS overlay override' >&2
@@ -3278,6 +3341,8 @@ jobs:
           fi
           cmp -s ../scripts/r76s-v111-dns-manager.sh \
             openwrt/files/usr/libexec/r76s/v111-dns-readonly/r76s-v111-dns-manager.sh
+          cmp -s ../scripts/r76s-v111-dns-runtime-manager.sh \
+            openwrt/files/usr/libexec/r76s/v111-dns-runtime/r76s-v111-dns-runtime-manager.sh
 
           echo "R76S-V1.1.1 clean defaults and online-upgrade preservation hooks verified."
       - name: Verify R76S status package
@@ -3543,10 +3608,14 @@ jobs:
             r76s-v111-agh-yaml-render.sh; do
               test -x "$ROOTFS_DIR/usr/libexec/r76s/v111-dns-readonly/$dns_script"
           done
-          test ! -e "$ROOTFS_DIR/etc/init.d/r76s-v111-dns-manager"
+          test -x "$ROOTFS_DIR/usr/libexec/r76s/v111-dns-runtime/r76s-v111-dns-runtime-manager.sh"
+          test -x "$ROOTFS_DIR/etc/init.d/r76s-v111-dns-manager"
+          test -s "$ROOTFS_DIR/etc/config/r76s_v111_dns"
+          grep -qF "option enabled '0'" "$ROOTFS_DIR/etc/config/r76s_v111_dns"
+          test ! -e "$ROOTFS_DIR/etc/rc.d/S99r76s-v111-dns-manager"
           test ! -e "$ROOTFS_DIR/usr/libexec/r76s/v111-dns-readonly/r76s-v111-dns-transaction.sh"
           test ! -e "$ROOTFS_DIR/usr/libexec/r76s/v111-dns-readonly/r76s-v111-dns-topology.py"
-          echo "FINAL built read-only DNS tools: PASS"
+          echo "FINAL built DNS diagnostics and disabled runtime manager: PASS"
           echo "FINAL built rootfs critical files: PASS"
 
           echo "===== Verify PassWall / PassWall2 package defaults after build ====="

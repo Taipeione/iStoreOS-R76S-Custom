@@ -25,6 +25,7 @@ SHELL = [
     'r76s-v111-dns-policy.sh',
     'r76s-v111-dns-transaction.sh',
     'r76s-v111-dns-runtime-audit.sh',
+    'r76s-v111-dns-runtime-manager.sh',
 ]
 
 
@@ -53,10 +54,14 @@ def main():
     for f in SHELL:
         run('sh', '-n', HERE / f)
     for f in HERE.glob('*.py'):
+        # macOS tar/xattr handling can create AppleDouble sidecars such as
+        # ._script.py; they are metadata, not Python source files.
+        if f.name.startswith('._'):
+            continue
         run(sys.executable, '-c',
             'import ast,sys; ast.parse(open(sys.argv[1], encoding="utf-8").read())',
             f)
-    print_pass('eight POSIX shell checks and Python syntax without bytecode writes')
+    print_pass('nine POSIX shell checks and Python syntax without bytecode writes')
 
     # R76S_V111_PASSWALL_DNS_GENERATOR_BUILD_GUARD
     # Check real-world templates separately when the upstream clone is present.
@@ -65,7 +70,9 @@ def main():
     result = run(sys.executable, HERE / 'r76s-v111-passwall-dns-generator.py', '--selftest')
     require('PASSWALL_GENERATOR_GATE_SELFTEST=PASS' in result,
             'PassWall DNS generator selftest failed')
-    print_pass('PassWall DNS generator guard, AGH readiness and idempotence')
+    require('PASSWALL_RUNTIME_DNS_SHUNT_OVERRIDE=PASS' in result,
+            'PassWall runtime DNS_SHUNT override selftest failed')
+    print_pass('PassWall DNS generator guard, AGH readiness, runtime override and idempotence')
 
     # All eight combinations remain plan-only. Effective state is request AND readiness.
     for state in STATES:
@@ -80,20 +87,21 @@ def main():
             require('CONFIG_CHANGES=NONE' in output, 'unexpected write claim')
             require(f'DEGRADED={int(state != effective)}' in output, 'bad degrade')
             if effective == '101':
-                require('BLOCK_ISOLATED_PROXY_DNS_REQUIRED' in output,
-                        '101 not explicitly isolated')
+                require('RUNTIME_NATIVE_PROXY_VERIFICATION_REQUIRED' in output,
+                        '101 runtime native proxy verification missing')
     print_pass('eight states x eight readiness combinations (64 plans)')
 
     for state in STATES:
         output = run('sh', HERE / 'r76s-v111-dns-manager.sh',
-                     'render', state, 'WAN_BASELINE', ok=state not in ('001', '101'))
-        if state in ('001', '101'):
-            require('BLOCKED:' in output, 'unsafe state not blocked')
-        else:
-            require(f'state {state}' in output, 'state render mismatch')
+                     'render', state, 'WAN_BASELINE')
+        require(f'state {state}' in output, 'state render mismatch')
+        if state[2] == '1':
+            require('server=127.0.0.1#3053' in output, 'AdGuard main route missing')
+        elif state[1] == '1':
+            require('server=127.0.0.1#6053' in output, 'SmartDNS main route missing')
         run('sh', HERE / 'r76s-v111-dns-manager.sh',
             'render', state, 'CUSTOM_OR_UNKNOWN', ok=False)
-    print_pass('read-only DNS fragment renderer: 001/101 and custom blocked')
+    print_pass('read-only DNS fragment renderer: all eight states; custom ownership blocked')
 
     guard = HERE / 'r76s-v111-dns-guard.sh'
     baseline = "dhcp.@dnsmasq[0].resolvfile='/tmp/resolv.conf.d/resolv.conf.auto'\n"
@@ -133,9 +141,12 @@ def main():
                 require('ADGUARD_PRIMARY_DNS=192.168.50.1' not in output,
                         'Router loopback LAN selected')
                 require('ADGUARD_PRIMARY_DNS=' in output, 'Upstream missing')
-                if state == '101' or (state == '111' and ready == '0'):
-                    require('BLOCK_PASSWALL_DNS_ISOLATION_REQUIRED' in output,
-                            'Proxy loop not blocked')
+                if state == '101':
+                    require('VERIFY_PASSWALL_NATIVE_PROXY_AT_RUNTIME' in output,
+                            '101 runtime isolation requirement missing')
+                if state == '111' and ready == '0':
+                    require('BLOCK_SMARTDNS_READINESS_REQUIRED' in output,
+                            '111 missing-SmartDNS state not blocked')
                 if ready == '1' and state in ('011', '111'):
                     require('ADGUARD_PRIMARY_DNS=127.0.0.1:6053' in output,
                             'SmartDNS upstream not selected')
@@ -170,6 +181,16 @@ def main():
         require(hashlib.sha256(yaml.read_bytes()).digest() == original_hash,
                 'Renderer unexpectedly modified YAML')
         print_pass('BusyBox-friendly AWK render parity and immutable YAML')
+
+    runtime_selftest = run('sh', HERE / 'r76s-v111-dns-runtime-manager.sh', '--selftest')
+    require('RUNTIME_MANAGER_SELFTEST=PASS' in runtime_selftest,
+            'runtime manager pure selftest failed')
+    require('LIVE_APPLY_DEFAULT=DISABLED' in runtime_selftest,
+            'runtime manager must remain disabled before live validation')
+    for state in STATES:
+        require(f'SELFTEST_STATE={state}' in runtime_selftest,
+                f'runtime manager missing state {state}')
+    print_pass('runtime manager eight-state invariants; live daemon default disabled')
 
     # R76S_V111_EIGHT_STATE_TRANSITION_SPEC
     # All 64 transitions have a safe ordering specification. They remain
@@ -278,8 +299,8 @@ def main():
     print_pass('eight symbolic topologies, cycles, dangling service and isolation')
 
     # R76S_V111_ACTUAL_DEPENDENCY_AUDIT_REGRESSION
-    # Synthetic file tree with the precise edge types observed on R76S.
-    # Does not read the user's private YAML, PassWall node IDs, or LAN settings.
+    # Synthetic file trees model the observed 111 chain and the new 101 native
+    # PassWall proxy path without exposing private YAML, node IDs, or rules.
     with tempfile.TemporaryDirectory(prefix='r76s-v111-audit.') as dirname:
         r = Path(dirname)
         fixtures = {
@@ -315,23 +336,44 @@ def main():
                 'SmartDNS wildcard include not followed')
         require('SMARTDNS_TO_XRAY=1' in baseline,
                 'Dynamic-loader SmartDNS proxy path not visible')
-        for state, reason in (
-            ('110', 'SYSTEM_DANGLING_ADGUARD_REFERENCE'),
-            ('101', 'ADGUARD_DANGLING_SMARTDNS_UPSTREAM'),
-            ('001', 'STALE_PASSWALL_SMARTDNS_INCLUDE'),
-        ):
-            output = run('sh', audit, state, r, ok=False)
-            require(reason in output or state == '001',
-                    f'{state} stale edge not caught: {output}')
-            if state == '101':
-                require('PROXY_DNS_ISOLATION_NOT_VERIFIED' in output,
-                        '101 proxy isolation accepted without proof')
-        # A new independent AdGuard upstream is not enough to validate 101.
+
+        # 110 must reject the observed stale 3053 edge.
+        output = run('sh', audit, '110', r, ok=False)
+        require('SYSTEM_DANGLING_ADGUARD_REFERENCE' in output,
+                '110 stale AdGuard edge not caught')
+
+        # Convert the fixture to target 101: system -> AGH -> WAN, PassWall
+        # direct/default -> AGH, proxy-domain rules -> independent 15353.
         (r / 'etc/adguardhome.yaml').write_text(
             'dns:\n  upstream_dns:\n    - 223.5.5.5\n')
+        (r / 'tmp/etc/passwall/acl/default/dnsmasq.conf').write_text(
+            'no-resolv\nserver=127.0.0.1#3053\nstrict-order\n')
+        d = r / 'tmp/etc/passwall/acl/default/dnsmasq.d'
+        d.mkdir(parents=True, exist_ok=True)
+        (d / '001-server.conf').write_text(
+            'server=/.example-proxy.test/127.0.0.1#15353\n')
+        (r / 'tmp/etc/smartdns/passwall.conf').unlink()
+        output = run('sh', audit, '101', r)
+        require('REFERENCE_AUDIT=CONSISTENT_NOT_LIVE_PROVEN' in output,
+                f'101 native proxy fixture rejected: {output}')
+        require('PASSWALL_NATIVE_PROXY_REFS=1' in output,
+                '101 native proxy DNS reference not detected')
+
+        # Removing the independent proxy reference must fail closed.
+        (d / '001-server.conf').unlink()
         output = run('sh', audit, '101', r, ok=False)
         require('PROXY_DNS_ISOLATION_NOT_VERIFIED' in output,
-                '101 must remain blocked even after upstream migration')
+                '101 accepted without independent PassWall proxy DNS')
+
+        # P=0 ignores an inactive dnsmasq file, but SmartDNS must not keep
+        # actively including a stale PassWall SmartDNS fragment.
+        (r / 'tmp/etc/smartdns/passwall.conf').write_text(
+            'server 127.0.0.1:15356 -group proxy\n')
+        output = run('sh', audit, '001', r, ok=False)
+        require('STALE_PASSWALL_SMARTDNS_INCLUDE' in output,
+                '001 stale active SmartDNS include not detected')
+        (r / 'tmp/etc/smartdns/passwall.conf').unlink()
+
         # Ensure reversed local target is blocked (not a safe WAN upstream).
         (r / 'etc/adguardhome.yaml').write_text(
             'dns:\n  upstream_dns:\n    - 127.0.0.1:11400\n')
@@ -346,7 +388,7 @@ def main():
         # Redaction: only counts, state, fixed issue codes; no test credentials.
         require('placeholder' not in baseline and '119.29.29.29' not in baseline,
                 'audit unexpectedly exposed YAML content')
-    print_pass('file-grounded read-only 111 graph, stale edges, 101 isolation and privacy')
+    print_pass('file-grounded 111 and 101 graphs, stale edges, native isolation and privacy')
 
     # The transaction experiment never accesses live router configuration.
     lab = Path('/tmp/r76s-v111-lab.' + uuid.uuid4().hex)
@@ -356,18 +398,19 @@ def main():
         run('sh', trans, 'stage', '110', lab)
         conf = lab / 'r76s-v111.conf'
         require(conf.is_file(), 'Lab stage missing')
+        run('sh', trans, 'stage', '101', lab)
+        require(b'state 101' in conf.read_bytes(), '101 lab stage missing')
         before = conf.read_bytes()
-        run('sh', trans, 'stage', '101', lab, ok=False)
-        require(conf.read_bytes() == before, 'Lab changed after blocked state')
         conf.write_bytes(before+b'# external edit\n')
-        run('sh', trans, 'rollback', '110', lab, ok=False)
+        run('sh', trans, 'rollback', '101', lab, ok=False)
         require(conf.exists(), 'User change removed')
         conf.write_bytes(before)
-        run('sh', trans, 'rollback', '110', lab)
+        run('sh', trans, 'rollback', '101', lab)
         require(not conf.exists(), 'Rollback failed')
+        run('sh', trans, 'stage', 'abc', lab, ok=False)
     finally:
         shutil.rmtree(lab)
-    print_pass('tmp-only transaction lab, invalid state and external edit guard')
+    print_pass('tmp-only transaction lab, eight-state renderer and external edit guard')
 
     # R76S_V111_MULTI_FILE_TRANSACTION_LAB (explicitly not deployed to rootfs).
     # Models crashes, candidate drift, external edits and exact-byte recovery.
@@ -498,6 +541,16 @@ def main():
                 'Read-only runtime files staged before overlay reset')
         require('r76s-v111-dns-runtime-audit.sh' in t,
                 'File-grounded runtime audit not installed in firmware')
+        require('r76s-v111-dns-runtime-manager.sh' in t,
+                'Runtime DNS coordinator not staged by workflow')
+        require('DNS_RUNTIME_MANAGER_STAGED_DISABLED=PASS' in t,
+                'Runtime manager staging gate missing')
+        require("option enabled '0'" in t,
+                'Development runtime manager must default disabled')
+        require('/etc/config/r76s_v111_dns' in t and '/etc/r76s-v111-dns/' in t,
+                'Runtime manager config/state not preserved across upgrades')
+        require('test ! -e "$ROOTFS_DIR/etc/rc.d/S99r76s-v111-dns-manager"' in t,
+                'Development manager unexpectedly rc-enabled')
         require('r76s-v111-dns-transition-plan.py' in t,
                 'Offline transition plan not checked by workflow')
         require('r76s-v111-dns-topology.py' in t,
@@ -520,10 +573,10 @@ def main():
                 'Transition-plan check path wrong')
         require('install -m 0755 "../scripts/$dns_script"' in t,
                 'Read-only overlay staging source path wrong')
-    print_pass('release gating, overlay re-stage ordering, disabled unsafe hook')
+    print_pass('release gating, overlay re-stage ordering, disabled runtime manager and preserve state')
     print('R76S_V111_PREBUILD_TESTS=PASS')
-    print('IMPORTANT: DNS_AUTOMATIC_EIGHT_STATES=NOT_IMPLEMENTED')
-    print('IMPORTANT: 64_TRANSITIONS_ARE_OFFLINE_PLANS_ONLY')
+    print('IMPORTANT: EIGHT_STATE_RUNTIME_MANAGER=STAGED_DISABLED_FOR_LIVE_VALIDATION')
+    print('IMPORTANT: 64_TRANSITION_SPEC_REMAINS_OFFLINE_REFERENCE')
     print('IMPORTANT: SYMBOLIC_TOPOLOGY_IS_NOT_LIVE_CONFIG_PROOF')
     print('IMPORTANT: ROUTER_OR_GITHUB_CHANGES=NONE')
 

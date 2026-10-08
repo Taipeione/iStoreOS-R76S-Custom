@@ -109,17 +109,9 @@ if [ "${1:-}" = "render" ]; then
             ;;
     esac
 
-    # These combinations require additional upstream isolation.
-    case "$STATE" in
-        001)
-            echo "BLOCKED: AdGuard standalone upstream unverified" >&2
-            exit 5
-            ;;
-        101)
-            echo "BLOCKED: Isolated PassWall proxy DNS required" >&2
-            exit 5
-            ;;
-    esac
+    # Runtime V1.1.1 can prepare AdGuard WAN upstream for 001 and can
+    # force PassWall native DNS for 101.  This renderer remains stdout-only;
+    # the runtime coordinator performs the live isolation checks.
 
     printf '# R76S V111 managed DNS, state %s\n' "$STATE"
 
@@ -132,7 +124,7 @@ if [ "${1:-}" = "render" ]; then
             printf 'no-resolv\n'
             printf 'server=127.0.0.1#6053\n'
             ;;
-        011|111)
+        001|011|101|111)
             printf 'no-resolv\n'
             printf 'server=127.0.0.1#3053\n'
             ;;
@@ -185,8 +177,8 @@ sh "$POLICY" "$E_PW" "$E_SD" "$E_AGH"
 
 case "$EFFECTIVE" in
     101)
-        echo "SAFETY=BLOCK_ISOLATED_PROXY_DNS_REQUIRED"
-        echo "REASON=PassWall DNS must not loop through AdGuard"
+        echo "SAFETY=RUNTIME_NATIVE_PROXY_VERIFICATION_REQUIRED"
+        echo "REASON=PassWall native proxy DNS must be independently verified before commit"
         ;;
     *)
         echo "SAFETY=PLAN_ONLY"

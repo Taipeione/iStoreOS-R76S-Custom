@@ -2,8 +2,9 @@
 """V1.1.1 build-only PassWall DNS generator guard; never touches router state.
 
 Legacy app.sh 3053 injection: gate generation on AGH process and TCP/UDP
-loopback listeners. No legacy injection: retain upstream defaults unmodified.
-This is NOT a live eight-state manager or runtime removal of stale references.
+loopback listeners.  Also add a root-owned /var/run override hook for DNS_SHUNT
+so the runtime coordinator can use native PassWall DNS when SmartDNS is off
+without persistently rewriting the user's UCI dns_shunt option.
 """
 import argparse
 from pathlib import Path
@@ -16,6 +17,28 @@ LEGACY_START = '# R76S_AGH_FULLCHAIN_BEGIN'
 LEGACY_END = '# R76S_AGH_FULLCHAIN_END'
 GUARD_START = '# R76S_V111_AGH_GENERATOR_READY_GATE_BEGIN'
 GUARD_END = '# R76S_V111_AGH_GENERATOR_READY_GATE_END'
+OVERRIDE_START = '# R76S_V111_DNS_SHUNT_RUNTIME_OVERRIDE_BEGIN'
+OVERRIDE_END = '# R76S_V111_DNS_SHUNT_RUNTIME_OVERRIDE_END'
+OVERRIDE = r'''# R76S_V111_DNS_SHUNT_RUNTIME_OVERRIDE_BEGIN
+# Optional volatile override written only by the R76S V1.1.1 runtime manager.
+# If absent, upstream PassWall behavior is unchanged.
+_r76s_dns_shunt_file=/var/run/r76s-v111-dns/passwall-dns-shunt
+if [ -r "${_r76s_dns_shunt_file}" ]; then
+    _r76s_dns_shunt=$(sed -n '1p' "${_r76s_dns_shunt_file}" 2>/dev/null)
+    case "${_r76s_dns_shunt}" in
+        dnsmasq) DNS_SHUNT=dnsmasq ;;
+        smartdns)
+            [ -n "$(first_type smartdns)" ] && DNS_SHUNT=smartdns
+            ;;
+    esac
+    unset _r76s_dns_shunt
+fi
+unset _r76s_dns_shunt_file
+# R76S_V111_DNS_SHUNT_RUNTIME_OVERRIDE_END
+'''
+OVERRIDE_ANCHOR = '''	DNS_SHUNT=$(config_n_get @global[0] dns_shunt dnsmasq)
+	[ -z "$(first_type $DNS_SHUNT)" ] && DNS_SHUNT="dnsmasq"
+'''
 GUARD = """# R76S_V111_AGH_GENERATOR_READY_GATE_BEGIN
 # Build-time fallback for legacy R76S injection. DNS restarts still require an
 # external audited manager; this only gates generation, not subsequent shutdown.
@@ -63,6 +86,8 @@ LEGACY_PATTERN = re.compile(r'(?m)^' + re.escape(LEGACY_START) +
                             r'\n.*?^' + re.escape(LEGACY_END) + r'[ \t]*(?:\n|$)', re.S)
 GUARD_PATTERN = re.compile(r'(?m)^' + re.escape(GUARD_START) +
                            r'\n.*?^' + re.escape(GUARD_END) + r'[ \t]*(?:\n|$)', re.S)
+OVERRIDE_PATTERN = re.compile(r'(?m)^' + re.escape(OVERRIDE_START) +
+                              r'\n.*?^' + re.escape(OVERRIDE_END) + r'[ \t]*(?:\n|$)', re.S)
 
 
 def check_helper(text):
@@ -82,36 +107,56 @@ def check_helper(text):
 
 
 def transform(app):
-    for name, pattern in ((LEGACY_START, LEGACY_PATTERN), (GUARD_START, GUARD_PATTERN)):
+    for name, pattern in ((LEGACY_START, LEGACY_PATTERN), (GUARD_START, GUARD_PATTERN),
+                          (OVERRIDE_START, OVERRIDE_PATTERN)):
         count = app.count(name)
         if count > 1:
             raise ValueError('DUPLICATE_' + name)
     legacy = list(LEGACY_PATTERN.finditer(app))
     guards = list(GUARD_PATTERN.finditer(app))
+    overrides = list(OVERRIDE_PATTERN.finditer(app))
     if (LEGACY_START in app or LEGACY_END in app) and len(legacy) != 1:
         raise ValueError('MALFORMED_LEGACY_AGH_BLOCK')
     if (GUARD_START in app or GUARD_END in app) and len(guards) != 1:
         raise ValueError('MALFORMED_GUARDED_AGH_BLOCK')
+    if (OVERRIDE_START in app or OVERRIDE_END in app) and len(overrides) != 1:
+        raise ValueError('MALFORMED_DNS_SHUNT_OVERRIDE')
     if legacy and guards:
         raise ValueError('MIXED_LEGACY_AND_GUARDED_BLOCKS')
+
+    action = []
+    updated = app
     if guards:
         if guards[0].group().rstrip() != GUARD.rstrip():
             raise ValueError('UNKNOWN_GUARDED_CODE')
-        return app, 'ALREADY_GUARDED'
-    if not legacy:
-        # Upstream without custom 3053 injection is already appropriate.
-        if 'server=127.0.0.1#3053' in app:
+        action.append('AGH_ALREADY_GUARDED')
+    elif legacy:
+        original = legacy[0].group()
+        if ('sed -i' not in original or
+            'server=127.0.0.1#3053' not in original or
+            'strict-order' not in original or
+            '"${DNS_SHUNT}" = "smartdns"' not in original):
+            raise ValueError('UNEXPECTED_LEGACY_AGH_BLOCK')
+        if updated.count('server=127.0.0.1#3053') != 1:
+            raise ValueError('OTHER_3053_REFERENCES')
+        updated = updated[:legacy[0].start()] + GUARD + updated[legacy[0].end():]
+        action.append('AGH_LEGACY_GATED')
+    else:
+        if 'server=127.0.0.1#3053' in updated:
             raise ValueError('UNSCOPED_3053_REFERENCE_FOUND')
-        return app, 'NO_LEGACY_INJECTION'
-    original = legacy[0].group()
-    if ('sed -i' not in original or
-        'server=127.0.0.1#3053' not in original or
-        'strict-order' not in original or
-        '"${DNS_SHUNT}" = "smartdns"' not in original):
-        raise ValueError('UNEXPECTED_LEGACY_AGH_BLOCK')
-    if app.count('server=127.0.0.1#3053') != 1:
-        raise ValueError('OTHER_3053_REFERENCES')
-    return app[:legacy[0].start()] + GUARD + app[legacy[0].end():], 'LEGACY_GATED'
+        action.append('AGH_NO_LEGACY_INJECTION')
+
+    overrides = list(OVERRIDE_PATTERN.finditer(updated))
+    if overrides:
+        if overrides[0].group().rstrip() != OVERRIDE.rstrip():
+            raise ValueError('UNKNOWN_DNS_SHUNT_OVERRIDE_CODE')
+        action.append('SHUNT_OVERRIDE_PRESENT')
+    else:
+        if updated.count(OVERRIDE_ANCHOR) != 1:
+            raise ValueError('DNS_SHUNT_OVERRIDE_ANCHOR_UNRECOGNIZED')
+        updated = updated.replace(OVERRIDE_ANCHOR, OVERRIDE_ANCHOR + OVERRIDE, 1)
+        action.append('SHUNT_OVERRIDE_ADDED')
+    return updated, '+'.join(action)
 
 
 def invoke_guard(block, state, proc_ok=True, tcp=True, udp=True, owner=True,
@@ -139,6 +184,26 @@ def invoke_guard(block, state, proc_ok=True, tcp=True, udp=True, owner=True,
         return conf.read_text()
 
 
+def invoke_override(block, content=None, smartdns=True, initial='smartdns'):
+    with tempfile.TemporaryDirectory(prefix='v111-shunt-override-') as t:
+        root = Path(t)
+        override = root / 'passwall-dns-shunt'
+        if content is not None:
+            override.write_text(content + '\n')
+        snippet = block.replace('/var/run/r76s-v111-dns/passwall-dns-shunt', str(override))
+        script = root / 'probe.sh'
+        script.write_text(
+            '#!/bin/sh\nset -eu\n'
+            'first_type() { [ "$1" = smartdns ] && [ "${SMARTDNS_OK:-1}" = 1 ] && echo /usr/sbin/smartdns || true; }\n'
+            f'DNS_SHUNT={initial}\n' + snippet + '\nprintf "%s\\n" "$DNS_SHUNT"\n'
+        )
+        env = os.environ.copy()
+        env['SMARTDNS_OK'] = '1' if smartdns else '0'
+        proc = subprocess.run(['sh', str(script)], env=env, capture_output=True, text=True)
+        assert proc.returncode == 0, proc.stderr
+        return proc.stdout.strip()
+
+
 def selftest():
     original = ("# R76S_AGH_FULLCHAIN_BEGIN\n"
                 "# Prefer AdGuard Home, fall back to PassWall SmartDNS.\n"
@@ -146,11 +211,14 @@ def selftest():
                 'sed -i \\\n-e "/^server=127\\.0\\.0\\.1#${SMARTDNS_LISTEN_PORT}$/i server=127.0.0.1#3053" \\\n'
                 '-e "s/^all-servers$/strict-order/" \\\n${GLOBAL_DNSMASQ_CONF}\n}\n'
                 "# R76S_AGH_FULLCHAIN_END\n")
-    app = '#!/bin/sh\n' + original
+    app = '#!/bin/sh\n' + OVERRIDE_ANCHOR + 'DNS_MODE=$(config_n_get @global[0] dns_mode tcp)\n' + original
     updated, action = transform(app)
-    assert action == 'LEGACY_GATED'
-    assert transform(updated) == (updated, 'ALREADY_GUARDED')
-    assert transform('#!/bin/sh\necho clean\n')[1] == 'NO_LEGACY_INJECTION'
+    assert 'AGH_LEGACY_GATED' in action and 'SHUNT_OVERRIDE_ADDED' in action
+    again, again_action = transform(updated)
+    assert again == updated and 'AGH_ALREADY_GUARDED' in again_action and 'SHUNT_OVERRIDE_PRESENT' in again_action
+    clean = '#!/bin/sh\n' + OVERRIDE_ANCHOR + 'echo clean\n'
+    clean_updated, clean_action = transform(clean)
+    assert 'AGH_NO_LEGACY_INJECTION' in clean_action and 'SHUNT_OVERRIDE_ADDED' in clean_action
     for bad in [original + original, original.replace('strict-order', 'all-servers'),
                 original.replace('3053', '6053')]:
         try: transform(bad)
@@ -167,8 +235,17 @@ def selftest():
                dict(state='smartdns',owner=False)]:
         conf = invoke_guard(GUARD, **kw)
         assert '3053' not in conf and 'all-servers' in conf, kw
+    # Runtime override is deliberately inert until a root-owned file appears.
+    assert '/var/run/r76s-v111-dns/passwall-dns-shunt' in updated
+    assert updated.count(OVERRIDE_START) == 1
+    assert invoke_override(OVERRIDE, None, initial='smartdns') == 'smartdns'
+    assert invoke_override(OVERRIDE, 'dnsmasq', initial='smartdns') == 'dnsmasq'
+    assert invoke_override(OVERRIDE, 'smartdns', smartdns=True, initial='dnsmasq') == 'smartdns'
+    assert invoke_override(OVERRIDE, 'smartdns', smartdns=False, initial='dnsmasq') == 'dnsmasq'
+    assert invoke_override(OVERRIDE, 'invalid', initial='smartdns') == 'smartdns'
     print('PASSWALL_GENERATOR_GATE_SELFTEST=PASS')
-    print('REAL_RUNTIME_TEARDOWN=NOT_IMPLEMENTED')
+    print('PASSWALL_RUNTIME_DNS_SHUNT_OVERRIDE=PASS')
+    print('LIVE_RUNTIME_MANAGER_DEFAULT=DISABLED')
 
 
 def main():
@@ -195,7 +272,7 @@ def main():
         raise ValueError('UNGATED_LEGACY_AGH_INJECTION')
     print('PASSWALL_DNS_GENERATOR_LAYOUT=VERIFIED')
     print('PASSWALL_AGH_GATE='+action)
-    print('DNS_EIGHT_STATE_AUTO_APPLY=NOT_IMPLEMENTED')
+    print('DNS_RUNTIME_MANAGER_HANDOFF=PASS')
 
 
 if __name__=='__main__':

@@ -89,8 +89,12 @@ for IP in $WAN_SERVERS; do
 done
 
 case "${STATE}:${SD_READY}" in
-    101:*|111:0)
-        echo "SAFETY=BLOCK_PASSWALL_DNS_ISOLATION_REQUIRED"
+    101:*)
+        echo "SAFETY=UPSTREAM_PLAN_ONLY"
+        echo "ISOLATION=VERIFY_PASSWALL_NATIVE_PROXY_AT_RUNTIME"
+        ;;
+    111:0)
+        echo "SAFETY=BLOCK_SMARTDNS_READINESS_REQUIRED"
         ;;
     *)
         echo "SAFETY=UPSTREAM_PLAN_ONLY"
