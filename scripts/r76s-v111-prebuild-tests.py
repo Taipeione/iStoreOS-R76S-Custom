@@ -162,6 +162,76 @@ def main():
                 'Renderer unexpectedly modified YAML')
         print_pass('BusyBox-friendly AWK render parity and immutable YAML')
 
+    # R76S_V111_EIGHT_STATE_TRANSITION_SPEC
+    # All 64 transitions have a safe ordering specification. They remain
+    # OFFLINE plans, not permission to apply to router configuration.
+    spec = importlib.util.spec_from_file_location(
+        'v111_transitions', HERE / 'r76s-v111-dns-transition-plan.py')
+    transition = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(transition)
+    for before in STATES:
+        for after in STATES:
+            plan = transition.make_plan(before, after)
+            topo = plan['requested_topology']
+            assert plan['status'] == 'OFFLINE_PLAN_ONLY'
+            assert plan['automatic_apply'] is False
+            assert plan['ordered_phases'].index('STAGE_DNSMASQ_MAIN_UPSTREAM_LAST') > 3
+            assert plan['ordered_phases'].index('SWITCH_MAIN_DNS_WITH_RECORDED_ROLLBACK_STATE') < \
+                plan['ordered_phases'].index('ONLY_THEN_REMOVE_UNUSED_UPSTREAM_REFERENCES_AND_STOP_SERVICES')
+            assert ('AGH:3053' in topo['main']) == (after[2] == '1')
+            assert ('SMARTDNS:6053' in topo['main']) == (after[2] == '0' and after[1] == '1')
+            assert (topo['adguard_upstream'] == 'OFF') == (after[2] == '0')
+            if after[1] == '0':
+                assert all('15355' not in ref for ref in topo['passwall_dns_upstreams'])
+            if after[2] == '0':
+                assert all('3053' not in ref for ref in topo['passwall_dns_upstreams'])
+            if after == '101':
+                assert topo['passwall_dns_upstreams'] == ['INDEPENDENT_PROXY_DNS']
+                assert 'ISOLATED_PASSWALL_PROXY_DNS_VERIFIED' in plan['required_live_evidence']
+    try:
+        transition.make_plan('abc', '111')
+    except ValueError:
+        pass
+    else:
+        raise AssertionError('invalid transition input accepted')
+    print_pass('64 read-only transitions, safe ordering, isolation, rollback evidence gates')
+
+    # R76S_V111_LOADER_AND_PORT_OWNER_FIXTURE
+    # Same launch pattern measured on real R76S: ld-musl-aarch64 -> smartdns.bin.
+    # Misowned listener and missing SmartDNS process must fail closed.
+    with tempfile.TemporaryDirectory(prefix='r76s-v111-loader.') as dirname:
+        root = Path(dirname)
+        proc = root / 'proc' / '7094'
+        proc.mkdir(parents=True)
+        (proc / 'cmdline').write_bytes(
+            b'/lib/ld-musl-aarch64.so.1\0/usr/libexec/r76s/smartdns.bin\0'
+            b'-c\0/var/etc/smartdns/smartdns.conf\0')
+        mocks = root / 'bin'
+        mocks.mkdir()
+        netstat = mocks / 'netstat'
+        netstat.write_text('#!/bin/sh\n'
+                           'echo "tcp 0 0 :::6053 :::* LISTEN ${FAKE_DNS_OWNER:-7094}/ld-musl-aarch6"\n')
+        netstat.chmod(0o755)
+        uci = mocks / 'uci'
+        uci.write_text('#!/bin/sh\necho 1\n')
+        uci.chmod(0o755)
+        env = os.environ.copy()
+        env.update(PATH=str(mocks) + os.pathsep + env.get('PATH', ''),
+                   R76S_V111_PROC_ROOT=str(root / 'proc'))
+        detector = HERE / 'r76s-v111-dns-detect.sh'
+        healthy = run('sh', detector, env=env)
+        require('SD_PROCESS=1' in healthy and 'SD_PORT_OWNER_VERIFIED=1' in healthy and
+                'SD_READY=1' in healthy, 'dynamic-loader SmartDNS not recognized')
+        env['FAKE_DNS_OWNER'] = '9999'
+        foreign = run('sh', detector, env=env)
+        require('SD_PROCESS=1' in foreign and 'SD_PORT_OWNER_VERIFIED=0' in foreign and
+                'SD_READY=0' in foreign, 'unrelated service bound to 6053 accepted')
+        (proc / 'cmdline').unlink()
+        no_process = run('sh', detector, env=env)
+        require('SD_PROCESS=0' in no_process and 'SD_READY=0' in no_process,
+                'missing SmartDNS process accepted')
+    print_pass('dynamic-loader SmartDNS PID/port ownership; spoofed and missing process fail closed')
+
     # R76S_V111_SYMBOLIC_TOPOLOGY_REGRESSION
     # These models prove graph/guard logic only. They do not assert that the
     # actual PassWall/SmartDNS/AdGuard generated configurations match them.
@@ -303,6 +373,8 @@ def main():
                 'Read-only runtime files staged before overlay reset')
         require('r76s-v111-dns-runtime-audit.sh' in t,
                 'File-grounded runtime audit not installed in firmware')
+        require('r76s-v111-dns-transition-plan.py' in t,
+                'Offline transition plan not checked by workflow')
         require('r76s-v111-dns-topology.py' in t,
                 'Symbolic dependency check missing from workflow')
         require('scripts/r76s-v111-prebuild-tests.py' in t,
@@ -310,6 +382,7 @@ def main():
     print_pass('release gating, overlay re-stage ordering, disabled unsafe hook')
     print('R76S_V111_PREBUILD_TESTS=PASS')
     print('IMPORTANT: DNS_AUTOMATIC_EIGHT_STATES=NOT_IMPLEMENTED')
+    print('IMPORTANT: 64_TRANSITIONS_ARE_OFFLINE_PLANS_ONLY')
     print('IMPORTANT: SYMBOLIC_TOPOLOGY_IS_NOT_LIVE_CONFIG_PROOF')
     print('IMPORTANT: ROUTER_OR_GITHUB_CHANGES=NONE')
 

@@ -3253,6 +3253,8 @@ jobs:
           echo "V1.1.1 critical files re-staged after overlay reset."
 
           echo "===== V1.1.1: install read-only DNS diagnostics, no autostart ====="
+          test -s scripts/r76s-v111-dns-transition-plan.py
+          echo "DNS_64_TRANSITIONS=OFFLINE_PLAN_ONLY"
           DNS_READONLY_DIR="openwrt/files/usr/libexec/r76s/v111-dns-readonly"
           mkdir -p "$DNS_READONLY_DIR"
           for dns_script in \
@@ -3271,6 +3273,7 @@ jobs:
           # Explicit exclusions: the transaction lab and Python YAML lab must
           # never be installed as router runtime services.
           # Python topology checker is an offline build-time diagnostic only.
+          test -s scripts/r76s-v111-dns-transition-plan.py
           test -s scripts/r76s-v111-dns-topology.py
           test ! -e "$DNS_READONLY_DIR/r76s-v111-dns-transaction.sh"
           test ! -e "openwrt/files/etc/init.d/r76s-v111-dns-manager"
