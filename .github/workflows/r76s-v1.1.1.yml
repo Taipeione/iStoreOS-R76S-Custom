@@ -36,6 +36,7 @@ jobs:
           sha256sum .github/workflows/r76s-v1.1.1.yml
           echo '===== V1.1.1 offline DNS safety suite ====='
           python3 scripts/r76s-v111-prebuild-tests.py
+          echo 'R76S_V111_DNS_TOPOLOGY_CHECK=SYMBOLIC_ONLY'
 
       - name: Free disk space
         run: |
@@ -3259,6 +3260,7 @@ jobs:
             r76s-v111-dns-guard.sh \
             r76s-v111-dns-policy.sh \
             r76s-v111-dns-manager.sh \
+            r76s-v111-dns-runtime-audit.sh \
             r76s-v111-agh-upstream.sh \
             r76s-v111-agh-yaml-render.sh; do
               test -s "scripts/$dns_script"
@@ -3268,6 +3270,8 @@ jobs:
           done
           # Explicit exclusions: the transaction lab and Python YAML lab must
           # never be installed as router runtime services.
+          # Python topology checker is an offline build-time diagnostic only.
+          test -s scripts/r76s-v111-dns-topology.py
           test ! -e "$DNS_READONLY_DIR/r76s-v111-dns-transaction.sh"
           test ! -e "openwrt/files/etc/init.d/r76s-v111-dns-manager"
           echo "DNS_READONLY_TOOLS_STAGED=PASS"
@@ -3584,12 +3588,14 @@ jobs:
             r76s-v111-dns-guard.sh \
             r76s-v111-dns-policy.sh \
             r76s-v111-dns-manager.sh \
+            r76s-v111-dns-runtime-audit.sh \
             r76s-v111-agh-upstream.sh \
             r76s-v111-agh-yaml-render.sh; do
               test -x "$ROOTFS_DIR/usr/libexec/r76s/v111-dns-readonly/$dns_script"
           done
           test ! -e "$ROOTFS_DIR/etc/init.d/r76s-v111-dns-manager"
           test ! -e "$ROOTFS_DIR/usr/libexec/r76s/v111-dns-readonly/r76s-v111-dns-transaction.sh"
+          test ! -e "$ROOTFS_DIR/usr/libexec/r76s/v111-dns-readonly/r76s-v111-dns-topology.py"
           echo "FINAL built read-only DNS tools: PASS"
           echo "FINAL built rootfs critical files: PASS"
 

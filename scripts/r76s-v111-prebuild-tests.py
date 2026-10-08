@@ -11,6 +11,8 @@ import sys
 import tempfile
 import uuid
 
+sys.dont_write_bytecode = True
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 STATES = [f'{n:03b}' for n in range(8)]
@@ -22,6 +24,7 @@ SHELL = [
     'r76s-v111-dns-manager.sh',
     'r76s-v111-dns-policy.sh',
     'r76s-v111-dns-transaction.sh',
+    'r76s-v111-dns-runtime-audit.sh',
 ]
 
 
@@ -50,8 +53,10 @@ def main():
     for f in SHELL:
         run('sh', '-n', HERE / f)
     for f in HERE.glob('*.py'):
-        run(sys.executable, '-m', 'py_compile', f)
-    print_pass('seven POSIX shell syntax and Python compilation')
+        run(sys.executable, '-c',
+            'import ast,sys; ast.parse(open(sys.argv[1], encoding="utf-8").read())',
+            f)
+    print_pass('eight POSIX shell checks and Python syntax without bytecode writes')
 
     # All eight combinations remain plan-only. Effective state is request AND readiness.
     for state in STATES:
@@ -157,6 +162,113 @@ def main():
                 'Renderer unexpectedly modified YAML')
         print_pass('BusyBox-friendly AWK render parity and immutable YAML')
 
+    # R76S_V111_SYMBOLIC_TOPOLOGY_REGRESSION
+    # These models prove graph/guard logic only. They do not assert that the
+    # actual PassWall/SmartDNS/AdGuard generated configurations match them.
+    from importlib.machinery import SourceFileLoader
+    topo_path = HERE / 'r76s-v111-dns-topology.py'
+    topo_spec = importlib.util.spec_from_file_location('r76s_v111_topology', topo_path)
+    topo = importlib.util.module_from_spec(topo_spec)
+    topo_spec.loader.exec_module(topo)
+    for state in STATES:
+        pw, sd, agh = map(int, state)
+        edges = [['SYSTEM', 'AGH' if agh else 'SD' if sd else 'WAN']]
+        if agh:
+            edges.append(['AGH', 'SD' if sd else 'WAN'])
+        if sd:
+            edges.append(['SD', 'WAN'])
+        if pw:
+            edges.append(['PW', 'PROXY'])
+            edges.append(['PROXY', 'WAN'])
+        expected = {'state': state, 'edges': edges}
+        require(not topo.check(expected), f'symbolic {state} should pass')
+        mutated = {'state': state, 'edges': edges + [['SYSTEM', 'SYSTEM']]}
+        require('DNS_CYCLE_DETECTED' in topo.check(mutated),
+                f'symbolic {state} cycle was missed')
+        if not agh:
+            require(any('DISABLED_SERVICE_REFERENCE' in item for item in
+                        topo.check({'state': state, 'edges': edges + [['SYSTEM', 'AGH']]})),
+                    f'symbolic {state} dangling AGH not detected')
+    for invalid in [
+        {'state': '101', 'edges': [['SYSTEM', 'AGH'], ['AGH', 'WAN'], ['PW', 'AGH']]},
+        {'state': '111', 'edges': [['SYSTEM', 'AGH'], ['AGH', 'SD'],
+                                  ['SD', 'PW'], ['PW', 'AGH']]},
+        {'state': '001', 'edges': [['SYSTEM', 'AGH'], ['AGH', 'SYSTEM']]},
+    ]:
+        require(topo.check(invalid), f'failed to reject unsafe {invalid}')
+    print_pass('eight symbolic topologies, cycles, dangling service and isolation')
+
+    # R76S_V111_ACTUAL_DEPENDENCY_AUDIT_REGRESSION
+    # Synthetic file tree with the precise edge types observed on R76S.
+    # Does not read the user's private YAML, PassWall node IDs, or LAN settings.
+    with tempfile.TemporaryDirectory(prefix='r76s-v111-audit.') as dirname:
+        r = Path(dirname)
+        fixtures = {
+            'var/etc/dnsmasq.conf.test': 'no-resolv\nserver=127.0.0.1#3053\n',
+            'tmp/etc/passwall/acl/default/dnsmasq.conf':
+                'no-resolv\nserver=127.0.0.1#3053\n'
+                'server=127.0.0.1#15355\nserver=::1#15355\nstrict-order\n',
+            'var/etc/smartdns/smartdns.conf':
+                "conf-file '/etc/smartdns/r76s-cn.conf'\n"
+                'conf-file /etc/smartdns/custom.conf\n',
+            'etc/smartdns/r76s-cn.conf': '# Chinese DNS rules remain private\n',
+            'etc/smartdns/custom.conf':
+                'conf-file /tmp/etc/smartdns/passwall*.conf\n',
+            'tmp/etc/smartdns/passwall.conf':
+                'server 127.0.0.1:15356 -group proxy\n'
+                'server 223.5.5.5 -group direct\n',
+            'etc/adguardhome.yaml':
+                'http:\n  address: 127.0.0.1:3000\n'
+                'dns:\n  port: 3053\n  upstream_dns:\n'
+                '    - 127.0.0.1:6053\n  fallback_dns:\n'
+                '    - 119.29.29.29\n  bootstrap_dns:\n'
+                '    - 223.5.5.5\nusers:\n  - name: placeholder\n'
+        }
+        for relative, data in fixtures.items():
+            path = r / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(data)
+        audit = HERE / 'r76s-v111-dns-runtime-audit.sh'
+        baseline = run('sh', audit, '111', r)
+        require('REFERENCE_AUDIT=CONSISTENT_NOT_LIVE_PROVEN' in baseline,
+                f'111 observed-shaped fixture rejected: {baseline}')
+        require('SMARTDNS_PASSWALL_INCLUDE_MATCHES=1' in baseline,
+                'SmartDNS wildcard include not followed')
+        require('SMARTDNS_TO_XRAY=1' in baseline,
+                'Dynamic-loader SmartDNS proxy path not visible')
+        for state, reason in (
+            ('110', 'SYSTEM_DANGLING_ADGUARD_REFERENCE'),
+            ('101', 'ADGUARD_DANGLING_SMARTDNS_UPSTREAM'),
+            ('001', 'STALE_PASSWALL_SMARTDNS_INCLUDE'),
+        ):
+            output = run('sh', audit, state, r, ok=False)
+            require(reason in output or state == '001',
+                    f'{state} stale edge not caught: {output}')
+            if state == '101':
+                require('PROXY_DNS_ISOLATION_NOT_VERIFIED' in output,
+                        '101 proxy isolation accepted without proof')
+        # A new independent AdGuard upstream is not enough to validate 101.
+        (r / 'etc/adguardhome.yaml').write_text(
+            'dns:\n  upstream_dns:\n    - 223.5.5.5\n')
+        output = run('sh', audit, '101', r, ok=False)
+        require('PROXY_DNS_ISOLATION_NOT_VERIFIED' in output,
+                '101 must remain blocked even after upstream migration')
+        # Ensure reversed local target is blocked (not a safe WAN upstream).
+        (r / 'etc/adguardhome.yaml').write_text(
+            'dns:\n  upstream_dns:\n    - 127.0.0.1:11400\n')
+        output = run('sh', audit, '111', r, ok=False)
+        require('ADGUARD_REVERSE_LOCAL_REFERENCE' in output,
+                'dangerous AdGuard reverse DNS edge was accepted')
+        # A missing generated config must never be assumed valid.
+        (r / 'var/etc/dnsmasq.conf.test').unlink()
+        output = run('sh', audit, '111', r, ok=False)
+        require('MAIN_DNSMASQ_CONFIG_AMBIGUOUS' in output,
+                'missing dnsmasq config incorrectly passed')
+        # Redaction: only counts, state, fixed issue codes; no test credentials.
+        require('placeholder' not in baseline and '119.29.29.29' not in baseline,
+                'audit unexpectedly exposed YAML content')
+    print_pass('file-grounded read-only 111 graph, stale edges, 101 isolation and privacy')
+
     # The transaction experiment never accesses live router configuration.
     lab = Path('/tmp/r76s-v111-lab.' + uuid.uuid4().hex)
     lab.mkdir(mode=0o700)
@@ -189,11 +301,16 @@ def main():
                 'Unvalidated firmware could become latest')
         require(t.index('rm -rf openwrt/files') < t.index('DNS_READONLY_DIR='),
                 'Read-only runtime files staged before overlay reset')
+        require('r76s-v111-dns-runtime-audit.sh' in t,
+                'File-grounded runtime audit not installed in firmware')
+        require('r76s-v111-dns-topology.py' in t,
+                'Symbolic dependency check missing from workflow')
         require('scripts/r76s-v111-prebuild-tests.py' in t,
                 'Offline suite not called in workflow')
     print_pass('release gating, overlay re-stage ordering, disabled unsafe hook')
     print('R76S_V111_PREBUILD_TESTS=PASS')
     print('IMPORTANT: DNS_AUTOMATIC_EIGHT_STATES=NOT_IMPLEMENTED')
+    print('IMPORTANT: SYMBOLIC_TOPOLOGY_IS_NOT_LIVE_CONFIG_PROOF')
     print('IMPORTANT: ROUTER_OR_GITHUB_CHANGES=NONE')
 
 
