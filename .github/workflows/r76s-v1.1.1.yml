@@ -36,6 +36,7 @@ jobs:
           sha256sum .github/workflows/r76s-v1.1.1.yml
           echo '===== V1.1.1 offline DNS safety suite ====='
           python3 scripts/r76s-v111-prebuild-tests.py
+          python3 scripts/r76s-v111-passwall-groups.py --self-test
           echo 'R76S_V111_DNS_TOPOLOGY_CHECK=SYMBOLIC_ONLY'
 
       - name: Free disk space
@@ -692,74 +693,11 @@ jobs:
           PW_SMARTDNS_HELPER="$PASSWALL_DIR/root/usr/share/passwall/helper_smartdns_add.lua"
           test -f "$PW_SMARTDNS_HELPER"
 
-          python3 - "$PW_SMARTDNS_HELPER" <<'PY_PW_SMARTDNS'
-          from pathlib import Path
-          import sys
-
-          p = Path(sys.argv[1])
-          s = p.read_text()
-
-          marker = '-- R76S_V111_SMARTDNS_DIRECT_GROUP_PATCH'
-          direct_anchor = 'local domain_set_name = "psw-shunt-direct"'
-
-          if marker not in s:
-              pos = s.find(direct_anchor)
-
-              if pos < 0:
-                  raise SystemExit(
-                      'ERROR: psw-shunt-direct anchor missing in helper_smartdns_add.lua'
-                  )
-
-              end = min(len(s), pos + 1200)
-              segment = s[pos:end]
-
-              bad = 'domain_set_name, REMOTE_GROUP)'
-              good = 'domain_set_name, LOCAL_GROUP)'
-
-              if bad not in segment:
-                  if good in segment:
-                      raise SystemExit(
-                          'ERROR: mapping already changed upstream but V1.1.1 marker is missing'
-                      )
-
-                  raise SystemExit(
-                      'ERROR: expected REMOTE_GROUP mapping not found near psw-shunt-direct'
-                  )
-
-              segment = segment.replace(bad, good, 1)
-              s = s[:pos] + marker + '\n\t' + segment + s[end:]
-
-          p.write_text(s)
-          PY_PW_SMARTDNS
-
-          grep -qF 'R76S_V111_SMARTDNS_DIRECT_GROUP_PATCH' "$PW_SMARTDNS_HELPER"
-
-          python3 - "$PW_SMARTDNS_HELPER" <<'PY_PW_VERIFY'
-          from pathlib import Path
-          import sys
-          import re
-
-          s = Path(sys.argv[1]).read_text()
-
-          pos = s.find('local domain_set_name = "psw-shunt-direct"')
-          if pos < 0:
-              raise SystemExit("ERROR: psw-shunt-direct missing after patch")
-
-          segment = s[pos:pos + 1200]
-
-          # Check the FIRST mapping after psw-shunt-direct.
-          # Later proxy mappings may correctly use REMOTE_GROUP.
-          match = re.search(
-              r'domain_set_name,\s*(LOCAL_GROUP|REMOTE_GROUP)\)',
-              segment
-          )
-          if match is None or match.group(1) != 'LOCAL_GROUP':
-              raise SystemExit(
-                  "ERROR: psw-shunt-direct does not use LOCAL_GROUP"
-              )
-
-          print("PASSWALL_SMARTDNS_DIRECT_GROUP=PASS")
-          PY_PW_VERIFY
+          # R76S_V111_PASSWALL_GROUP_SCOPED_GUARD
+          # Patch only psw-shunt-direct, never the adjacent proxy mapping.
+          # Already-correct upstream files are accepted without rewriting groups.
+          python3 scripts/r76s-v111-passwall-groups.py --patch "$PW_SMARTDNS_HELPER"
+          python3 scripts/r76s-v111-passwall-groups.py --verify "$PW_SMARTDNS_HELPER"
 
           test -f package/diy/luci-app-ota/Makefile
 
