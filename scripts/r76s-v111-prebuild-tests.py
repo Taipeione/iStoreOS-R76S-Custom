@@ -58,6 +58,15 @@ def main():
             f)
     print_pass('eight POSIX shell checks and Python syntax without bytecode writes')
 
+    # R76S_V111_PASSWALL_DNS_GENERATOR_BUILD_GUARD
+    # Check real-world templates separately when the upstream clone is present.
+    # The internal test exercises legacy injection, no-injection, missing
+    # AdGuard process or TCP/UDP port and repeated generation.
+    result = run(sys.executable, HERE / 'r76s-v111-passwall-dns-generator.py', '--selftest')
+    require('PASSWALL_GENERATOR_GATE_SELFTEST=PASS' in result,
+            'PassWall DNS generator selftest failed')
+    print_pass('PassWall DNS generator guard, AGH readiness and idempotence')
+
     # All eight combinations remain plan-only. Effective state is request AND readiness.
     for state in STATES:
         plan = run('sh', HERE / 'r76s-v111-dns-policy.sh', *state)

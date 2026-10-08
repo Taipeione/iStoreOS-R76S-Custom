@@ -699,6 +699,15 @@ jobs:
           python3 ../scripts/r76s-v111-passwall-groups.py --patch "$PW_SMARTDNS_HELPER"
           python3 ../scripts/r76s-v111-passwall-groups.py --verify "$PW_SMARTDNS_HELPER"
 
+          # R76S_V111_PASSWALL_DNS_GENERATOR_GUARD
+          # Keep upstream DNS generator UCI behavior intact; patch ONLY an
+          # exactly recognized legacy unconditional AGH 3053 injection.
+          # No live DNS takeover or shutdown callback is installed.
+          PW_DNSMASQ_HELPER="$PASSWALL_DIR/root/usr/share/passwall/helper_dnsmasq.lua"
+          test -s "$PW_DNSMASQ_HELPER"
+          python3 ../scripts/r76s-v111-passwall-dns-generator.py --patch "$PASSWALL_APP" "$PW_DNSMASQ_HELPER"
+          python3 ../scripts/r76s-v111-passwall-dns-generator.py --verify "$PASSWALL_APP" "$PW_DNSMASQ_HELPER"
+
           test -f package/diy/luci-app-ota/Makefile
 
 
