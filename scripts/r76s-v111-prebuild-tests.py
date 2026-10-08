@@ -578,10 +578,26 @@ def main():
                 'Built rootfs does not verify installed SmartDNS S18')
         require('python3 ../scripts/r76s-v111-passwall-groups.py --patch' in t,
                 'PassWall group patch helper path wrong')
-        require('test -s ../scripts/r76s-v111-dns-transition-plan.py' in t,
-                'Transition-plan check path wrong')
-        require('install -m 0755 "../scripts/$dns_script"' in t,
-                'Read-only overlay staging source path wrong')
+        # This overlay-staging step runs from the repository root (there is
+        # NO `cd openwrt`), unlike the earlier PassWall source patch step.
+        # The two stages must use different paths to reach repo scripts/.
+        step_name = ('      - name: Install R76S v1.1.1 clean defaults, '
+                     'dual 42-rule libraries and preservation hooks')
+        require(t.count(step_name) == 1, 'Clean-defaults step not unique')
+        overlay_step = t.split(step_name, 1)[1].split('\n      - name:', 1)[0]
+        require(not re.search(r'(?m)^\s*cd openwrt\s*$', overlay_step),
+                'Overlay staging cwd changed; review helper paths')
+        require('../scripts/' not in overlay_step,
+                'Overlay staging uses ../scripts outside repo root')
+        require('test -s scripts/r76s-v111-dns-transition-plan.py' in overlay_step,
+                'Transition-plan path must be root-relative')
+        require('install -m 0755 "scripts/$dns_script"' in overlay_step,
+                'Read-only scripts not staged from repository root')
+        require('sh scripts/r76s-v111-dns-runtime-manager.sh --selftest' in overlay_step,
+                'Runtime-manager selftest path must be root-relative')
+        require('cmp -s scripts/r76s-v111-dns-runtime-manager.sh' in overlay_step,
+                'Runtime-manager copy check path must be root-relative')
+        print_pass('workflow helper paths checked against each step working directory')
     print_pass('release gating, overlay re-stage ordering, disabled runtime manager and preserve state')
     print('R76S_V111_PREBUILD_TESTS=PASS')
     print('IMPORTANT: EIGHT_STATE_RUNTIME_MANAGER=STAGED_DISABLED_FOR_LIVE_VALIDATION')

@@ -3150,7 +3150,7 @@ jobs:
           echo "V1.1.1 critical files re-staged after overlay reset."
 
           echo "===== V1.1.1: install DNS diagnostics and disabled runtime coordinator ====="
-          test -s ../scripts/r76s-v111-dns-transition-plan.py
+          test -s scripts/r76s-v111-dns-transition-plan.py
           echo "DNS_64_TRANSITIONS=OFFLINE_REFERENCE"
           DNS_READONLY_DIR="openwrt/files/usr/libexec/r76s/v111-dns-readonly"
           DNS_RUNTIME_DIR="openwrt/files/usr/libexec/r76s/v111-dns-runtime"
@@ -3164,18 +3164,18 @@ jobs:
             r76s-v111-dns-runtime-audit.sh \
             r76s-v111-agh-upstream.sh \
             r76s-v111-agh-yaml-render.sh; do
-              test -s "../scripts/$dns_script"
-              sh -n "../scripts/$dns_script"
-              install -m 0755 "../scripts/$dns_script" "$DNS_READONLY_DIR/$dns_script"
-              cmp -s "../scripts/$dns_script" "$DNS_READONLY_DIR/$dns_script"
+              test -s "scripts/$dns_script"
+              sh -n "scripts/$dns_script"
+              install -m 0755 "scripts/$dns_script" "$DNS_READONLY_DIR/$dns_script"
+              cmp -s "scripts/$dns_script" "$DNS_READONLY_DIR/$dns_script"
           done
 
-          test -s ../scripts/r76s-v111-dns-runtime-manager.sh
-          sh -n ../scripts/r76s-v111-dns-runtime-manager.sh
-          sh ../scripts/r76s-v111-dns-runtime-manager.sh --selftest | grep -qF 'RUNTIME_MANAGER_SELFTEST=PASS'
-          install -m 0755 ../scripts/r76s-v111-dns-runtime-manager.sh \
+          test -s scripts/r76s-v111-dns-runtime-manager.sh
+          sh -n scripts/r76s-v111-dns-runtime-manager.sh
+          sh scripts/r76s-v111-dns-runtime-manager.sh --selftest | grep -qF 'RUNTIME_MANAGER_SELFTEST=PASS'
+          install -m 0755 scripts/r76s-v111-dns-runtime-manager.sh \
             "$DNS_RUNTIME_DIR/r76s-v111-dns-runtime-manager.sh"
-          cmp -s ../scripts/r76s-v111-dns-runtime-manager.sh \
+          cmp -s scripts/r76s-v111-dns-runtime-manager.sh \
             "$DNS_RUNTIME_DIR/r76s-v111-dns-runtime-manager.sh"
 
           cat > openwrt/files/etc/config/r76s_v111_dns <<'EOF_V111_DNS_CONFIG'
@@ -3222,8 +3222,8 @@ jobs:
           # Explicit exclusions: lab-only transaction/Python tooling stays out
           # of the router runtime.  The coordinator itself is installed but
           # neither config-enabled nor rc-enabled by this development build.
-          test -s ../scripts/r76s-v111-dns-transition-plan.py
-          test -s ../scripts/r76s-v111-dns-topology.py
+          test -s scripts/r76s-v111-dns-transition-plan.py
+          test -s scripts/r76s-v111-dns-topology.py
           test ! -e "$DNS_READONLY_DIR/r76s-v111-dns-transaction.sh"
           test ! -e "$DNS_RUNTIME_DIR/r76s-v111-dns-transaction.sh"
           grep -qF "option enabled '0'" openwrt/files/etc/config/r76s_v111_dns
@@ -3287,9 +3287,9 @@ jobs:
               echo 'ERROR: unauthorized DNS overlay override' >&2
               exit 1
           fi
-          cmp -s ../scripts/r76s-v111-dns-manager.sh \
+          cmp -s scripts/r76s-v111-dns-manager.sh \
             openwrt/files/usr/libexec/r76s/v111-dns-readonly/r76s-v111-dns-manager.sh
-          cmp -s ../scripts/r76s-v111-dns-runtime-manager.sh \
+          cmp -s scripts/r76s-v111-dns-runtime-manager.sh \
             openwrt/files/usr/libexec/r76s/v111-dns-runtime/r76s-v111-dns-runtime-manager.sh
 
           echo "R76S-V1.1.1 clean defaults and online-upgrade preservation hooks verified."
