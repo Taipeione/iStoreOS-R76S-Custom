@@ -26,7 +26,7 @@ jobs:
         run: |
           echo "=========================================="
           echo " WORKFLOW_REV=R76S-V1.1.1-CONSOLIDATED"
-          echo " EXPECTED_STEPS=31"
+          echo " EXPECTED_STEPS=34"
           echo " COMMIT=$GITHUB_SHA"
           echo "=========================================="
           test -f .github/workflows/r76s-v1.1.1.yml
@@ -72,6 +72,8 @@ jobs:
             swig \
             time \
             unzip \
+            squashfs-tools \
+            util-linux \
             zlib1g-dev \
             file \
             wget \
@@ -3589,43 +3591,13 @@ jobs:
 
       - name: Verify built PassWall2 Chinese package and rule defaults
         run: |
+          set -o pipefail
           cd openwrt
-          echo "===== Verify FINAL built rootfs critical V1.1.1 files ====="
-          ROOTFS_DIR="$(find build_dir -type d -name 'root-rockchip' -print | head -n1)"
-          echo "ROOTFS_DIR=$ROOTFS_DIR"
-          test -n "$ROOTFS_DIR"
-          test -d "$ROOTFS_DIR"
-          test -x "$ROOTFS_DIR/usr/libexec/r76s/r76s-ota-preserve-state"
-          grep -qF 'r76s_ota_state.state.pending' "$ROOTFS_DIR/usr/libexec/r76s/r76s-ota-preserve-state"
-          test -s "$ROOTFS_DIR/www/luci-static/resources/ui.js"
-          grep -qF 'timeout: 0' "$ROOTFS_DIR/www/luci-static/resources/ui.js"
-          test -s "$ROOTFS_DIR/www/luci-static/resources/view/system/flash.js"
-          grep -qF 'R76S_V110_FLASH_UPLOAD_PATCH' "$ROOTFS_DIR/www/luci-static/resources/view/system/flash.js"
-          for dns_script in \
-            r76s-v111-dns-detect.sh \
-            r76s-v111-dns-guard.sh \
-            r76s-v111-dns-policy.sh \
-            r76s-v111-dns-manager.sh \
-            r76s-v111-dns-runtime-audit.sh \
-            r76s-v111-agh-upstream.sh \
-            r76s-v111-agh-yaml-render.sh; do
-              test -x "$ROOTFS_DIR/usr/libexec/r76s/v111-dns-readonly/$dns_script"
-          done
-          test -x "$ROOTFS_DIR/usr/libexec/r76s/v111-dns-runtime/r76s-v111-dns-runtime-manager.sh"
-          test -x "$ROOTFS_DIR/etc/init.d/r76s-v111-dns-manager"
-          test -s "$ROOTFS_DIR/etc/config/r76s_v111_dns"
-          grep -qF "option enabled '0'" "$ROOTFS_DIR/etc/config/r76s_v111_dns"
-          test ! -e "$ROOTFS_DIR/etc/rc.d/S99r76s-v111-dns-manager"
-          test ! -e "$ROOTFS_DIR/usr/libexec/r76s/v111-dns-readonly/r76s-v111-dns-transaction.sh"
-          test ! -e "$ROOTFS_DIR/usr/libexec/r76s/v111-dns-readonly/r76s-v111-dns-topology.py"
-          test -f "$ROOTFS_DIR/etc/init.d/smartdns"
-          grep -qxF 'START=18' "$ROOTFS_DIR/etc/init.d/smartdns" || {
-            echo 'ERROR: SmartDNS S18 was not included in the final rootfs' >&2
-            exit 1
-          }
-          echo "SMARTDNS_S18_FINAL_ROOTFS=PASS"
-          echo "FINAL built DNS diagnostics and disabled runtime manager: PASS"
-          echo "FINAL built rootfs critical files: PASS"
+          echo "===== Stage tree diagnostics (not final-image evidence) ====="
+          mkdir -p "$GITHUB_WORKSPACE/r76s-build-diagnostics"
+          python3 ../scripts/r76s-v111-final-audit.py --phase stage --openwrt . \
+            | tee "$GITHUB_WORKSPACE/r76s-build-diagnostics/staging-tree-audit.log"
+          echo "STAGING_ONLY_CHECK=PASS_FINAL_IMAGE_GATE_PENDING"
 
           echo "===== Verify PassWall / PassWall2 package defaults after build ====="
           PW1_DEFAULT="package/passwall-luci/luci-app-passwall/root/usr/share/passwall/0_default_config"
@@ -3645,13 +3617,13 @@ jobs:
           PW2_LMO="$(find build_dir/target-* -type f \( \
             -path '*/root-*/usr/lib/lua/luci/i18n/passwall2.zh-cn.lmo' -o \
             -path '*/root-*/usr/share/luci/i18n/passwall2.zh-cn.lmo' \
-          \) | head -n1)"
+          \) -print -quit)"
+          if [ -n "$PW2_LMO" ] && [ -s "$PW2_LMO" ]; then
+            echo "PASSWALL2_STAGING_LMO=$PW2_LMO"
+          else
+            echo 'PASSWALL2_STAGING_LMO=NOT_FOUND; actual image will be checked'
+          fi
 
-          test -n "$PW2_LMO"
-          test -s "$PW2_LMO"
-
-          echo "PassWall2 zh-cn LMO in final rootfs: $PW2_LMO"
-          echo "PassWall2 Simplified Chinese LMO verified in final rootfs."
 
       - name: Locate R76S firmware
         run: |
@@ -3946,6 +3918,15 @@ jobs:
             ota.footer.html \
             BOOTLOADER_INFO.txt
 
+      - name: Verify ACTUAL SquashFS rootfs before allowing artifact
+        run: |
+          set -o pipefail
+          mkdir -p "$GITHUB_WORKSPACE/r76s-build-diagnostics"
+          echo "===== Image-grounded V1.1.1 critical files ====="
+          python3 scripts/r76s-v111-final-audit.py --phase image --image "$RAW_IMAGE" \
+            | tee "$GITHUB_WORKSPACE/r76s-build-diagnostics/image-audit.log"
+          echo "IMAGE_ROOTFS_EVIDENCE=PASS"
+
       - name: Copy build metadata
         run: |
           RELEASE_DIR="$TARGET_DIR/release-v1.1.1"
@@ -4026,6 +4007,29 @@ jobs:
 
           echo
           echo "R76S-V1.1.1 / PassWall2 / PassWall verified successfully."
+
+      - name: Collect V1.1.1 diagnostic report even on failure
+        if: ${{ always() }}
+        run: |
+          mkdir -p r76s-build-diagnostics
+          {
+            echo "BUILD_SHA=$GITHUB_SHA"
+            echo "RUN_ID=$GITHUB_RUN_ID"
+            echo "ROOTFS_VALIDATION=SEE_IMAGE_AUDIT_LOG"
+            echo "RELEASE_PUBLISH=MANUAL_OPT_IN_ONLY"
+            echo "===== OpenWrt image files ====="
+            find openwrt/bin/targets/rockchip/armv8 -maxdepth 2 -type f -printf '%P %s bytes\n' 2>/dev/null || true
+            echo "===== Root trees ====="
+            find openwrt/build_dir -type d \( -name root-rockchip -o -name 'target-dir-*' \) -print 2>/dev/null | head -n 40 || true
+          } > r76s-build-diagnostics/summary.txt
+
+      - name: Upload diagnostic report (not flashable firmware)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: R76S-V1.1.1-build-diagnostics
+          path: r76s-build-diagnostics/*
+          if-no-files-found: warn
 
       - name: Upload final v1.1.1 firmware
         uses: actions/upload-artifact@v4

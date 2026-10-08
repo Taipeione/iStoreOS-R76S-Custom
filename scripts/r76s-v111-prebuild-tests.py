@@ -549,8 +549,8 @@ def main():
                 'Development runtime manager must default disabled')
         require('/etc/config/r76s_v111_dns' in t and '/etc/r76s-v111-dns/' in t,
                 'Runtime manager config/state not preserved across upgrades')
-        require('test ! -e "$ROOTFS_DIR/etc/rc.d/S99r76s-v111-dns-manager"' in t,
-                'Development manager unexpectedly rc-enabled')
+        require('etc/rc.d/S99r76s-v111-dns-manager' in (HERE / 'r76s-v111-final-audit.py').read_text(),
+                'Development manager image disabled-startup gate missing')
         require('r76s-v111-dns-transition-plan.py' in t,
                 'Offline transition plan not checked by workflow')
         require('r76s-v111-dns-topology.py' in t,
@@ -574,8 +574,8 @@ def main():
         require('SMARTDNS_INIT_CANDIDATES' in t and
                 "'*/smartdns*/package/openwrt/files/etc/init.d/smartdns'" in t,
                 'Prepared SmartDNS init discovery missing')
-        require('SMARTDNS_S18_FINAL_ROOTFS=PASS' in t,
-                'Built rootfs does not verify installed SmartDNS S18')
+        require('SMARTDNS_S18_FINAL_ROOTFS=PASS' in (HERE / 'r76s-v111-final-audit.py').read_text(),
+                'Image audit does not verify installed SmartDNS S18')
         require('python3 ../scripts/r76s-v111-passwall-groups.py --patch' in t,
                 'PassWall group patch helper path wrong')
         # This overlay-staging step runs from the repository root (there is
@@ -653,6 +653,70 @@ def main():
             link.unlink()
             run_policy()
         print_pass('real DNS policy scanner: readonly 3053 allowed, four unsafe defaults, missing helper and symlink blocked')
+        # BUILD4: staging root-rockchip is not the final filesystem.
+        # The only hard gate for content is extraction from the SquashFS
+        # partition of the built disk image. Diagnostics persist on failure.
+        audit_script = HERE / 'r76s-v111-final-audit.py'
+        require(audit_script.is_file(), 'Image-grounded audit helper missing')
+        require('squashfs-tools' in t and 'util-linux' in t, 'Image inspection tools not installed')
+        require('EXPECTED_STEPS=34' in t, 'V1.1.1 workflow step count not updated')
+        require('name: Verify ACTUAL SquashFS rootfs before allowing artifact' in t,
+                'Mandatory SquashFS image check missing')
+        require('python3 scripts/r76s-v111-final-audit.py --phase image --image "$RAW_IMAGE"' in t,
+                'Image check not called with actual raw image')
+        require('name: Upload diagnostic report (not flashable firmware)' in t and
+                'if: ${{ always() }}' in t,
+                'Postfailure diagnostics not uploaded')
+        require(t.count('set -o pipefail') >= 2, 'Pipeline errors could be masked by tee')
+        require('STAGING_ONLY_CHECK=PASS_FINAL_IMAGE_GATE_PENDING' in t,
+                'No explicit distinction between staging and image proof')
+        require('test -x "$ROOTFS_DIR/usr/libexec/r76s/r76s-ota-preserve-state"' not in t,
+                'Old root-rockchip-only gate still active')
+        require(t.index('name: Verify ACTUAL SquashFS rootfs before allowing artifact') <
+                t.index('name: Upload final v1.1.1 firmware'),
+                'Image check must block artifact delivery')
+        spec = importlib.util.spec_from_file_location('r76s_image_audit', audit_script)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory(prefix='r76s-v111-build4-image-lab-') as tmp:
+            root = Path(tmp)
+            for rel in module.REQUIRED:
+                dst = root / rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                value = module.CONTENT.get(rel, 'present')
+                dst.write_text(value + '\n')
+                dst.chmod(0o755 if rel in module.EXECUTABLES else 0o644)
+            lmo = root / module.LMO[0]
+            lmo.parent.mkdir(parents=True, exist_ok=True)
+            lmo.write_bytes(b'fake-lmo-nonzero')
+            require(module.check_tree(root, image=True) == [],
+                    'Valid synthetic extracted firmware incorrectly rejected')
+            bad = root / module.EXECUTABLES[0]
+            bad.chmod(0o644)
+            require(any('NOT_EXECUTABLE' in x for x in module.check_tree(root, image=True)),
+                    'Nonexecutable preserve helper accepted')
+            bad.chmod(0o755)
+            bad.unlink()
+            require(any('MISSING' in x for x in module.check_tree(root, image=True)),
+                    'Missing preserve helper accepted')
+            bad.write_text('r76s_ota_state.state.pending\n')
+            bad.chmod(0o755)
+            smart = root / 'etc/init.d/smartdns'
+            smart.write_text('START=19\n')
+            require(any('CONTENT_MISMATCH' in x for x in module.check_tree(root, image=True)),
+                    'Wrong SmartDNS boot order accepted')
+            smart.write_text('START=18\n')
+            forbidden = root / module.BANNED[0]
+            forbidden.parent.mkdir(parents=True, exist_ok=True)
+            forbidden.write_text('enabled\n')
+            require(any('FORBIDDEN' in x for x in module.check_tree(root, image=True)),
+                    'Auto-enabled runtime manager accepted')
+            forbidden.unlink()
+            lmo.unlink()
+            require(any('PassWall2 zh-cn LMO' in x for x in module.check_tree(root, image=True)),
+                    'Missing PassWall2 Chinese language asset accepted')
+        print_pass('real image audit tests: missing, permissions, startup, SmartDNS, LMO fail closed')
+        print_pass('post-build staging distinct from final image; diagnostics survive failure')
         print_pass('workflow helper paths checked against each step working directory')
     print_pass('release gating, overlay re-stage ordering, disabled runtime manager and preserve state')
     print('R76S_V111_PREBUILD_TESTS=PASS')
