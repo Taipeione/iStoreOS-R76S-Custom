@@ -3221,6 +3221,13 @@ jobs:
           EOF_V111_DNS_INIT
           chmod 0755 openwrt/files/etc/init.d/r76s-v111-dns-manager
 
+          # iStoreOS include/rootfs.mk automatically enables every init.d
+          # service during image construction. Opt out ONLY this staged
+          # coordinator, without changing rc.common on running routers.
+          python3 scripts/r76s-v111-image-boot-policy.py rootfs openwrt/include/rootfs.mk
+          test ! -e openwrt/files/etc/rc.d/S99r76s-v111-dns-manager
+          echo "R76S_V111_IMAGE_DEFAULT_AUTOSTART=DISABLED"
+
           # Explicit exclusions: lab-only transaction/Python tooling stays out
           # of the router runtime.  The coordinator itself is installed but
           # neither config-enabled nor rc-enabled by this development build.
@@ -3533,46 +3540,15 @@ jobs:
 
           echo "SMARTDNS_INIT=$SMARTDNS_INIT"
 
-          python3 - "$SMARTDNS_INIT" <<'PY_SMARTDNS_INIT'
-          from pathlib import Path
-          import re
-          import sys
-
-          p = Path(sys.argv[1])
-          s = p.read_text()
-
-          marker = '# R76S_V111_SMARTDNS_BOOT_ORDER'
-
-          if marker not in s:
-              m = re.search(r'(?m)^START=([0-9]+)[ \t]*$', s)
-
-              if not m:
-                  raise SystemExit(
-                      'ERROR: SmartDNS START= line not found'
-                  )
-
-              current = m.group(1)
-
-              if current not in {'18', '19'}:
-                  raise SystemExit(
-                      f'ERROR: unexpected SmartDNS START={current}'
-                  )
-
-              s = (
-                  s[:m.start()]
-                  + 'START=18\n'
-                  + marker + '\n'
-                  + s[m.end():]
-              )
-
-          p.write_text(s)
-          PY_SMARTDNS_INIT
-
-          grep -qxF 'START=18' "$SMARTDNS_INIT"
-          grep -qF 'R76S_V111_SMARTDNS_BOOT_ORDER' "$SMARTDNS_INIT"
-          sh -n "$SMARTDNS_INIT"
-
-          echo "SMARTDNS_BOOT_ORDER=PASS"
+          # Important: editing PKG_BUILD_DIR alone is insufficient. The
+          # final image must copy this exact init into openwrt/files overlay.
+          python3 ../scripts/r76s-v111-image-boot-policy.py smartdns "$SMARTDNS_INIT" files
+          test -x files/etc/init.d/smartdns
+          cmp -s "$SMARTDNS_INIT" files/etc/init.d/smartdns
+          grep -qxF 'START=18' files/etc/init.d/smartdns
+          grep -qF 'R76S_V111_SMARTDNS_BOOT_ORDER' files/etc/init.d/smartdns
+          sh -n files/etc/init.d/smartdns
+          echo "SMARTDNS_BOOT_ORDER=PASS_FINAL_OVERLAY_STAGED"
 
 
           JOBS="$(nproc)"

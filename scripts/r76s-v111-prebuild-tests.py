@@ -717,6 +717,25 @@ def main():
                     'Missing PassWall2 Chinese language asset accepted')
         print_pass('real image audit tests: missing, permissions, startup, SmartDNS, LMO fail closed')
         print_pass('post-build staging distinct from final image; diagnostics survive failure')
+        # BUILD5: the image's init startup metadata must be staged, not
+        # just modified in the prepared package tree. The build-time rootfs
+        # opt-out only names our DNS manager and preserves manual enable.
+        policy = HERE / 'r76s-v111-image-boot-policy.py'
+        require(policy.is_file(), 'Build-time boot policy helper missing')
+        result = run(sys.executable, policy, 'selftest')
+        require('R76S_V111_BOOT_POLICY_SELFTEST=PASS' in result,
+                'SmartDNS staging / rootfs autoenable policy failed selftest')
+        require('python3 scripts/r76s-v111-image-boot-policy.py rootfs openwrt/include/rootfs.mk' in t,
+                'Missing build-time rootfs autoenable opt-out')
+        require('python3 ../scripts/r76s-v111-image-boot-policy.py smartdns "$SMARTDNS_INIT" files' in t,
+                'Missing final SmartDNS overlay staging')
+        require('cmp -s "$SMARTDNS_INIT" files/etc/init.d/smartdns' in t,
+                'SmartDNS overlay byte-for-byte check missing')
+        require('test ! -e openwrt/files/etc/rc.d/S99r76s-v111-dns-manager' in t,
+                'DNS manager rc symlink staging check missing')
+        require('IMAGE_ROOTFS_EVIDENCE=PASS' in t,
+                'Final image must still be hard-gated')
+        print_pass('image-time DNS manager opt-out; manual enable retained; SmartDNS S18 overlay staging')
         print_pass('workflow helper paths checked against each step working directory')
     print_pass('release gating, overlay re-stage ordering, disabled runtime manager and preserve state')
     print('R76S_V111_PREBUILD_TESTS=PASS')
