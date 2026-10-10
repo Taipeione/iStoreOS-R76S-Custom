@@ -61,13 +61,15 @@ for item in sing-box:1.14.3 xray-core:26.7.28; do
 
   test -L "$LINK"
 
-  if [ "$(realpath "$LINK")" != "$(realpath "$NEW")" ]; then
-    test -s "$OLD/Makefile"
-
-    if [ "$(realpath "$LINK")" != "$(realpath "$OLD")" ]; then
+  if [ "$(realpath -m "$LINK")" != "$(realpath -m "$NEW")" ]; then
+    # Stage 11 removed the old feed source. Its link may now be dangling.
+    # Accept only a link pointing to that exact former feed location.
+    if [ "$(realpath -m "$LINK")" != "$(realpath -m "$OLD")" ]; then
       echo "ERROR: Unexpected $NAME source; refusing replacement"
       exit 1
     fi
+
+    echo "VERIFIED_OLD_FEED_LINK=$NAME"
 
     BACKUP="../logs/v12-source-registration/$NAME-original-link.txt"
 
