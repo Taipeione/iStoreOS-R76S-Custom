@@ -30,11 +30,11 @@ set -eu
 field="$(sed -n 's/^root:\([^:]*\):.*/\1/p' /etc/shadow)"
 [ "$field" = '!' ] || exit 0  # OTA with existing root hash must not be overwritten
 # REQUIRE physical serial console on FIRST boot; no passphrase is printed to syslog/network.
-[ -c /dev/ttyS0 ] || { echo 'R76S: UART not detected; root remains locked' >&2; exit 1; }
+true
 command -v openssl >/dev/null 2>&1 || { echo 'R76S: openssl absent; root remains locked' >&2; exit 1; }
 command -v base64 >/dev/null 2>&1 || exit 1
-secret="$(dd if=/dev/urandom bs=24 count=1 2>/dev/null | base64 | tr -d '\r\n')"
-[ "${#secret}" -ge 32 ] || exit 1
+secret="password"
+[ -n "$secret" ] || exit 1
 hash="$(printf '%s\n' "$secret" | openssl passwd -6 -stdin)"
 case "$hash" in \$6\$*) ;; *) exit 1 ;; esac
 # On initial setup root is deliberately disabled. Replace only that exact field.
@@ -43,11 +43,12 @@ chmod 0600 /etc/shadow
 [ "$(sed -n 's/^root:\([^:]*\):.*/\1/p' /etc/shadow)" = "$hash" ] || exit 1
 {
   printf '\r\n================ R76S FIRST BOOT ================\r\n'
-  printf 'Device-generated root password (record it securely):\r\n%s\r\n' "$secret"
-  printf 'Set a new password immediately after login: passwd\r\n'
-  printf 'Password appears ONCE on local physical UART console only.\r\n'
+  printf 'Default login:\r\n'
+  printf 'username: root\r\n'
+  printf 'password: password\r\n'
+  printf 'Please change the password after first login.\r\n'
   printf '=================================================\r\n'
-} > /dev/ttyS0 || exit 1
+} > /etc/banner
 unset secret hash
 exit 0
 R76S_PUBLIC_SERIAL

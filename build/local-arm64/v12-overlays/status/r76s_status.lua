@@ -34,7 +34,7 @@ function action_status()
     if d.dns_upstream == "" then d.dns_upstream = "未检测到固定上游" end
     local enabled = query("uci -q get r76s_v111_dns.main.enabled 2>/dev/null")
     d.dns_manager = enabled == "1" and "已启用（只读观察）" or "未启用（只读观察）"
-    d.dns_listeners = query([[ss -lnut 2>/dev/null | grep -E '(:53|:3053|:6053)[[:space:]]' | awk '{print $5}' | sort -u | tr '\n' ' ']])
+    d.dns_listeners = query("ss -lnut 2>/dev/null | grep -E '(:53|:3053|:6053)[[:space:]]' | awk '{print $5}' | sort -u | tr '\\n' ' '")
     if d.dns_listeners == "" then d.dns_listeners = "未检测到（需进一步检查）" end
     luci.template.render("r76s_status/status", { data = d })
 end
