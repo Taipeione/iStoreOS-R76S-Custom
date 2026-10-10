@@ -286,6 +286,29 @@ rm -rf feeds/packages/net/shadow-tls
 
 rm -rf feeds/luci/applications/luci-app-passwall
 
+# R76S V1.2 GitHub Actions: checkout the exact reviewed upstream commits.
+pin_source_commit() {
+  local path="$1"
+  local expected="$2"
+  local actual
+
+  actual="$(git -C "$path" rev-parse HEAD)"
+
+  if [ "$actual" != "$expected" ]; then
+    echo "PIN_SOURCE_COMMIT: $path -> $expected"
+    git -C "$path" -c http.version=HTTP/1.1       fetch --depth=1 --no-tags origin "$expected"
+    git -C "$path" checkout -q --detach "$expected"
+  fi
+
+  actual="$(git -C "$path" rev-parse HEAD)"
+  [ "$actual" = "$expected" ] || {
+    echo "ERROR: pinned source mismatch: $path" >&2
+    exit 1
+  }
+
+  echo "PINNED_SOURCE_VERIFIED: $path"
+}
+
 # Preserve previously verified PassWall source checkouts and their pinned commits.
 for d in package/passwall-packages package/passwall-luci package/passwall2-luci; do
   if [ -e "$d" ] && [ ! -d "$d/.git" ]; then
@@ -318,6 +341,8 @@ if [ "$PWPKG_OK" -ne 1 ]; then
   echo "ERROR: Failed to clone openwrt-passwall-packages after 3 attempts."
   exit 1
 fi
+
+pin_source_commit "package/passwall-packages" "9178f2e627a1a104b0b35d1c47a7672dff42c970"
 
 # Pin shadowsocks-rust to Rust-1.90-compatible v1.24.0
 # shadowsocks-rust 1.25.0 requires Rust >= 1.91
@@ -376,6 +401,8 @@ if [ "$PWLUC_OK" -ne 1 ]; then
   exit 1
 fi
 
+pin_source_commit "package/passwall-luci" "701d982a26ee0b960d248754b8f8868f6f18fb59"
+
 test -f package/passwall-luci/luci-app-passwall/Makefile
 
 echo "===== Clone PassWall2 LuCI source ====="
@@ -404,6 +431,8 @@ if [ "$PWLUC2_OK" -ne 1 ]; then
   echo "ERROR: Failed to clone openwrt-passwall2 after 3 attempts."
   exit 1
 fi
+
+pin_source_commit "package/passwall2-luci" "2de5aee7a4c704a5b689fdab47b97a18ad11c1a2"
 
 test -f package/passwall2-luci/luci-app-passwall2/Makefile
 test -f package/passwall-packages/xray-core/Makefile
