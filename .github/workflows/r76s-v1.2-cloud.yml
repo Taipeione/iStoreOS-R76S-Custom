@@ -1,6 +1,6 @@
 # R76S V1.2.1 cloud-only build. GitHub Actions compiles; Mac mini only edits source.
-name: R76S Build V1.2.1
-run-name: "R76S V1.2.1 #${{ github.run_number }}"
+name: R76S-V1.2.1
+run-name: "R76S-V1.2.1 #${{ github.run_number }}"
 
 on:
   workflow_dispatch:
