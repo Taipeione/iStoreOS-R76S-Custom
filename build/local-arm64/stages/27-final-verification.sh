@@ -6,7 +6,7 @@ set -euo pipefail
 
 RELEASE_DIR="$TARGET_DIR/release-v1.2"
 
-FINAL_IMAGE="$RELEASE_DIR/R76S-V1.2-TF-squashfs.img.gz"
+FINAL_IMAGE="$RELEASE_DIR/R76S-V1.2.1-TF-squashfs.img.gz"
 
 echo "===== Final verification ====="
 
@@ -25,8 +25,8 @@ for ota_file in version.latest version.index sha256sums ota.footer.html; do
   test -s "$RELEASE_DIR/$ota_file"
 done
 
-grep -qF '24.10.8-V1.2' "$RELEASE_DIR/version.latest"
-grep -qxF '24.10.8-V1.2' "$RELEASE_DIR/version.index"
+grep -qF '24.10.8-V1.2.1' "$RELEASE_DIR/version.latest"
+grep -qxF '24.10.8-V1.2.1' "$RELEASE_DIR/version.index"
 
 echo
 echo "Final image:"

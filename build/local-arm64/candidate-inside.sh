@@ -76,8 +76,8 @@ bash -e -o pipefail "$REPO/build/local-arm64/stages/28-collect-v1-1-1-diagnostic
   > "$WORK/logs/r76s-v12-candidate-diagnostics.log" 2>&1 || true
 # Keep candidate separate from any publication. Rootfs audit ran at stage25.
 release="$WORK/openwrt/bin/targets/rockchip/armv8/release-v1.2"
-test -s "$release/R76S-V1.2-TF-squashfs.img.gz"
+test -s "$release/R76S-V1.2.1-TF-squashfs.img.gz"
 printf '%s\n' 'Candidate only. Not flash-tested. Not approved for publication.' > "$release/CANDIDATE-NOT-FOR-RELEASE.txt"
-sha256sum "$release/R76S-V1.2-TF-squashfs.img.gz" > "$WORK/logs/r76s-v12-candidate-final.sha256"
+sha256sum "$release/R76S-V1.2.1-TF-squashfs.img.gz" > "$WORK/logs/r76s-v12-candidate-final.sha256"
 trap - EXIT
 echo 'CANDIDATE_BUILD=PASS_STATIC_IMAGE_AUDIT_ONLY; no publish or flash'
