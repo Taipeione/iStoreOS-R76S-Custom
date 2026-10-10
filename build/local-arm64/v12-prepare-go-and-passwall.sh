@@ -6,7 +6,28 @@ echo "===== R76S V1.2 GO126 AND PASSWALL PREFLIGHT ====="
 test -s .config
 test -d package/feeds/packages
 
-G="/home/builder/work/tools/go126-module-cache/golang.org/toolchain@v0.0.1-go1.26.6.linux-arm64"
+# Select the HOST Go compiler, not the target device architecture.
+case "$(uname -m)" in
+  x86_64)
+    command -v go >/dev/null || {
+      echo "ERROR: GitHub x86_64 host Go missing" >&2
+      exit 1
+    }
+    G="$(go env GOROOT)"
+    EXPECTED_GOARCH=amd64
+    ;;
+  aarch64|arm64)
+    G="/home/builder/work/tools/go126-module-cache/golang.org/toolchain@v0.0.1-go1.26.6.linux-arm64"
+    EXPECTED_GOARCH=arm64
+    ;;
+  *)
+    echo "ERROR: Unsupported host architecture: $(uname -m)" >&2
+    exit 1
+    ;;
+esac
+
+echo "GO126_HOST_ARCH=$EXPECTED_GOARCH"
+echo "GO126_ROOT=$G"
 H="/r76s-repo/build/local-arm64/v12-go126-package-hook.py"
 F="feeds/packages/lang/golang/golang-package.mk"
 
@@ -15,7 +36,7 @@ test -s "$H"
 test -s "$F"
 
 test "$("$G/bin/go" env GOVERSION)" = "go1.26.6"
-test "$("$G/bin/go" env GOARCH)" = "arm64"
+test "$("$G/bin/go" env GOARCH)" = "$EXPECTED_GOARCH"
 
 python3 "$H" "$F" "$G"
 

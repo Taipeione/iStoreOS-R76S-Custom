@@ -64,6 +64,19 @@ jobs:
             bzip2 openssl fdisk jq
           python3 -c 'from elftools.elf.elffile import ELFFile; print("ELFTOOLS=PASS")'
 
+      - name: Install pinned Go 1.26.6 host toolchain
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.6'
+          cache: false
+
+      - name: Verify GitHub host Go
+        run: |
+          set -euo pipefail
+          test "$(go env GOVERSION)" = "go1.26.6"
+          test "$(go env GOARCH)" = "amd64"
+          echo "GITHUB_GO126_HOST=PASS"
+
       - name: Restore ccache from prior GitHub builds
         uses: actions/cache@v4
         with:
