@@ -3,15 +3,6 @@ name: R76S Build V1.2
 run-name: "R76S V1.2 #${{ github.run_number }}"
 
 on:
-  push:
-    branches: [feature/r76s-v1.2]
-    paths:
-      - '.github/workflows/r76s-v1.2-cloud.yml'
-      - 'build/local-arm64/**'
-      - 'config/**'
-      - 'feeds/**'
-      - 'files/**'
-      - 'scripts/**'
   workflow_dispatch:
 
 permissions:
@@ -23,7 +14,7 @@ concurrency:
 
 jobs:
   build:
-    if: github.repository == 'Taipeione/iStoreOS-R76S-Custom'
+    if: github.repository == 'Taipeione/iStoreOS-R76S-Custom' && github.ref == 'refs/heads/feature/r76s-v1.2'
     runs-on: ubuntu-22.04
     timeout-minutes: 350
     defaults:
