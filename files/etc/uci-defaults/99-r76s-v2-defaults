@@ -1,4 +1,11 @@
 #!/bin/sh
+# R76S_V12_SECURITY_GATE_20261010 - source data only, never execute.
+# This historical V2.2.4 file is read by the Stage16 rules parser.
+# Its legacy first-boot routines must never run on any router.
+echo 'BLOCKED: legacy defaults are parser input only' >&2
+exit 1
+# Preserve raw historical UCI lines for the Stage16 regex parser only.
+: <<'R76S_V12_LEGACY_RULE_DATA'
 # R76S Custom v2.2.4 first-boot defaults.
 # Stable base: iStoreOS 24.10 / FriendlyElec NanoPi R76S / RK3576.
 #
@@ -16,7 +23,7 @@
 # 1. System root password
 # -----------------------------------------------------------------------------
 if command -v passwd >/dev/null 2>&1; then
-    printf '%s\n%s\n' 'password' 'password' | passwd root >/dev/null 2>&1 || true
+    : 'DISABLED: no historical root password assignment'
 fi
 
 # -----------------------------------------------------------------------------
@@ -760,7 +767,7 @@ if [ ! -s "$AGH_CFG" ]; then
         exit 1
     fi
 
-    if ! curl -fsS --max-time 15         -H 'Content-Type: application/json'         -X POST         --data '{"web":{"ip":"192.168.50.1","port":3001},"dns":{"ip":"127.0.0.1","port":3053},"username":"root","password":"password"}'         "http://${LAN_IP}:3000/control/install/configure"         >/dev/null; then
+    if ! false; then # DISABLED: historical AdGuard bootstrap with fixed credentials
         logger -t r76s-v2c 'DNS finalizer: AdGuard Home install/configure failed.'
         exit 1
     fi
@@ -929,3 +936,5 @@ chmod 0755 /etc/init.d/r76s-v2c-finalize
 /etc/init.d/r76s-v2c-finalize start >/dev/null 2>&1 || true
 
 exit 0
+
+R76S_V12_LEGACY_RULE_DATA

@@ -6,6 +6,9 @@ partition in the built raw image can pass the final firmware file gate.
 No router/network/mount access. No configuration changes.
 """
 import argparse
+import hmac
+import re
+# R76S_V12_SECURITY_GATE_20261010
 import json
 import os
 from pathlib import Path
@@ -28,11 +31,16 @@ REQUIRED = (*EXECUTABLES,
     'www/luci-static/resources/ui.js',
     'www/luci-static/resources/view/system/flash.js',
     'etc/config/r76s_v111_dns',
-    'etc/init.d/smartdns')
+    'etc/init.d/smartdns',
+    'etc/shadow',
+    'etc/init.d/r76s-ota-restore',
+    'etc/uci-defaults/99-r76s-v110-ota-restore',
+    'usr/lib/lua/luci/controller/r76s_updater.lua')
 BANNED = (
     'etc/rc.d/S99r76s-v111-dns-manager',
     'usr/libexec/r76s/v111-dns-readonly/r76s-v111-dns-transaction.sh',
     'usr/libexec/r76s/v111-dns-readonly/r76s-v111-dns-topology.py',
+    'etc/uci-defaults/99-r76s-v2-defaults',
 )
 CONTENT = {
     'usr/libexec/r76s/r76s-ota-preserve-state': 'r76s_ota_state.state.pending',
@@ -40,11 +48,56 @@ CONTENT = {
     'www/luci-static/resources/view/system/flash.js': 'R76S_V110_FLASH_UPLOAD_PATCH',
     'etc/config/r76s_v111_dns': "option enabled '0'",
     'etc/init.d/smartdns': 'START=18',
+    'etc/init.d/r76s-ota-restore': 'R76S_V12_OTA_HARDENING',
+    'etc/uci-defaults/99-r76s-v110-ota-restore': 'R76S_V12_OTA_HARDENING',
+    'usr/lib/lua/luci/controller/r76s_updater.lua': 'local preserve_rc = sys.call(',
 }
 LMO = (
     'usr/lib/lua/luci/i18n/passwall2.zh-cn.lmo',
     'usr/share/luci/i18n/passwall2.zh-cn.lmo',
 )
+
+
+def check_root_shadow(root):
+    """Inspect extracted real rootfs without disclosing password hashes."""
+    p = root / 'etc/shadow'
+    if not p.is_file() or p.is_symlink():
+        return ['ROOT_SHADOW_MISSING_OR_SYMLINK']
+    try:
+        lines = p.read_text(encoding='utf-8').splitlines()
+    except (UnicodeDecodeError, OSError):
+        return ['ROOT_SHADOW_UNREADABLE']
+    roots = [line.split(':', 2)[1] for line in lines if line.startswith('root:')]
+    if len(roots) != 1:
+        return ['ROOT_ACCOUNT_COUNT_INVALID']
+    value = roots[0]
+    # R76S_V12_PUBLIC_CREDENTIALS_20261010
+    if os.environ.get('R76S_PUBLIC_RELEASE') == '1':
+        if value != '!':
+            return ['PUBLIC_IMAGE_ROOT_NOT_LOCKED_OR_EMBEDS_HASH']
+        firstboot = root / 'etc/uci-defaults/05-r76s-public-serial-provision'
+        if not firstboot.is_file() or not (firstboot.stat().st_mode & stat.S_IXUSR):
+            return ['PUBLIC_SERIAL_FIRSTBOOT_MISSING_OR_NOT_EXECUTABLE']
+        if b'R76S_V12_PUBLIC_CREDENTIALS_20261010' not in firstboot.read_bytes():
+            return ['PUBLIC_SERIAL_FIRSTBOOT_UNRECOGNIZED']
+        if not (root / 'usr/bin/openssl').is_file():
+            return ['PUBLIC_OPENSSL_RUNTIME_MISSING']
+        return []
+    if not re.fullmatch(r'\$6\$[A-Za-z0-9./]{8,16}\$[A-Za-z0-9./]{86}', value):
+        return ['ROOT_PASSWORD_NOT_STRONG_SHA512_CRYPT_FORMAT']
+    try:
+        import crypt
+    except ImportError:
+        return ['ROOT_WEAK_PASSWORD_CHECK_UNAVAILABLE']
+    # Known sample/default credentials are banned. Never print the hash itself.
+    for candidate in ('password', 'root', 'admin', '123456', '12345678',
+                      '123456789', '1234567890', 'r76s', 'istoreos', 'openwrt'):
+        computed = crypt.crypt(candidate, value)
+        if not computed or computed.startswith('*'):
+            return ['ROOT_PASSWORD_CRYPT_UNSUPPORTED']
+        if hmac.compare_digest(computed, value):
+            return ['ROOT_WEAK_DEFAULT_PASSWORD_DETECTED']
+    return []
 
 
 def check_tree(root, image=False):
@@ -77,6 +130,8 @@ def check_tree(root, image=False):
         p = root / rel
         if p.exists() or p.is_symlink():
             issues.append(f'FORBIDDEN: {rel}')
+    if image:
+        issues.extend(check_root_shadow(root))
     if image and not any((root / rel).is_file() and (root / rel).stat().st_size > 0 for rel in LMO):
         issues.append('MISSING: PassWall2 zh-cn LMO (both supported paths absent)')
     return issues
@@ -142,7 +197,10 @@ def image_audit(image):
         return 1
     offset = candidates[0]
     print('IMAGE_SQUASHFS_OFFSET=' + str(offset), flush=True)
-    root_pathlist = list(dict.fromkeys((*REQUIRED, *BANNED, *LMO)))
+    # Extract etc/ to inspect the shadow file and detect unsafe legacy uci-defaults.
+    root_pathlist = list(dict.fromkeys((*REQUIRED, *BANNED, *LMO, 'etc')))
+    if os.environ.get('R76S_PUBLIC_RELEASE') == '1':
+        root_pathlist.append('usr/bin/openssl')
     with tempfile.TemporaryDirectory(prefix='r76s-image-audit-') as tmp:
         root = Path(tmp) / 'extracted'
         cmd = ['unsquashfs', '-no-progress', '-d', str(root), '-offset', str(offset),

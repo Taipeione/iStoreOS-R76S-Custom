@@ -1,0 +1,12 @@
+FROM r76s-builder:arm64-ubuntu2204
+
+USER root
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends fdisk \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN command -v fdisk \
+    && command -v python3 \
+    && command -v pigz \
+    && command -v unsquashfs

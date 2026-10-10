@@ -1,0 +1,31 @@
+<%+header%>
+<style>
+.r76s-dash{max-width:1080px;margin:0 auto;color:var(--text-color,#e6edf9)}
+.r76s-dash h2{margin:8px 0 18px;font-size:clamp(1.4rem,3vw,1.9rem)}
+.r76s-dash-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.r76s-dash-card{border:1px solid rgba(137,157,185,.22);background:var(--background-color-high,rgba(26,36,53,.88));border-radius:16px;padding:18px 22px;box-shadow:0 12px 26px rgba(0,0,0,.08)}
+.r76s-dash-card h3{font-size:1rem;margin:0 0 14px}
+.r76s-dash-table{width:100%;border-collapse:collapse;table-layout:fixed}
+.r76s-dash-table td{padding:10px 6px;border-bottom:1px solid rgba(127,127,127,.15);overflow-wrap:anywhere}
+.r76s-dash-table tr:last-child td{border-bottom:0}
+.r76s-dash-table td:first-child{width:36%;opacity:.78}
+.r76s-dash-note{opacity:.72;font-size:.85em;margin-top:16px}
+@media(max-width:720px){.r76s-dash-grid{grid-template-columns:1fr}.r76s-dash-card{padding:14px}}
+@media(prefers-color-scheme:light){.r76s-dash{color:var(--text-color,#1f2b42)}.r76s-dash-card{background:var(--background-color-high,#fff)}}
+</style>
+<div class="r76s-dash"><h2>R76S · 运行状态</h2><div class="r76s-dash-grid">
+<section class="r76s-dash-card"><h3>设备信息</h3><table class="r76s-dash-table">
+<tr><td>型号</td><td><%=data.model%></td></tr><tr><td>处理器</td><td><%=data.soc%></td></tr>
+<tr><td>架构</td><td><%=data.arch%></td></tr><tr><td>内核</td><td><%=data.kernel%></td></tr>
+<tr><td>CPU 温度</td><td><%=data.temp%></td></tr><tr><td>内存</td><td><%=data.mem%></td></tr>
+<tr><td>负载</td><td><%=data.load%></td></tr><tr><td>存储 /overlay</td><td><%=data.storage%></td></tr>
+<tr><td>运行时间</td><td><%=data.uptime%></td></tr></table></section>
+<section class="r76s-dash-card"><h3>网络及 DNS</h3><table class="r76s-dash-table">
+<tr><td>LAN IPv4</td><td><%=data.lan%></td></tr><tr><td>WAN IPv4</td><td><%=data.wan%></td></tr>
+<tr><td>dnsmasq</td><td><%=data.dnsmasq%></td></tr><tr><td>DNS 监听端口</td><td><%=data.dns_listeners%></td></tr>
+<tr><td>dnsmasq 上游</td><td><%=data.dns_upstream%></td></tr><tr><td>DNS 管理器</td><td><%=data.dns_manager%></td></tr></table></section>
+<section class="r76s-dash-card"><h3>服务运行状态</h3><table class="r76s-dash-table">
+<tr><td>PassWall</td><td><%=data.passwall%></td></tr><tr><td>PassWall2</td><td><%=data.passwall2%></td></tr>
+<tr><td>SmartDNS</td><td><%=data.smartdns%></td></tr><tr><td>AdGuard Home</td><td><%=data.adguard%></td></tr></table></section>
+</div><p class="r76s-dash-note">本页面仅查看运行状态，不更改网络配置。DNS 端口监听不能代替端到端 DNS 测试；八模式切换验证前保持禁用。</p></div>
+<%+footer%>
