@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   build:
-    if: github.repository == 'Taipeione/iStoreOS-R76S-Custom' && github.ref == 'refs/heads/feature/r76s-v1.2'
+    if: github.repository == 'Taipeione/iStoreOS-R76S-Custom' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-22.04
     timeout-minutes: 350
     defaults:
@@ -29,6 +29,7 @@ jobs:
       - name: Checkout V1.2 source
         uses: actions/checkout@v4
         with:
+          ref: feature/r76s-v1.2
           persist-credentials: false
 
       - name: Validate source before cloud build
@@ -93,6 +94,8 @@ jobs:
       - name: Build V1.2 using all existing 27 guarded stages
         run: |
           set -euo pipefail
+          export GITHUB_SHA="$(git rev-parse HEAD)"
+          echo "BUILD_SOURCE_SHA=$GITHUB_SHA"
           test "${R76S_PUBLIC_RELEASE}" = 1
           test -z "${R76S_CLEAN_FLASH_PASSWORD_HASH}"
           bash build/local-arm64/candidate-inside.sh
