@@ -5,7 +5,13 @@ run-name: "R76S V1.2 #${{ github.run_number }}"
 on:
   push:
     branches: [feature/r76s-v1.2]
-    paths: [.github/workflows/r76s-v1.2-cloud.yml]
+    paths:
+      - '.github/workflows/r76s-v1.2-cloud.yml'
+      - 'build/local-arm64/**'
+      - 'config/**'
+      - 'feeds/**'
+      - 'files/**'
+      - 'scripts/**'
   workflow_dispatch:
 
 permissions:
