@@ -1,6 +1,6 @@
-# R76S V1.2 cloud-only build. GitHub Actions compiles; Mac mini only edits source.
-name: R76S Build V1.2
-run-name: "R76S V1.2 #${{ github.run_number }}"
+# R76S V1.2.1 cloud-only build. GitHub Actions compiles; Mac mini only edits source.
+name: R76S Build V1.2.1
+run-name: "R76S V1.2.1 #${{ github.run_number }}"
 
 on:
   workflow_dispatch:
@@ -26,7 +26,7 @@ jobs:
       R76S_JOBS: "4"
       DEBIAN_FRONTEND: noninteractive
     steps:
-      - name: Checkout V1.2 source
+      - name: Checkout V1.2.1 source
         uses: actions/checkout@v4
         with:
           ref: feature/r76s-v1.2
@@ -104,7 +104,7 @@ jobs:
           test "$(git -C openwrt rev-parse HEAD)" = fb971407ffd9a094e6f16d9c029f1f580ed5c2ad
           echo 'ISTOREOS_PINNED_SOURCE=PASS'
 
-      - name: Build V1.2 using all existing 27 guarded stages
+      - name: Build V1.2.1 using all existing 27 guarded stages
         run: |
           set -euo pipefail
           export GITHUB_SHA="$(git rev-parse HEAD)"
@@ -114,16 +114,16 @@ jobs:
           bash build/local-arm64/candidate-inside.sh
           echo 'PUBLIC_TEST_BUILD_COMPLETE=YES; NOT_PUBLISHED'
 
-      - name: Verify V1.2 artifacts and SHA256
+      - name: Verify V1.2.1 artifacts and SHA256
         run: |
           set -euo pipefail
           cd /home/builder/work/openwrt/bin/targets/rockchip/armv8/release-v1.2
-          test -s R76S-V1.2-TF-squashfs.img.gz
+          test -s R76S-V1.2.1-TF-squashfs.img.gz
           test -s CANDIDATE-NOT-FOR-RELEASE.txt
           test -s version.latest
           test -s version.index
-          grep -qxF '24.10.8-V1.2' version.index
-          grep -qF '[24.10.8-V1.2](R76S-V1.2-TF-squashfs.img.gz)' version.latest
+          grep -qxF '24.10.8-V1.2.1' version.index
+          grep -qF '[24.10.8-V1.2.1](R76S-V1.2.1-TF-squashfs.img.gz)' version.latest
           sha256sum -c sha256sums
           echo 'GITHUB_V12_IMAGE_STATIC_AUDIT=PASS'
           echo 'GITHUB_V12_RELEASE_STATUS=UNVALIDATED_ARTIFACT_ONLY'
@@ -139,18 +139,18 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: R76S-V1.2-cloud-diagnostics-${{ github.run_number }}
+          name: R76S-V1.2.1-cloud-diagnostics-${{ github.run_number }}
           path: |
             /home/builder/work/logs/
             /home/builder/work/r76s-build-diagnostics/
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Upload V1.2 TEST firmware (NOT FOR RELEASE)
+      - name: Upload V1.2.1 TEST firmware (NOT FOR RELEASE)
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: R76S-V1.2-TEST-NOT-FOR-RELEASE-${{ github.run_number }}
+          name: R76S-V1.2.1-TEST-NOT-FOR-RELEASE-${{ github.run_number }}
           path: /home/builder/work/openwrt/bin/targets/rockchip/armv8/release-v1.2/*
           if-no-files-found: error
           retention-days: 7
