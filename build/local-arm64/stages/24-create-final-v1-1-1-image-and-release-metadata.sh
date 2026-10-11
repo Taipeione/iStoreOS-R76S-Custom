@@ -6,7 +6,7 @@ set -euo pipefail
 
 RELEASE_DIR="$TARGET_DIR/release-v1.2"
 
-FINAL_NAME="R76S-V1.2-TF-squashfs.img.gz"
+FINAL_NAME="R76S-V1.2.2-TF-squashfs.img.gz"
 FINAL_IMAGE="$RELEASE_DIR/$FINAL_NAME"
 
 mkdir -p "$RELEASE_DIR"
@@ -60,13 +60,13 @@ printf '%s  %s\n' \
 # device-specific OTA_URL_BASE. Our ota.sh points that base to this
 # repository's latest GitHub Release assets.
 cat > version.latest <<EOF
-[24.10.8-V1.2]($FINAL_NAME)
+[24.10.8-V1.2.2]($FINAL_NAME)
 R76S-V1.2 / RK3576 / TF
 SHA256: $FINAL_SHA
 EOF
 
 cat > version.index <<'EOF'
-24.10.8-V1.2
+24.10.8-V1.2.2
 EOF
 
 cat > ota.footer.html <<'EOF'
