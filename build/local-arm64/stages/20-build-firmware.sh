@@ -77,7 +77,7 @@ export CCACHE_DIR="$HOME/.ccache"
 ccache -M 5G >/dev/null 2>&1 || true
 ccache -z >/dev/null 2>&1 || true
 
-if ! make -j"$JOBS"; then
+if ! make -j"$JOBS" V=s; then
   echo "Parallel build failed; retrying once with -j1 V=s for diagnosis."
   make -j1 V=s
 fi

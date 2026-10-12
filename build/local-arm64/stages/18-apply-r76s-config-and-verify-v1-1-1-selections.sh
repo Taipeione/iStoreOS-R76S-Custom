@@ -5,6 +5,16 @@
 cd openwrt
 
 cp ../config/R76S.config .config
+# The runner host architecture determines bootstrap, not the R76S target.
+case "$(uname -m)" in
+  x86_64) GO_BOOTSTRAP="$(go env GOROOT)" ;;
+  aarch64|arm64) GO_BOOTSTRAP=/home/builder/work/tools/go126-module-cache/golang.org/toolchain@v0.0.1-go1.26.6.linux-arm64 ;;
+  *) echo "ERROR: Unsupported Go bootstrap host" >&2; exit 1 ;;
+esac
+test -x "$GO_BOOTSTRAP/bin/go"
+test "$("$GO_BOOTSTRAP/bin/go" env GOVERSION)" = go1.26.6
+sed -i '/^CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT=/d' .config
+printf 'CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT="%s"\n' "$GO_BOOTSTRAP" >> .config
 
 echo "===== Input R76S.config PassWall selections ====="
 grep -E \

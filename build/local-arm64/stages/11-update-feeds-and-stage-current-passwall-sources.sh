@@ -2,7 +2,20 @@
 # Original workflow step: Update feeds and stage current PassWall sources
 # REVIEW REQUIRED: not yet adapted for local execution.
 
+set -euo pipefail
+
 cd openwrt
+
+# Preserve every displaced or incomplete checkout for review and recovery.
+preserve_source() {
+  local source="$1"
+  if [ -e "$source" ] || [ -L "$source" ]; then
+    local backup
+    backup="$(mktemp -d /home/builder/work/.r76s-source-backup.XXXXXX)"
+    mv "$source" "$backup/source"
+    printf "SOURCE_PRESERVED=%s -> %s/source\n" "$source" "$backup"
+  fi
+}
 
 if [ ! -s feeds/feeds.index ] && [ ! -s feeds/packages.index ]; then
   ./scripts/feeds update -a
@@ -200,7 +213,7 @@ if [ -d "$GO_DIR/.git" ]; then
       ;;
     *) echo "ERROR: Existing Go source has unexpected origin: $actual_origin" >&2; exit 1;;
   esac
-  [ "$(git -C "$GO_DIR" branch --show-current)" = '26.x' ] || {
+  [ "$(git -C "$GO_DIR" branch --show-current)" = '26.x' ] || [ "$(git -C "$GO_DIR" rev-parse HEAD)" = dba928c4f25b3290090d5937fcc6271f01a2ec91 ] || {
     echo 'ERROR: Existing Go checkout is not on branch 26.x' >&2
     exit 1
   }
@@ -259,32 +272,38 @@ else
 fi
 
 validate_go "$GO_DIR" || { echo 'ERROR: Final Go source incomplete' >&2; exit 1; }
+GO_PIN=dba928c4f25b3290090d5937fcc6271f01a2ec91
+if [ "$(git -C "$GO_DIR" rev-parse HEAD)" != "$GO_PIN" ]; then
+  git -C "$GO_DIR" -c http.version=HTTP/1.1 fetch --depth=1 origin "$GO_PIN"
+  git -C "$GO_DIR" checkout -q --detach "$GO_PIN"
+fi
 GO_COMMIT="$(git -C "$GO_DIR" rev-parse HEAD)"
+test "$GO_COMMIT" = "$GO_PIN"
 printf 'GO_FEED_26X_COMMIT=%s\n' "$GO_COMMIT"
 mkdir -p /home/builder/work/logs/v12-source-registration
 printf '%s\n' "$GO_COMMIT" > /home/builder/work/logs/v12-source-registration/go26-commit.txt
 
-echo "===== Remove conflicting/older proxy cores from OpenWrt feeds ====="
+echo "===== Preserve conflicting/older proxy cores outside active feeds ====="
 
-rm -rf feeds/packages/net/xray-core
-rm -rf feeds/packages/net/v2ray-geodata
-rm -rf feeds/packages/net/sing-box
-rm -rf feeds/packages/net/chinadns-ng
-rm -rf feeds/packages/net/dns2socks
-rm -rf feeds/packages/net/hysteria
-rm -rf feeds/packages/net/ipt2socks
-rm -rf feeds/packages/net/microsocks
-rm -rf feeds/packages/net/naiveproxy
-rm -rf feeds/packages/net/shadowsocks-rust
-rm -rf feeds/packages/net/shadowsocksr-libev
-rm -rf feeds/packages/net/simple-obfs
-rm -rf feeds/packages/net/tcping
-rm -rf feeds/packages/net/v2ray-plugin
-rm -rf feeds/packages/net/xray-plugin
-rm -rf feeds/packages/net/geoview
-rm -rf feeds/packages/net/shadow-tls
+preserve_source feeds/packages/net/xray-core
+preserve_source feeds/packages/net/v2ray-geodata
+preserve_source feeds/packages/net/sing-box
+preserve_source feeds/packages/net/chinadns-ng
+preserve_source feeds/packages/net/dns2socks
+preserve_source feeds/packages/net/hysteria
+preserve_source feeds/packages/net/ipt2socks
+preserve_source feeds/packages/net/microsocks
+preserve_source feeds/packages/net/naiveproxy
+preserve_source feeds/packages/net/shadowsocks-rust
+preserve_source feeds/packages/net/shadowsocksr-libev
+preserve_source feeds/packages/net/simple-obfs
+preserve_source feeds/packages/net/tcping
+preserve_source feeds/packages/net/v2ray-plugin
+preserve_source feeds/packages/net/xray-plugin
+preserve_source feeds/packages/net/geoview
+preserve_source feeds/packages/net/shadow-tls
 
-rm -rf feeds/luci/applications/luci-app-passwall
+preserve_source feeds/luci/applications/luci-app-passwall
 
 # R76S V1.2 GitHub Actions: checkout the exact reviewed upstream commits.
 pin_source_commit() {
@@ -333,7 +352,7 @@ for attempt in 1 2 3; do
     break
   fi
 
-  rm -rf package/passwall-packages
+  preserve_source package/passwall-packages
   sleep 5
 done
 
@@ -343,6 +362,11 @@ if [ "$PWPKG_OK" -ne 1 ]; then
 fi
 
 pin_source_commit "package/passwall-packages" "9178f2e627a1a104b0b35d1c47a7672dff42c970"
+
+# Verify the exact sing-box source already proven with the Go 1.26 toolchain.
+SINGBOX_MK=package/passwall-packages/sing-box/Makefile
+grep -qxF 'PKG_VERSION:=1.14.3' "$SINGBOX_MK"
+grep -qxF 'PKG_HASH:=9a8e3712a5f611ad95f1d16874bbdcdffbd3b8eed16dae2d71ce7042a33c3386' "$SINGBOX_MK"
 
 # Pin shadowsocks-rust to Rust-1.90-compatible v1.24.0
 # shadowsocks-rust 1.25.0 requires Rust >= 1.91
@@ -392,7 +416,7 @@ for attempt in 1 2 3; do
     break
   fi
 
-  rm -rf package/passwall-luci
+  preserve_source package/passwall-luci
   sleep 5
 done
 
@@ -423,7 +447,7 @@ for attempt in 1 2 3; do
     break
   fi
 
-  rm -rf package/passwall2-luci
+  preserve_source package/passwall2-luci
   sleep 5
 done
 

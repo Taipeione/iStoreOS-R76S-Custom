@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
-# Original workflow step: Load official iStoreOS 24.10 feeds
-# REVIEW REQUIRED: not yet adapted for local execution.
-
+set -euo pipefail
 cd openwrt
-
-if [ ! -s feeds.conf ]; then
-  curl -fL --retry 3 --retry-delay 3 \
-    https://fw.koolcenter.com/iStoreOS/r76s/24.10-feeds.conf -o feeds.conf
+# Use the reviewed complete official feed snapshot rather than a moving URL.
+PINNED=/r76s-repo/config/feeds.conf
+test -s "$PINNED"
+if [ -e feeds.conf ] && ! cmp -s "$PINNED" feeds.conf; then
+  mkdir -p ../logs/v12-source-registration
+  cp -p feeds.conf "../logs/v12-source-registration/feeds-before-pin-$(date -u +%Y%m%dT%H%M%S)-$$.conf"
 fi
-
-test -s feeds.conf
-
-echo "===== feeds.conf ====="
+cp "$PINNED" feeds.conf
+cmp -s "$PINNED" feeds.conf
 cat feeds.conf

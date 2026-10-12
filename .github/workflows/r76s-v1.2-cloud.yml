@@ -42,11 +42,9 @@ jobs:
           test -z "${R76S_CLEAN_FLASH_PASSWORD_HASH}"
           echo 'V12_CLOUD_PREFLIGHT=PASS'
 
-      - name: Free space on disposable GitHub runner
+      - name: Check available GitHub runner disk space
         run: |
           set -euo pipefail
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
-          sudo apt-get clean
           df -h /
           test "$(df -Pk / | awk 'END {print $4}')" -gt 20971520
 
@@ -110,7 +108,6 @@ jobs:
           export GITHUB_SHA="$(git rev-parse HEAD)"
           echo "BUILD_SOURCE_SHA=$GITHUB_SHA"
           export V=s
-          export MAKEFLAGS="-j2"
           echo "BUILD_VERBOSE=$V"
           test "${R76S_PUBLIC_RELEASE}" = 1
           test -z "${R76S_CLEAN_FLASH_PASSWORD_HASH}"
