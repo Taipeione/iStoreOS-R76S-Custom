@@ -3,7 +3,10 @@
 import os
 from pathlib import Path
 
-SDK_ROOTS = (Path('/usr/local/lib/android'), Path('/usr/share/dotnet'), Path('/opt/ghc'))
+SDK_ROOTS = tuple(map(Path, (
+    '/usr/local/lib/android', '/usr/share/dotnet', '/opt/ghc',
+    '/usr/local/.ghcup', '/usr/share/swift', '/opt/hostedtoolcache/CodeQL',
+)))
 
 
 def compiled_asset(path):
