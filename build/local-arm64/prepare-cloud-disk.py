@@ -1,0 +1,44 @@
+#!/usr/bin/env python3
+"""Free unrelated compiled SDK assets on a disposable GitHub runner only."""
+import os
+from pathlib import Path
+
+SDK_ROOTS = (Path('/usr/local/lib/android'), Path('/usr/share/dotnet'), Path('/opt/ghc'))
+
+
+def compiled_asset(path):
+    if path.is_symlink() or not path.is_file():
+        return False
+    # Never remove source archives, regardless of their container format.
+    if any(word in path.name.lower() for word in ('source', 'sources', 'src')):
+        return False
+    with path.open('rb') as stream:
+        magic = stream.read(8)
+    if magic.startswith((b'\x7fELF', b'MZ', b'!<arch>\n')):
+        return True
+    return path.suffix == '.img' or (path.suffix == '.jar' and magic.startswith(b'PK\x03\x04'))
+
+
+def main():
+    if os.environ.get('GITHUB_ACTIONS') != 'true' or os.geteuid() != 0:
+        raise SystemExit('Only run as root on a disposable GitHub Actions runner')
+    if Path('/home/builder/work/openwrt').exists():
+        raise SystemExit('Run before creating the firmware build environment')
+    released = 0
+    for root in SDK_ROOTS:
+        if not root.is_dir() or root.is_symlink():
+            continue
+        count = 0
+        for parent, _, names in os.walk(root, followlinks=False):
+            for name in names:
+                path = Path(parent) / name
+                if path.resolve().is_relative_to(root.resolve()) and compiled_asset(path):
+                    released += path.stat().st_blocks * 512
+                    path.unlink()
+                    count += 1
+        print(f'UNUSED_COMPILED_SDK_ASSETS={root} files={count}', flush=True)
+    print(f'RECLAIMED_SDK_ALLOCATED_BYTES={released}', flush=True)
+
+
+if __name__ == '__main__':
+    main()

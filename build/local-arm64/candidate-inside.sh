@@ -45,7 +45,7 @@ apply_env() {
 free_kib=$(df -Pk "$WORK" | awk 'END{print $4}')
 required_kib=20971520
 if [ "${GITHUB_ACTIONS:-}" = true ] && [ "${R76S_CCACHE_SIZE:-}" = 1G ]; then
-  required_kib=18874368
+  required_kib=33554432
 fi
 if [ "$free_kib" -lt "$required_kib" ]; then
   echo "Insufficient build volume space: ${free_kib} KiB; require ${required_kib} KiB; abort" >&2

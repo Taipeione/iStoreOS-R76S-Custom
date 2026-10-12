@@ -58,10 +58,11 @@ jobs:
           sudo apt-get clean
           # This job builds directly on the host; preloaded container images are unused.
           sudo docker image prune --all --force
+          sudo --preserve-env=GITHUB_ACTIONS python3 build/local-arm64/prepare-cloud-disk.py
           df -h /
           df -Pk /
-          # The cloud ccache cap is 1 GiB, reserving more space for firmware outputs.
-          test "$(df -Pk / | awk 'END {print $4}')" -gt 18874368
+          # Prior run exhausted ~18 GiB before finishing package compilation.
+          test "$(df -Pk / | awk 'END {print $4}')" -gt 33554432
 
       - name: Install x86_64 cross-compile dependencies
         run: |
