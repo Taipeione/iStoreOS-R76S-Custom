@@ -48,7 +48,7 @@ jobs:
           # Remove unrelated preinstalled packages through apt, preserving sources.
           mapfile -t UNUSED_PACKAGES < <(
             dpkg-query -W -f='${binary:Package} ${db:Status-Status}\n' |
-              awk '$2 == "installed" && $1 ~ /^(dotnet-|aspnetcore-|netstandard-|llvm-|clang-|google-cloud-cli|azure-cli|powershell|firefox)/ {print $1}'
+              awk '$2 == "installed" && $1 ~ /^(dotnet-|aspnetcore-|netstandard-|llvm-|clang-|google-cloud-cli|azure-cli|powershell|firefox|ghc|libghc-|mysql-|postgresql-|temurin-|openjdk-|libboost-|microsoft-edge-|google-chrome-|mongodb-|mssql-|mono-|libmono-)/ {print $1}'
           )
           if [ "${#UNUSED_PACKAGES[@]}" -gt 0 ]; then
             sudo apt-get purge -y "${UNUSED_PACKAGES[@]}"
@@ -57,27 +57,6 @@ jobs:
           sudo apt-get clean
           # This job builds directly on the host; preloaded container images are unused.
           sudo docker image prune --all --force
-          # Preserve unused tool caches on the runner's separate temporary disk.
-          # Move only directories that fit; never delete SDKs or project sources.
-          sudo python3 - <<'PY'
-          import pathlib, shutil, subprocess
-          root = pathlib.Path('/mnt/r76s-preserved-tools')
-          root.mkdir(exist_ok=True)
-          if root.stat().st_dev != pathlib.Path('/').stat().st_dev:
-              candidates = []
-              for cache in ('/opt/hostedtoolcache', '/usr/share/dotnet/sdk', '/usr/local/lib/android/sdk/system-images'):
-                  base = pathlib.Path(cache)
-                  if base.is_dir():
-                      candidates.extend(p for p in base.iterdir() if p.is_dir() and not p.is_symlink())
-              for index, source in enumerate(candidates):
-                  if shutil.disk_usage('/').free > 20 * 1024**3:
-                      break
-                  size = int(subprocess.check_output(['du', '-sB1', str(source)]).split()[0])
-                  if size + 128 * 1024**2 < shutil.disk_usage(root).free:
-                      destination = root / f'{index}-{source.name}'
-                      shutil.move(str(source), str(destination))
-                      print(f'PRESERVED_TOOL_CACHE={source} -> {destination}', flush=True)
-          PY
           df -h /
           test "$(df -Pk / | awk 'END {print $4}')" -gt 20971520
 
