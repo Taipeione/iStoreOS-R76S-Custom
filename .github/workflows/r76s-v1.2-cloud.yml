@@ -29,7 +29,7 @@ jobs:
       - name: Checkout V1.2.2 source
         uses: actions/checkout@v4
         with:
-          ref: feature/r76s-v1.2
+          ref: main
           persist-credentials: false
 
       - name: Validate source before cloud build
