@@ -53,6 +53,10 @@ jobs:
           if [ "${#UNUSED_PACKAGES[@]}" -gt 0 ]; then
             sudo apt-get purge -y "${UNUSED_PACKAGES[@]}"
           fi
+          sudo apt-get autoremove -y
+          sudo apt-get clean
+          # This job builds directly on the host; preloaded container images are unused.
+          sudo docker image prune --all --force
           df -h /
           test "$(df -Pk / | awk 'END {print $4}')" -gt 20971520
 
