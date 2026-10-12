@@ -43,8 +43,12 @@ apply_env() {
 }
 # Detect inadequate disk space before lengthy compilation. It does not remove anything.
 free_kib=$(df -Pk "$WORK" | awk 'END{print $4}')
-if [ "$free_kib" -lt 20971520 ]; then
-  echo "Less than 20 GiB free in Docker work volume: ${free_kib} KiB; abort" >&2
+required_kib=20971520
+if [ "${GITHUB_ACTIONS:-}" = true ] && [ "${R76S_CCACHE_SIZE:-}" = 1G ]; then
+  required_kib=18874368
+fi
+if [ "$free_kib" -lt "$required_kib" ]; then
+  echo "Insufficient build volume space: ${free_kib} KiB; require ${required_kib} KiB; abort" >&2
   exit 2
 fi
 stage=00
