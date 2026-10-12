@@ -74,7 +74,7 @@ case "$JOBS" in 1|2|3|4) ;; *) echo "ERROR: R76S_JOBS must be 1..4 on 10GiB Coli
 echo "===== Build with $JOBS parallel jobs + ccache ====="
 
 export CCACHE_DIR="$HOME/.ccache"
-ccache -M 5G >/dev/null 2>&1 || true
+ccache -M "${R76S_CCACHE_SIZE:-5G}" >/dev/null 2>&1 || true
 ccache -z >/dev/null 2>&1 || true
 
 if ! make -j"$JOBS" V=s; then
