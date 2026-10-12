@@ -42,9 +42,17 @@ jobs:
           test -z "${R76S_CLEAN_FLASH_PASSWORD_HASH}"
           echo 'V12_CLOUD_PREFLIGHT=PASS'
 
-      - name: Check available GitHub runner disk space
+      - name: Prepare GitHub runner disk space
         run: |
           set -euo pipefail
+          # Remove unrelated preinstalled packages through apt, preserving sources.
+          mapfile -t UNUSED_PACKAGES < <(
+            dpkg-query -W -f='${binary:Package} ${db:Status-Status}\n' |
+              awk '$2 == "installed" && $1 ~ /^(dotnet-|aspnetcore-|netstandard-|llvm-|clang-|google-cloud-cli|azure-cli|powershell|firefox)/ {print $1}'
+          )
+          if [ "${#UNUSED_PACKAGES[@]}" -gt 0 ]; then
+            sudo apt-get purge -y "${UNUSED_PACKAGES[@]}"
+          fi
           df -h /
           test "$(df -Pk / | awk 'END {print $4}')" -gt 20971520
 
