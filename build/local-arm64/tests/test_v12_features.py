@@ -36,7 +36,7 @@ class V12Features(unittest.TestCase):
                     'Discord', 'Facebook', 'Reddit', 'Claude', 'Perplexity',
                     'Copilot', 'Grok', 'Apple', 'Microsoft', 'Zoom', 'Notion', 'Dropbox']
                 order = re.findall(r"(?m)^config shunt_rules '([^']+)'", s)
-                self.assertEqual(order, ['WeChatDirect', 'TencentMediaDirect'] + expected)
+                self.assertEqual(order, ['WeChatDirect'] + expected + ['TencentMediaDirect'])
                 migration = stage.split("done <<'EOF_V110_RULE_ORDER'\n", 1)[1].split('\nEOF_V110_RULE_ORDER', 1)[0]
                 self.assertEqual(migration.splitlines(), order)
                 self.assertNotIn("config shunt_rules 'WeChatTencent'",s)
@@ -52,10 +52,10 @@ class V12Features(unittest.TestCase):
                     if sec=='WeChatDirect':
                         self.assertIn('domain:weixin.qq.com',ds)
                         self.assertIn('domain:wechat.com',ds)
-                        self.assertNotIn('domain:qq.com',ds)
-                        self.assertNotIn('domain:tencent.com',ds)
+                        self.assertIn('domain:gtimg.com',ds)
+                        self.assertIn('domain:tencent.com',ds)
                     domains += ds
-                self.assertEqual(len(domains),24)
+                self.assertEqual(len(domains),33)
                 self.assertEqual(len(set(domains)),24)
                 self.assertIn('domain:qq.com',domains)
                 self.assertIn('domain:tencent.com',domains)

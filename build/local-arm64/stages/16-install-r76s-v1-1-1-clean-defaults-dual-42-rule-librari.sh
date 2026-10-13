@@ -304,12 +304,14 @@ media = [d for d in legacy_domains if d not in wechat_domains]
 assert len(wechat) + len(media) == 24 and len(wechat) == 15 and len(media) == 9
 common_network = next((v for k,v in legacy_rule if k == 'network'), 'tcp,udp')
 new_rules = [
-    ('WeChatDirect', [('remarks', '微信专属域名直连'), ('network', common_network), ('domain_list', '\n'.join(wechat))]),
+    ('WeChatDirect', [('remarks', '微信专属域名直连'), ('network', common_network), ('domain_list', '\n'.join(legacy_domains))]),
     ('TencentMediaDirect', [('remarks', '腾讯QQ媒体旧直连保留'), ('network', common_network), ('domain_list', '\n'.join(media))]),
 ]
+media_rule = new_rules.pop()
 new_rules += [(n,p) for n,p in updated_rules if n != 'WeChatTencent']
+new_rules.append(media_rule)
 rules = new_rules
-output_order = ['WeChatDirect', 'TencentMediaDirect'] + desired_order[1:]
+output_order = ['WeChatDirect'] + desired_order[1:] + ['TencentMediaDirect']
 if [n for n,_ in rules] != output_order:
     raise SystemExit('ERROR: V1.2.2 managed rules order mismatch')
 
@@ -403,12 +405,12 @@ for p in (pw1,pw2):
             f'ERROR: {p} V1.1.1 shunt order mismatch: {actual_order}'
         )
 
-    if actual_order[:2] != ['WeChatDirect', 'TencentMediaDirect']:
+    if actual_order[0] != 'WeChatDirect':
         raise SystemExit(
             f'ERROR: {p} first rules are not the V1.2.2 direct groups'
         )
 
-    if actual_order[-1] != 'Dropbox':
+    if actual_order[-2:] != ['Dropbox', 'TencentMediaDirect']:
         raise SystemExit(
             f'ERROR: {p} last shunt rule is not Dropbox'
         )
@@ -884,7 +886,6 @@ reorder_managed_shunt_rules() {
         moved=$((moved + 1))
     done <<'EOF_V110_RULE_ORDER'
 WeChatDirect
-TencentMediaDirect
 ChatGPTLogin
 OpenAI
 GitHub
@@ -926,6 +927,7 @@ Microsoft
 Zoom
 Notion
 Dropbox
+TencentMediaDirect
 EOF_V110_RULE_ORDER
 
     uci -q commit "$pkg" || return 1
