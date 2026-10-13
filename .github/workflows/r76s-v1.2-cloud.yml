@@ -31,6 +31,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+          # Integration tests compare OTA UI and rules against baseline 1daed16.
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Validate source before cloud build
