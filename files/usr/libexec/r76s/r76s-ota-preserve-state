@@ -1,0 +1,78 @@
+#!/bin/sh
+# R76S_V12_OTA_HARDENING: must return failure if state cannot be saved.
+set -eu
+
+fail() {
+    echo "r76s-ota-preserve-state: $*" >&2
+    logger -t r76s-ota-preserve-state "$*" 2>/dev/null || true
+    exit 1
+}
+
+init_enabled() {
+    name="$1"
+    if [ -x "/etc/init.d/$name" ] && /etc/init.d/"$name" enabled >/dev/null 2>&1; then
+        printf '1\n'
+    else
+        printf '0\n'
+    fi
+}
+
+uci_flag() {
+    key="$1"
+    value="$(uci -q get "$key" 2>/dev/null)" || value=0
+    case "$value" in
+        0|1) printf '%s\n' "$value" ;;
+        *) fail "invalid enabled value for $key: $value" ;;
+    esac
+}
+
+pw_init="$(init_enabled passwall)"
+pw2_init="$(init_enabled passwall2)"
+sd_init="$(init_enabled smartdns)"
+agh_init="$(init_enabled adguardhome)"
+pw_uci="$(uci_flag 'passwall.@global[0].enabled')"
+pw2_uci="$(uci_flag 'passwall2.@global[0].enabled')"
+sd_uci="$(uci_flag 'smartdns.@smartdns[0].enabled')"
+
+# Never create a snapshot requiring both proxy engines to start together.
+if [ "$pw_init" = 1 ] && [ "$pw_uci" = 1 ] && \
+   [ "$pw2_init" = 1 ] && [ "$pw2_uci" = 1 ]; then
+    fail "PassWall and PassWall2 are both enabled; resolve the conflict before OTA"
+fi
+
+# UCI can add a named section only after its package file exists.
+mkdir -p /etc/config || fail 'cannot create config directory'
+if [ ! -e /etc/config/r76s_ota_state ]; then
+    (umask 077; printf "config state 'state'\n" > /etc/config/r76s_ota_state) || fail 'cannot create OTA state file'
+fi
+uci -q set 'r76s_ota_state.state=state' || fail 'cannot create OTA state section'
+uci -q set r76s_ota_state.state.pending='1' || fail 'cannot set pending'
+uci -q set r76s_ota_state.state.passwall_init="$pw_init" || fail 'cannot record passwall init'
+uci -q set r76s_ota_state.state.passwall2_init="$pw2_init" || fail 'cannot record passwall2 init'
+uci -q set r76s_ota_state.state.smartdns_init="$sd_init" || fail 'cannot record smartdns init'
+uci -q set r76s_ota_state.state.adguardhome_init="$agh_init" || fail 'cannot record adguardhome init'
+uci -q set r76s_ota_state.state.passwall_uci="$pw_uci" || fail 'cannot record passwall config'
+uci -q set r76s_ota_state.state.passwall2_uci="$pw2_uci" || fail 'cannot record passwall2 config'
+uci -q set r76s_ota_state.state.smartdns_uci="$sd_uci" || fail 'cannot record smartdns config'
+uci -q commit r76s_ota_state || fail 'UCI commit failed'
+[ -s /etc/config/r76s_ota_state ] || fail 'OTA state file is missing/empty'
+verify_dir="$(mktemp -d /tmp/r76s-ota-state.XXXXXX)" || fail 'cannot create verification directory'
+trap 'rm -rf "$verify_dir"' EXIT
+# A distinct package name prevents UCI from loading uncommitted state deltas.
+verify_package="r76s_ota_verify_$$"
+cp /etc/config/r76s_ota_state "$verify_dir/$verify_package" || fail 'cannot copy committed OTA state'
+verify_state() {
+    saved="$(uci -q -c "$verify_dir" -C "$verify_dir" -t "$verify_dir" get "$verify_package.state.$1" 2>/dev/null)" || fail "cannot read committed $1"
+    [ "$saved" = "$2" ] || fail "$1 not persisted"
+}
+verify_state pending 1
+verify_state passwall_init "$pw_init"
+verify_state passwall2_init "$pw2_init"
+verify_state smartdns_init "$sd_init"
+# AdGuard Home uses YAML and init.d, not a UCI enabled option.
+verify_state adguardhome_init "$agh_init"
+verify_state passwall_uci "$pw_uci"
+verify_state passwall2_uci "$pw2_uci"
+verify_state smartdns_uci "$sd_uci"
+sync || fail 'sync failed'
+exit 0

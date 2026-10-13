@@ -40,5 +40,5 @@ class Diagnostics(unittest.TestCase):
         self.assertEqual(parser.headers,10)
         self.assertIn('r76s_dns_diagnostics',page)
         self.assertIn('r76s_router_security',page)
-        self.assertIn('R76S-V1.3 · 在线升级',page)
+        self.assertIn('R76S-V1.3.1 · 在线升级',page)
         self.assertIn('aria-hidden="true"',page)

@@ -100,34 +100,13 @@ chmod 0755 "$BOOT_HOOK"
 
 echo "===== V1.1.1: install online-upgrade service state capture helper ====="
 
-cat > "$PRESERVE_HELPER" <<'EOF_PRESERVE_HELPER'
-#!/bin/sh
-# Save service/UCI state immediately before online sysupgrade.
-# /etc/config/r76s_ota_state is retained by the V1.1.1 keep.d list.
-init_enabled() {
-    name="$1"
-    if [ -x "/etc/init.d/$name" ] && /etc/init.d/"$name" enabled >/dev/null 2>&1; then
-        echo 1
-    else
-        echo 0
-    fi
-}
-
-uci -q delete r76s_ota_state.state
-uci -q set r76s_ota_state.state='state'
-uci -q set r76s_ota_state.state.pending='1'
-uci -q set r76s_ota_state.state.passwall_init="$(init_enabled passwall)"
-uci -q set r76s_ota_state.state.passwall2_init="$(init_enabled passwall2)"
-uci -q set r76s_ota_state.state.smartdns_init="$(init_enabled smartdns)"
-uci -q set r76s_ota_state.state.adguardhome_init="$(init_enabled adguardhome)"
-uci -q set r76s_ota_state.state.passwall_uci="$(uci -q get passwall.@global[0].enabled || echo 0)"
-uci -q set r76s_ota_state.state.passwall2_uci="$(uci -q get passwall2.@global[0].enabled || echo 0)"
-uci -q set r76s_ota_state.state.smartdns_uci="$(uci -q get smartdns.@smartdns[0].enabled || echo 0)"
-uci -q commit r76s_ota_state
-sync
-exit 0
-EOF_PRESERVE_HELPER
-chmod 0755 "$PRESERVE_HELPER"
+# Use the repository helper for every stage, including the first package build.
+test -x files/usr/libexec/r76s/r76s-ota-preserve-state || exit 1
+install -m 0755 files/usr/libexec/r76s/r76s-ota-preserve-state "$PRESERVE_HELPER" || exit 1
+mkdir -p openwrt/files/etc/config
+if [ ! -e openwrt/files/etc/config/r76s_ota_state ]; then
+  install -m 0644 files/etc/config/r76s_ota_state openwrt/files/etc/config/r76s_ota_state || exit 1
+fi
 
 echo "===== Stage online-upgrade preserve helper into final image overlay ====="
 mkdir -p openwrt/files/usr/libexec/r76s

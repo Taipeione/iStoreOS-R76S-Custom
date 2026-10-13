@@ -54,7 +54,12 @@ if [ "$pw_init" = 1 ] && [ "$pw_uci" = 1 ] && \
     fail "PassWall and PassWall2 are both enabled; resolve the conflict before OTA"
 fi
 
-uci -q set r76s_ota_state.state='state' || fail 'cannot create OTA state section'
+# UCI can add a named section only after its package file exists.
+mkdir -p /etc/config || fail 'cannot create config directory'
+if [ ! -e /etc/config/r76s_ota_state ]; then
+    (umask 077; printf "config state 'state'\n" > /etc/config/r76s_ota_state) || fail 'cannot create OTA state file'
+fi
+uci -q set 'r76s_ota_state.state=state' || fail 'cannot create OTA state section'
 uci -q set r76s_ota_state.state.pending='1' || fail 'cannot set pending'
 uci -q set r76s_ota_state.state.passwall_init="$pw_init" || fail 'cannot record passwall init'
 uci -q set r76s_ota_state.state.passwall2_init="$pw2_init" || fail 'cannot record passwall2 init'
@@ -65,14 +70,24 @@ uci -q set r76s_ota_state.state.passwall2_uci="$pw2_uci" || fail 'cannot record 
 uci -q set r76s_ota_state.state.smartdns_uci="$sd_uci" || fail 'cannot record smartdns config'
 uci -q commit r76s_ota_state || fail 'UCI commit failed'
 [ -s /etc/config/r76s_ota_state ] || fail 'OTA state file is missing/empty'
-[ "$(uci -q get r76s_ota_state.state.pending 2>/dev/null)" = 1 ] || fail 'pending not persisted'
-[ "$(uci -q get r76s_ota_state.state.passwall_init 2>/dev/null)" = "$pw_init" ] || fail 'passwall state not persisted'
-[ "$(uci -q get r76s_ota_state.state.passwall2_init 2>/dev/null)" = "$pw2_init" ] || fail 'passwall2 state not persisted'
-[ "$(uci -q get r76s_ota_state.state.smartdns_init 2>/dev/null)" = "$sd_init" ] || fail 'smartdns state not persisted'
-[ "$(uci -q get r76s_ota_state.state.adguardhome_init 2>/dev/null)" = "$agh_init" ] || fail 'adguardhome state not persisted'
-[ "$(uci -q get r76s_ota_state.state.passwall_uci 2>/dev/null)" = "$pw_uci" ] || fail 'passwall enabled state not persisted'
-[ "$(uci -q get r76s_ota_state.state.passwall2_uci 2>/dev/null)" = "$pw2_uci" ] || fail 'passwall2 enabled state not persisted'
-[ "$(uci -q get r76s_ota_state.state.smartdns_uci 2>/dev/null)" = "$sd_uci" ] || fail 'smartdns enabled state not persisted'
+verify_dir="$(mktemp -d /tmp/r76s-ota-state.XXXXXX)" || fail 'cannot create verification directory'
+trap 'rm -rf "$verify_dir"' EXIT
+# A distinct package name prevents UCI from loading uncommitted state deltas.
+verify_package="r76s_ota_verify_$$"
+cp /etc/config/r76s_ota_state "$verify_dir/$verify_package" || fail 'cannot copy committed OTA state'
+verify_state() {
+    saved="$(uci -q -c "$verify_dir" -C "$verify_dir" -t "$verify_dir" get "$verify_package.state.$1" 2>/dev/null)" || fail "cannot read committed $1"
+    [ "$saved" = "$2" ] || fail "$1 not persisted"
+}
+verify_state pending 1
+verify_state passwall_init "$pw_init"
+verify_state passwall2_init "$pw2_init"
+verify_state smartdns_init "$sd_init"
+# AdGuard Home uses YAML and init.d, not a UCI enabled option.
+verify_state adguardhome_init "$agh_init"
+verify_state passwall_uci "$pw_uci"
+verify_state passwall2_uci "$pw2_uci"
+verify_state smartdns_uci "$sd_uci"
 sync || fail 'sync failed'
 exit 0
 '''
@@ -134,6 +149,9 @@ start() {
     uci -q commit passwall || return 1
     uci -q commit passwall2 || return 1
     uci -q commit smartdns || return 1
+    [ "$(uci -q get 'passwall.@global[0].enabled')" = "$pw_uci" ] || return 1
+    [ "$(uci -q get 'passwall2.@global[0].enabled')" = "$pw2_uci" ] || return 1
+    [ "$(uci -q get 'smartdns.@smartdns[0].enabled')" = "$sd_uci" ] || return 1
 
     service_init_state passwall "$pw_init" || return 1
     service_init_state passwall2 "$pw2_init" || return 1
@@ -308,6 +326,11 @@ def apply():
     replacements = {controller: controller_new, restore_init: RESTORE_INIT, restore_defaults: RESTORE_DEFAULTS}
     for h in helpers:
         replacements[h] = PRESERVE
+    state_config = root / 'files/etc/config/r76s_ota_state'
+    state_config.parent.mkdir(parents=True, exist_ok=True)
+    # Preserve an existing snapshot when reapplying this build patch.
+    if not state_config.exists():
+        replacements[state_config] = "config state 'state'\n"
 
     # Only patch installed rootfs when it already exists; canonical build inputs
     # above remain the source of truth on the next package/image build.
@@ -333,7 +356,7 @@ def apply():
 
     changed = []
     for p, content in replacements.items():
-        if p.read_text() != content:
+        if not p.exists() or p.read_text() != content:
             p.write_text(content)
             changed.append(p)
         if content.startswith('#!/bin/sh'):

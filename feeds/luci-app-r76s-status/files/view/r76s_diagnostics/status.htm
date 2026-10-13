@@ -9,7 +9,7 @@ local levels={pass='检查通过',warn='需要关注',unknown='未确认',info='
 </style>
 <div class="cbi-map r76s-diagnostic">
 <h2><%=h(title)%></h2>
-<p>R76S-V1.3 · 只读检查 · <%=h(data.timestamp)%></p>
+<p>R76S-V1.3.1 · 只读检查 · <%=h(data.timestamp)%></p>
 <% if data.kind=='dns' then %>
 <p>根据已读取的配置、进程及端口归属检查本机 DNS 链路。不发起外部 DNS 查询，不证明实际解析成功。未启用的可选 DNS 服务可保持关闭。</p>
 <% else %>

@@ -8,7 +8,7 @@ echo "===== V1.1.1 clean-flash policy ====="
 echo "LAN: 192.168.50.1/24"
 echo "WAN: upstream R76S default DHCP client"
 echo "DNS: dnsmasq uses WAN DNS unless the user later enables another DNS service"
-echo "PassWall/PassWall2: V1.3 43-rule shunt libraries installed but disabled on clean flash"
+echo "PassWall/PassWall2: V1.3.1 43-rule shunt libraries installed but disabled on clean flash"
 echo "SmartDNS/AdGuard Home: installed but disabled by default"
 echo "Preserved user settings remain authoritative; V1.1.1 only adds firmware-managed content that is missing"
 
@@ -280,7 +280,7 @@ for name, props in rules:
 if not wechat_found:
     raise SystemExit('ERROR: WeChatTencent rule missing in V1.1.1')
 
-# V1.3 migration: split the original 24-entry direct list into independent
+# V1.3.1 migration: split the original 24-entry direct list into independent
 # WeChat and Tencent/QQ media direct groups. Original 41 other rules unchanged.
 legacy_rule = next((props for name,props in updated_rules if name == 'WeChatTencent'), None)
 if legacy_rule is None:
@@ -298,7 +298,7 @@ wechat_domains = {
     'domain:weixin.qq.com', 'domain:weixin110.qq.com',
 }
 if not wechat_domains.issubset(set(legacy_domains)):
-    raise SystemExit('ERROR: V1.3 WeChat domain set mismatches original 24 entries')
+    raise SystemExit('ERROR: V1.3.1 WeChat domain set mismatches original 24 entries')
 wechat = [d for d in legacy_domains if d in wechat_domains]
 media = [d for d in legacy_domains if d not in wechat_domains]
 assert len(wechat) + len(media) == 24 and len(wechat) == 15 and len(media) == 9
@@ -313,7 +313,7 @@ new_rules.append(media_rule)
 rules = new_rules
 output_order = ['WeChatDirect'] + desired_order[1:] + ['TencentMediaDirect']
 if [n for n,_ in rules] != output_order:
-    raise SystemExit('ERROR: V1.3 managed rules order mismatch')
+    raise SystemExit('ERROR: V1.3.1 managed rules order mismatch')
 
 def sections(text):
     starts = list(re.finditer(r"(?m)^config\s+([^\s]+)(?:\s+'([^']+)')?\s*$", text))
@@ -407,7 +407,7 @@ for p in (pw1,pw2):
 
     if actual_order[0] != 'WeChatDirect':
         raise SystemExit(
-            f'ERROR: {p} first rules are not the V1.3 direct groups'
+            f'ERROR: {p} first rules are not the V1.3.1 direct groups'
         )
 
     if actual_order[-2:] != ['Dropbox', 'TencentMediaDirect']:
@@ -433,7 +433,7 @@ if generated_orders[0] != generated_orders[1]:
         'ERROR: PassWall and PassWall2 shunt rule order differs'
     )
 
-print('PassWall and PassWall2 V1.3 43-rule order verified, no legacy WeChatTencent rule.')
+print('PassWall and PassWall2 V1.3.1 43-rule order verified, no legacy WeChatTencent rule.')
 PY_RULES
 
 PW1_COUNT="$(grep -c '^config shunt_rules ' "$PW1_DEFAULT")"
@@ -517,8 +517,12 @@ cat > openwrt/files/etc/uci-defaults/09-r76s-v110-preserve-detect <<'EOF_PRESERV
 #
 
 if [ -e /etc/uci-defaults/10_disable_services ]; then
-    if ! uci -q get r76s_ota_state.state >/dev/null 2>&1; then
-        uci -q set r76s_ota_state.state='state'
+    mkdir -p /etc/config || exit 1
+    if [ ! -e /etc/config/r76s_ota_state ]; then
+        (umask 077; printf "config state 'state'\n" > /etc/config/r76s_ota_state) || exit 1
+    fi
+    if ! uci -q get 'r76s_ota_state.state' >/dev/null 2>&1; then
+        uci -q set 'r76s_ota_state.state=state' || exit 1
     fi
 
     service_was_enabled() {
@@ -1036,7 +1040,7 @@ merge_first_type_options \
     /usr/share/passwall2/0_default_config \
     global || exit 1
 
-# V1.3: import additional user-owned legacy direct domains into the new
+# V1.3.1: import additional user-owned legacy direct domains into the new
 # destination rules before deleting the old combined section. Make on-device
 # backups because firmware upgrade must not destroy user rules silently.
 migrate_v12_direct() {
