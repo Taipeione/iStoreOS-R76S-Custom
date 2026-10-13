@@ -4,8 +4,10 @@
 
 mkdir -p openwrt/package/custom
 
-rm -rf \
-  openwrt/package/custom/luci-app-r76s-status
+if [ -e openwrt/package/custom/luci-app-r76s-status ]; then
+  backup="$(mktemp -d /home/builder/work/.r76s-source-backup.XXXXXX)"
+  mv openwrt/package/custom/luci-app-r76s-status "$backup/source"
+fi
 
 cp -r \
   feeds/luci-app-r76s-status \
@@ -107,7 +109,7 @@ EOF_STATUS_VIEW
 grep -qF 'data.passwall2' "$STATUS_CTRL"
 grep -qF 'data.adguard' "$STATUS_CTRL"
 grep -qF 'MemAvailable' "$STATUS_CTRL"
-# V1.2 status overlay is copied AFTER the V1.1.1 generator to avoid overwrite.
+# V1.2.2 status overlay is copied AFTER the V1.1.1 generator to avoid overwrite.
 V12_STATUS_SRC="${R76S_REPO_ROOT:-/r76s-repo}/build/local-arm64/v12-overlays/status"
 test -s "$V12_STATUS_SRC/r76s_status.lua"
 test -s "$V12_STATUS_SRC/status.htm"

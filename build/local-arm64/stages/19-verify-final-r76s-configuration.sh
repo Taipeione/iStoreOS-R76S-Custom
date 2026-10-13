@@ -61,6 +61,16 @@ for required in \
   'CONFIG_PACKAGE_luci-app-passwall=y' \
   'CONFIG_PACKAGE_luci-app-passwall2=y' \
   'CONFIG_PACKAGE_luci-i18n-passwall2-zh-cn=y' \
+  'CONFIG_PACKAGE_luci-app-store=y' \
+  'CONFIG_PACKAGE_luci-app-ota=y' \
+  'CONFIG_PACKAGE_luci-app-passwall2=y' \
+  'CONFIG_PACKAGE_smartdns=y' \
+  'CONFIG_PACKAGE_adguardhome=y' \
+  'CONFIG_PACKAGE_ppp-mod-pppoe=y' \
+  'CONFIG_PACKAGE_odhcp6c=y' \
+  'CONFIG_PACKAGE_odhcpd-ipv6only=y' \
+  'CONFIG_PACKAGE_wireguard-tools=y' \
+  'CONFIG_PACKAGE_kmod-wireguard=y' \
   'CONFIG_PACKAGE_luci-app-passwall_Nftables_Transparent_Proxy=y' \
   'CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=y' \
   'CONFIG_PACKAGE_luci-app-passwall_INCLUDE_SingBox=y' \

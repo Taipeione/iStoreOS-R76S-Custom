@@ -4,7 +4,10 @@
 
 mkdir -p openwrt/package/custom
 
-rm -rf openwrt/package/custom/luci-app-r76s-updater
+if [ -e openwrt/package/custom/luci-app-r76s-updater ]; then
+  backup="$(mktemp -d /home/builder/work/.r76s-source-backup.XXXXXX)"
+  mv openwrt/package/custom/luci-app-r76s-updater "$backup/source"
+fi
 cp -r feeds/luci-app-r76s-updater openwrt/package/custom/
 
 UPDATER_DIR="openwrt/package/custom/luci-app-r76s-updater"

@@ -9,11 +9,12 @@ echo "===== Stage official iStoreOS QuickStart ====="
 # Use the official LinkEase/iStoreOS release sources directly.
 # Do not use the refactoring-only istoreos/quickstart repository;
 # its own README points release builds to these two package trees.
-rm -rf \
-  /tmp/r76s-nas-packages \
-  /tmp/r76s-nas-packages-luci \
-  package/custom/quickstart \
-  package/custom/luci-app-quickstart
+for source in /tmp/r76s-nas-packages /tmp/r76s-nas-packages-luci package/custom/quickstart package/custom/luci-app-quickstart; do
+  if [ -e "$source" ]; then
+    backup="$(mktemp -d /home/builder/work/.r76s-source-backup.XXXXXX)"
+    mv "$source" "$backup/source"
+  fi
+done
 
 git clone \
   --depth=1 \
@@ -36,6 +37,17 @@ git clone \
 
 git -C /tmp/r76s-nas-packages-luci sparse-checkout set \
   luci/luci-app-quickstart
+
+# Match the existing fixed feed snapshot, including the custom package copies.
+for pair in \
+  /tmp/r76s-nas-packages:51a3c711ad06d7731a911401391aa7f4c1fce901 \
+  /tmp/r76s-nas-packages-luci:440b0a47ea2100aac61022147b0459af08eba9f6; do
+  source=${pair%:*}
+  commit=${pair##*:}
+  git -C "$source" fetch --depth=1 origin "$commit"
+  git -C "$source" checkout --detach "$commit"
+  test "$(git -C "$source" rev-parse HEAD)" = "$commit"
+done
 
 mkdir -p package/custom
 

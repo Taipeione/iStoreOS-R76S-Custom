@@ -27,6 +27,18 @@ class V12Features(unittest.TestCase):
             for name in ('pw','pw2'):
                 s=(p/name).read_text()
                 self.assertEqual(s.count('config shunt_rules '),43)
+                expected = ['ChatGPTLogin', 'OpenAI', 'GitHub', 'GoogleWork',
+                    'GoogleAI', 'YouTube', 'Netflix', 'Disney', 'MaxHBO',
+                    'PrimeVideo', 'Twitter', 'Telegram', 'Google', 'TikTok',
+                    'PlayStation', 'Nintendo', 'Instagram', 'Xbox', 'Signal',
+                    'Spotify', 'Slack', 'DirectGame', 'ProxyGame', 'AIGC',
+                    'Streaming', 'Proxy', 'Direct', 'LINE', 'WhatsApp',
+                    'Discord', 'Facebook', 'Reddit', 'Claude', 'Perplexity',
+                    'Copilot', 'Grok', 'Apple', 'Microsoft', 'Zoom', 'Notion', 'Dropbox']
+                order = re.findall(r"(?m)^config shunt_rules '([^']+)'", s)
+                self.assertEqual(order, ['WeChatDirect', 'TencentMediaDirect'] + expected)
+                migration = stage.split("done <<'EOF_V110_RULE_ORDER'\n", 1)[1].split('\nEOF_V110_RULE_ORDER', 1)[0]
+                self.assertEqual(migration.splitlines(), order)
                 self.assertNotIn("config shunt_rules 'WeChatTencent'",s)
                 self.assertIn("option WeChatDirect '_direct'",s)
                 self.assertIn("option TencentMediaDirect '_direct'",s)

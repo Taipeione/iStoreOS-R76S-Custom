@@ -8,7 +8,7 @@ echo "===== V1.1.1 clean-flash policy ====="
 echo "LAN: 192.168.50.1/24"
 echo "WAN: upstream R76S default DHCP client"
 echo "DNS: dnsmasq uses WAN DNS unless the user later enables another DNS service"
-echo "PassWall/PassWall2: V1.2 43-rule shunt libraries installed but disabled on clean flash"
+echo "PassWall/PassWall2: V1.2.2 43-rule shunt libraries installed but disabled on clean flash"
 echo "SmartDNS/AdGuard Home: installed but disabled by default"
 echo "Preserved user settings remain authoritative; V1.1.1 only adds firmware-managed content that is missing"
 
@@ -181,6 +181,7 @@ desired_order = [
     'PlayStation',
     'Nintendo',
     'Instagram',
+    'Xbox',
     'Signal',
     'Spotify',
     'Slack',
@@ -204,7 +205,6 @@ desired_order = [
     'Zoom',
     'Notion',
     'Dropbox',
-    'Xbox',
 ]
 
 if len(desired_order) != 42 or len(set(desired_order)) != 42:
@@ -280,7 +280,7 @@ for name, props in rules:
 if not wechat_found:
     raise SystemExit('ERROR: WeChatTencent rule missing in V1.1.1')
 
-# V1.2 migration: split the original 24-entry direct list into independent
+# V1.2.2 migration: split the original 24-entry direct list into independent
 # WeChat and Tencent/QQ media direct groups. Original 41 other rules unchanged.
 legacy_rule = next((props for name,props in updated_rules if name == 'WeChatTencent'), None)
 if legacy_rule is None:
@@ -298,7 +298,7 @@ wechat_domains = {
     'domain:weixin.qq.com', 'domain:weixin110.qq.com',
 }
 if not wechat_domains.issubset(set(legacy_domains)):
-    raise SystemExit('ERROR: V1.2 WeChat domain set mismatches original 24 entries')
+    raise SystemExit('ERROR: V1.2.2 WeChat domain set mismatches original 24 entries')
 wechat = [d for d in legacy_domains if d in wechat_domains]
 media = [d for d in legacy_domains if d not in wechat_domains]
 assert len(wechat) + len(media) == 24 and len(wechat) == 15 and len(media) == 9
@@ -311,7 +311,7 @@ new_rules += [(n,p) for n,p in updated_rules if n != 'WeChatTencent']
 rules = new_rules
 output_order = ['WeChatDirect', 'TencentMediaDirect'] + desired_order[1:]
 if [n for n,_ in rules] != output_order:
-    raise SystemExit('ERROR: V1.2 managed rules order mismatch')
+    raise SystemExit('ERROR: V1.2.2 managed rules order mismatch')
 
 def sections(text):
     starts = list(re.finditer(r"(?m)^config\s+([^\s]+)(?:\s+'([^']+)')?\s*$", text))
@@ -405,12 +405,12 @@ for p in (pw1,pw2):
 
     if actual_order[:2] != ['WeChatDirect', 'TencentMediaDirect']:
         raise SystemExit(
-            f'ERROR: {p} first rules are not the V1.2 direct groups'
+            f'ERROR: {p} first rules are not the V1.2.2 direct groups'
         )
 
-    if actual_order[-1] != 'Xbox':
+    if actual_order[-1] != 'Dropbox':
         raise SystemExit(
-            f'ERROR: {p} last shunt rule is not Xbox'
+            f'ERROR: {p} last shunt rule is not Dropbox'
         )
 
     for required in [
@@ -431,7 +431,7 @@ if generated_orders[0] != generated_orders[1]:
         'ERROR: PassWall and PassWall2 shunt rule order differs'
     )
 
-print('PassWall and PassWall2 V1.2 43-rule order verified, no legacy WeChatTencent rule.')
+print('PassWall and PassWall2 V1.2.2 43-rule order verified, no legacy WeChatTencent rule.')
 PY_RULES
 
 PW1_COUNT="$(grep -c '^config shunt_rules ' "$PW1_DEFAULT")"
@@ -902,6 +902,7 @@ TikTok
 PlayStation
 Nintendo
 Instagram
+Xbox
 Signal
 Spotify
 Slack
@@ -925,7 +926,6 @@ Microsoft
 Zoom
 Notion
 Dropbox
-Xbox
 EOF_V110_RULE_ORDER
 
     uci -q commit "$pkg" || return 1
@@ -1031,7 +1031,7 @@ merge_first_type_options \
     /usr/share/passwall2/0_default_config \
     global || exit 1
 
-# V1.2: import additional user-owned legacy direct domains into the new
+# V1.2.2: import additional user-owned legacy direct domains into the new
 # destination rules before deleting the old combined section. Make on-device
 # backups because firmware upgrade must not destroy user rules silently.
 migrate_v12_direct() {
@@ -1205,6 +1205,7 @@ if [ "$PRESERVE_UPGRADE" != "1" ]; then
     if uci -q show smartdns >/dev/null 2>&1; then
         uci -q set smartdns.@smartdns[0].enabled='0' || true
         uci -q set smartdns.@smartdns[0].auto_set_dnsmasq='0' || true
+        uci -q set smartdns.@smartdns[0].port='6053' || true
         uci -q commit smartdns || true
     fi
 

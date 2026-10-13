@@ -1,12 +1,12 @@
 # R76S V1.2.2 cloud-only build. GitHub Actions compiles; Mac mini only edits source.
 name: R76S Build V1.2.2
-run-name: "R76S V1.2.2 #${{ github.run_number }}"
+run-name: "R76S-V1.2.2 #${{ github.run_number }}"
 
 on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: r76s-v12-cloud-${{ github.ref }}
@@ -30,7 +30,7 @@ jobs:
       - name: Checkout V1.2.2 source
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Validate source before cloud build
@@ -134,21 +134,22 @@ jobs:
           test "${R76S_PUBLIC_RELEASE}" = 1
           test -z "${R76S_CLEAN_FLASH_PASSWORD_HASH}"
           V=s bash build/local-arm64/candidate-inside.sh
-          echo 'PUBLIC_TEST_BUILD_COMPLETE=YES; NOT_PUBLISHED'
+          echo 'BUILD_COMPLETE=YES'
 
       - name: Verify V1.2.2 artifacts and SHA256
         run: |
           set -euo pipefail
-          cd /home/builder/work/openwrt/bin/targets/rockchip/armv8/release-v1.2
+          cd /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.2.2
           test -s R76S-V1.2.2-TF-squashfs.img.gz
-          test -s CANDIDATE-NOT-FOR-RELEASE.txt
           test -s version.latest
           test -s version.index
-          grep -qxF '24.10.8-V1.2.2' version.index
-          grep -qF '[24.10.8-V1.2.2](R76S-V1.2.2-TF-squashfs.img.gz)' version.latest
+          grep -qxF '24.10.8-R76S-V1.2.2' version.index
+          grep -qF '[24.10.8-R76S-V1.2.2](R76S-V1.2.2-TF-squashfs.img.gz)' version.latest
           sha256sum -c sha256sums
           echo 'GITHUB_V12_IMAGE_STATIC_AUDIT=PASS'
-          echo 'GITHUB_V12_RELEASE_STATUS=UNVALIDATED_ARTIFACT_ONLY'
+          test -s ota.json
+          sha256sum -c sha256
+          echo 'GITHUB_V12_RELEASE_ASSETS=PASS'
 
       - name: Trim ccache before saving GitHub cache
         if: always()
@@ -168,12 +169,28 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Upload V1.2.2 TEST firmware (NOT FOR RELEASE)
+      - name: Upload V1.2.2 firmware
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: R76S-V1.2.2-TEST-NOT-FOR-RELEASE-${{ github.run_number }}
-          path: /home/builder/work/openwrt/bin/targets/rockchip/armv8/release-v1.2/*
+          name: R76S-V1.2.2-firmware-${{ github.run_number }}
+          path: /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.2.2/*
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
+
+      - name: Publish R76S-V1.2.2 GitHub Release and OTA assets
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.2.2
+          sha256sum -c sha256
+          shopt -s nullglob
+          assets=( *.img *.bin *.gz ota.json sha256 sha256sums version.latest version.index ota.footer.html BOOTLOADER_INFO.txt )
+          # Never overwrite a published version or its OTA assets.
+          gh release create R76S-V1.2.2 "${assets[@]}" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title R76S-V1.2.2 --notes-file BOOTLOADER_INFO.txt --draft
+          gh release edit R76S-V1.2.2 --repo "$GITHUB_REPOSITORY" --draft=false --latest
