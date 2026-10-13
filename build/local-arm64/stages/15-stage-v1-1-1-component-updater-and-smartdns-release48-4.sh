@@ -28,9 +28,8 @@ gzip -t /tmp/smartdns-aarch64.tar.gz
 echo "SmartDNS archive SHA256:"
 sha256sum /tmp/smartdns-aarch64.tar.gz
 
-rm -rf /tmp/smartdns-extract
-mkdir -p /tmp/smartdns-extract
-tar -xzf /tmp/smartdns-aarch64.tar.gz -C /tmp/smartdns-extract
+SMARTDNS_EXTRACT="$(mktemp -d /tmp/r76s-smartdns-extract.XXXXXX)"
+tar -xzf /tmp/smartdns-aarch64.tar.gz -C "$SMARTDNS_EXTRACT"
 
 # Select the real ARM64 ELF executable, not /etc/default/smartdns.
 SMARTDNS_BIN=""
@@ -39,11 +38,11 @@ while IFS= read -r -d '' candidate; do
     SMARTDNS_BIN="$candidate"
     break
   fi
-done < <(find /tmp/smartdns-extract -type f -name smartdns -print0)
+done < <(find "$SMARTDNS_EXTRACT" -type f -name smartdns -print0)
 
 if [ -z "$SMARTDNS_BIN" ]; then
   echo "ERROR: No AArch64 ELF SmartDNS executable found."
-  find /tmp/smartdns-extract -type f -name smartdns -exec file {} +
+  find "$SMARTDNS_EXTRACT" -type f -name smartdns -exec file {} +
   exit 1
 fi
 

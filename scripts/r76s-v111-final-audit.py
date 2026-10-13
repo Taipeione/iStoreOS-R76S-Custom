@@ -6,6 +6,7 @@ partition in the built raw image can pass the final firmware file gate.
 No router/network/mount access. No configuration changes.
 """
 import argparse
+import importlib.util
 import hmac
 import re
 # R76S_V12_SECURITY_GATE_20261010
@@ -198,7 +199,9 @@ def image_audit(image):
     offset = candidates[0]
     print('IMAGE_SQUASHFS_OFFSET=' + str(offset), flush=True)
     # Extract etc/ to inspect the shadow file and detect unsafe legacy uci-defaults.
-    root_pathlist = list(dict.fromkeys((*REQUIRED, *BANNED, *LMO, 'etc')))
+    root_pathlist = list(dict.fromkeys((*REQUIRED, *BANNED, *LMO, 'etc',
+        'usr/lib/opkg/status', 'usr/share/passwall/0_default_config',
+        'usr/share/passwall2/0_default_config')))
     if os.environ.get('R76S_PUBLIC_RELEASE') == '1':
         root_pathlist.append('usr/bin/openssl')
     with tempfile.TemporaryDirectory(prefix='r76s-image-audit-') as tmp:
@@ -212,6 +215,11 @@ def image_audit(image):
             print(p.stderr[-3000:], flush=True)
             return 1
         issues = check_tree(root, image=True)
+        spec = importlib.util.spec_from_file_location('production_audit',
+            Path(__file__).with_name('r76s-production-audit.py'))
+        production = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(production)
+        issues.extend(production.audit(root))
         for issue in issues:
             print('IMAGE_' + issue, flush=True)
         if issues:
