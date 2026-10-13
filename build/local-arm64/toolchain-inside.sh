@@ -12,7 +12,7 @@ test -d feeds/packages || { echo 'OFFICIAL_FEEDS_MISSING' >&2; exit 1; }
 test -s /r76s-repo/config/R76S.config
 mkdir -p ../logs
 
-# Save current test config; V1.2.2 staging re-imports the real configuration.
+# Save current test config; V1.3 staging re-imports the real configuration.
 if [ -f .config ]; then
   cp -p .config ../config.before-toolchain-test
 fi

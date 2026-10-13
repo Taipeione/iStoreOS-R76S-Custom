@@ -1,6 +1,6 @@
-# R76S V1.2.2 cloud-only build. GitHub Actions compiles; Mac mini only edits source.
-name: R76S Build V1.2.2
-run-name: "R76S-V1.2.2 #${{ github.run_number }}"
+# R76S V1.3 cloud-only build. GitHub Actions compiles; Mac mini only edits source.
+name: R76S Build V1.3
+run-name: "R76S-V1.3 #${{ github.run_number }}"
 
 on:
   workflow_dispatch:
@@ -27,7 +27,7 @@ jobs:
       R76S_CCACHE_SIZE: "1G"
       DEBIAN_FRONTEND: noninteractive
     steps:
-      - name: Checkout V1.2.2 source
+      - name: Checkout V1.3 source
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
@@ -126,7 +126,7 @@ jobs:
           test "$(git -C openwrt rev-parse HEAD)" = fb971407ffd9a094e6f16d9c029f1f580ed5c2ad
           echo 'ISTOREOS_PINNED_SOURCE=PASS'
 
-      - name: Build V1.2.2 using all existing 27 guarded stages
+      - name: Build V1.3 using all existing 27 guarded stages
         run: |
           set -euo pipefail
           export GITHUB_SHA="$(git rev-parse HEAD)"
@@ -138,15 +138,15 @@ jobs:
           V=s bash build/local-arm64/candidate-inside.sh
           echo 'BUILD_COMPLETE=YES'
 
-      - name: Verify V1.2.2 artifacts and SHA256
+      - name: Verify V1.3 artifacts and SHA256
         run: |
           set -euo pipefail
-          cd /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.2.2
-          test -s R76S-V1.2.2-TF-squashfs.img.gz
+          cd /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.3
+          test -s R76S-V1.3-TF-squashfs.img.gz
           test -s version.latest
           test -s version.index
-          grep -qxF '24.10.8-R76S-V1.2.2' version.index
-          grep -qF '[24.10.8-R76S-V1.2.2](R76S-V1.2.2-TF-squashfs.img.gz)' version.latest
+          grep -qxF '24.10.8-R76S-V1.3' version.index
+          grep -qF '[24.10.8-R76S-V1.3](R76S-V1.3-TF-squashfs.img.gz)' version.latest
           sha256sum -c sha256sums
           echo 'GITHUB_V12_IMAGE_STATIC_AUDIT=PASS'
           test -s ota.json
@@ -173,35 +173,35 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: R76S-V1.2.2-cloud-diagnostics-${{ github.run_number }}
+          name: R76S-V1.3-cloud-diagnostics-${{ github.run_number }}
           path: |
             /home/builder/work/logs/
             /home/builder/work/r76s-build-diagnostics/
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Upload V1.2.2 firmware
+      - name: Upload V1.3 firmware
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: R76S-V1.2.2-firmware-${{ github.run_number }}
-          path: /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.2.2/*
+          name: R76S-V1.3-firmware-${{ github.run_number }}
+          path: /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.3/*
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
 
-      - name: Publish R76S-V1.2.2 GitHub Release and OTA assets
+      - name: Publish R76S-V1.3 GitHub Release and OTA assets
         if: success()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          cd /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.2.2
+          cd /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.3
           sha256sum -c sha256
           shopt -s nullglob
           assets=( *.img *.bin *.gz ota.json sha256 sha256sums version.latest version.index ota.footer.html BOOTLOADER_INFO.txt )
           # Never overwrite a published version or its OTA assets.
-          gh release create R76S-V1.2.2 "${assets[@]}" \
+          gh release create R76S-V1.3 "${assets[@]}" \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title R76S-V1.2.2 --notes-file BOOTLOADER_INFO.txt --draft
-          gh release edit R76S-V1.2.2 --repo "$GITHUB_REPOSITORY" --draft=false --latest
+            --title R76S-V1.3 --notes-file BOOTLOADER_INFO.txt --draft
+          gh release edit R76S-V1.3 --repo "$GITHUB_REPOSITORY" --draft=false --latest

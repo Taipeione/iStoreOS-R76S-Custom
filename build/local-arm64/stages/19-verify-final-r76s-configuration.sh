@@ -136,3 +136,12 @@ grep -qF 'R76S_V12_OTA_HARDENING' files/etc/init.d/r76s-ota-restore
 grep -qF 'R76S_V12_OTA_HARDENING' files/etc/uci-defaults/99-r76s-v110-ota-restore
 grep -qF 'local preserve_rc = sys.call(' package/custom/luci-app-r76s-updater/files/controller/r76s_updater.lua
 ! grep -qF 'r76s-ota-preserve-state && /sbin/sysupgrade' package/custom/luci-app-r76s-updater/files/controller/r76s_updater.lua
+
+# R76S-V1.3 phase 1: native WireGuard UI and read-only AGH service entry.
+for required in wireguard-tools kmod-wireguard luci-proto-wireguard luci-lib-uqr ucode; do
+    grep -qxF "CONFIG_PACKAGE_${required}=y" .config || {
+        echo "ERROR: WireGuard integration missing: $required" >&2; exit 1;
+    }
+done
+test -s package/custom/luci-app-r76s-status/files/controller/r76s_adguardhome.lua
+test -s package/custom/luci-app-r76s-status/files/view/r76s_adguardhome/status.htm

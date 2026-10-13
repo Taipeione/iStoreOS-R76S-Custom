@@ -20,7 +20,7 @@ class ProductionAuditTests(unittest.TestCase):
                 path.write_text(text)
                 return path
             release = write('etc/openwrt_release',
-                "DISTRIB_RELEASE='24.10.8'\nDISTRIB_REVISION='R76S-V1.2.2'\n")
+                "DISTRIB_RELEASE='24.10.8'\nDISTRIB_REVISION='R76S-V1.3'\n")
             status = write('usr/lib/opkg/status', ''.join(
                 f'Package: {name}\nStatus: install user installed\n\n'
                 for name in production.PACKAGES))
@@ -33,9 +33,11 @@ class ProductionAuditTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             clean_text = stage.split("<<'EOF_CLEAN_SERVICES'\n", 1)[1].split('\nEOF_CLEAN_SERVICES', 1)[0]
             clean = write('etc/uci-defaults/98-r76s-v110-clean-services', clean_text)
+            write('usr/lib/lua/luci/controller/r76s_adguardhome.lua', 'controller fixture')
+            write('usr/lib/lua/luci/view/r76s_adguardhome/status.htm', 'view fixture')
             self.assertEqual(production.audit(root), [])
             for path, old, new, expected in (
-                (release, 'R76S-V1.2.2', 'V1.2', 'identity mismatch'),
+                (release, 'R76S-V1.3', 'V1.2', 'identity mismatch'),
                 (status, 'Package: wireguard-tools', 'Package: absent', 'wireguard-tools'),
                 (defaults[0], "shunt_rules 'Xbox'", "shunt_rules 'WrongOrder'", 'order mismatch'),
                 (clean, "port='6053'", "port='53'", 'SmartDNS clean default'),

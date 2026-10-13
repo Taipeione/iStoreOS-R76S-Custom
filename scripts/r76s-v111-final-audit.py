@@ -36,7 +36,9 @@ REQUIRED = (*EXECUTABLES,
     'etc/shadow',
     'etc/init.d/r76s-ota-restore',
     'etc/uci-defaults/99-r76s-v110-ota-restore',
-    'usr/lib/lua/luci/controller/r76s_updater.lua')
+    'usr/lib/lua/luci/controller/r76s_updater.lua',
+    'usr/lib/lua/luci/controller/r76s_adguardhome.lua',
+    'usr/lib/lua/luci/view/r76s_adguardhome/status.htm')
 BANNED = (
     'etc/rc.d/S99r76s-v111-dns-manager',
     'usr/libexec/r76s/v111-dns-readonly/r76s-v111-dns-transaction.sh',

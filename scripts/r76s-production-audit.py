@@ -4,14 +4,14 @@ from pathlib import Path
 import argparse
 import re
 
-VERSION = 'R76S-V1.2.2'
+VERSION = 'R76S-V1.3'
 RULES = '''ChatGPTLogin OpenAI GitHub GoogleWork GoogleAI YouTube Netflix Disney
 MaxHBO PrimeVideo Twitter Telegram Google TikTok PlayStation Nintendo Instagram
 Xbox Signal Spotify Slack DirectGame ProxyGame AIGC Streaming Proxy Direct LINE
 WhatsApp Discord Facebook Reddit Claude Perplexity Copilot Grok Apple Microsoft
 Zoom Notion Dropbox'''.split()
 PACKAGES = '''luci-app-store luci-app-ota ppp-mod-pppoe dnsmasq-full firewall4
-odhcp6c odhcpd-ipv6only wireguard-tools kmod-wireguard luci-proto-wireguard
+odhcp6c odhcpd-ipv6only wireguard-tools kmod-wireguard luci-proto-wireguard luci-lib-uqr ucode
 luci-app-passwall luci-app-passwall2 smartdns luci-app-smartdns adguardhome'''.split()
 
 
@@ -45,6 +45,10 @@ def audit(root):
                        'wx.qq.com', 'wxapp.tc.qq.com', 'gtimg.com', 'vweixinthumb.tc.qq.com'):
             if not wechat or f'domain:{domain}' not in wechat.group(1):
                 issues.append(f'{app}: WeChat domain missing: {domain}')
+    for name in ('usr/lib/lua/luci/controller/r76s_adguardhome.lua',
+                 'usr/lib/lua/luci/view/r76s_adguardhome/status.htm'):
+        if not (root / name).is_file():
+            issues.append(f'AdGuard Home LuCI file absent: {name}')
     clean = (root / 'etc/uci-defaults/98-r76s-v110-clean-services').read_text()
     for app in ('passwall', 'passwall2', 'smartdns', 'adguardhome'):
         if f'/etc/init.d/{app} disable' not in clean:

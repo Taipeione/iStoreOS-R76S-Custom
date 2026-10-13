@@ -109,7 +109,7 @@ EOF_STATUS_VIEW
 grep -qF 'data.passwall2' "$STATUS_CTRL"
 grep -qF 'data.adguard' "$STATUS_CTRL"
 grep -qF 'MemAvailable' "$STATUS_CTRL"
-# V1.2.2 status overlay is copied AFTER the V1.1.1 generator to avoid overwrite.
+# V1.3 status overlay is copied AFTER the V1.1.1 generator to avoid overwrite.
 V12_STATUS_SRC="${R76S_REPO_ROOT:-/r76s-repo}/build/local-arm64/v12-overlays/status"
 test -s "$V12_STATUS_SRC/r76s_status.lua"
 test -s "$V12_STATUS_SRC/status.htm"

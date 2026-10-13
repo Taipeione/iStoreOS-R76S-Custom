@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-echo "===== R76S V1.2.2 local build identity ====="
+echo "===== R76S V1.3 local build identity ====="
 test -s config/R76S.config
 test -s files/etc/uci-defaults/99-r76s-v2-defaults
 test -s feeds/luci-app-r76s-status/Makefile

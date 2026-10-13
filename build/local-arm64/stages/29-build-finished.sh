@@ -3,7 +3,7 @@
 # REVIEW REQUIRED: not yet adapted for local execution.
 
 echo "===================================="
-echo " R76S-V1.2.2 BUILD COMPLETE "
+echo " R76S-V1.3 BUILD COMPLETE "
 echo " RK3576 / rockchip / armv8 "
 echo " Online Upgrade / Preserve-Config / Clean DHCP+DNS / Status Fix / Bootloader Fix "
 echo "===================================="

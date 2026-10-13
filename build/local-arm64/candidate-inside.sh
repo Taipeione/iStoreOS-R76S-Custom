@@ -79,9 +79,9 @@ stage=29
 bash -e -o pipefail "$REPO/build/local-arm64/stages/28-collect-v1-1-1-diagnostic-report-even-on-failure.sh" \
   > "$WORK/logs/r76s-v12-candidate-diagnostics.log" 2>&1 || true
 # Keep candidate separate from any publication. Rootfs audit ran at stage25.
-release="$WORK/openwrt/bin/targets/rockchip/armv8/R76S-V1.2.2"
-test -s "$release/R76S-V1.2.2-TF-squashfs.img.gz"
+release="$WORK/openwrt/bin/targets/rockchip/armv8/R76S-V1.3"
+test -s "$release/R76S-V1.3-TF-squashfs.img.gz"
 printf '%s\n' 'Build and static image checks passed. Hardware validation is not performed by this workflow.' > "$release/BUILD-VALIDATION.txt"
-sha256sum "$release/R76S-V1.2.2-TF-squashfs.img.gz" > "$WORK/logs/r76s-v12-candidate-final.sha256"
+sha256sum "$release/R76S-V1.3-TF-squashfs.img.gz" > "$WORK/logs/r76s-v12-candidate-final.sha256"
 trap - EXIT
 echo 'CANDIDATE_BUILD=PASS_STATIC_IMAGE_AUDIT_ONLY; no publish or flash'

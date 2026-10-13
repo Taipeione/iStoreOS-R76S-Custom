@@ -1,0 +1,20 @@
+<%+header%>
+<div class="cbi-map">
+  <h2>AdGuard Home</h2>
+  <p>查看 DNS 过滤服务的安装、运行和开机启动状态。</p>
+  <div class="cbi-section">
+    <table class="table">
+      <tr class="tr"><td class="td">软件包</td><td class="td"><%=data.installed%></td></tr>
+      <tr class="tr"><td class="td">服务管理</td><td class="td"><%=data.init%></td></tr>
+      <tr class="tr"><td class="td">运行状态</td><td class="td"><%=data.running%></td></tr>
+      <tr class="tr"><td class="td">开机启动</td><td class="td"><%=data.enabled%></td></tr>
+      <tr class="tr"><td class="td">配置状态</td><td class="td"><%=data.configured%></td></tr>
+    </table>
+    <p>新安装固件默认关闭 AdGuard Home。保留配置升级沿用原有服务状态。</p>
+    <p>启停服务请前往“系统 → 启动项”；过滤规则在 AdGuard Home 自身管理界面中设置。首次设置时请确认监听端口和 DNS 上游。</p>
+    <p>本页面只读取状态，不启动服务，也不修改 dnsmasq、SmartDNS 或 DNS 转发设置。</p>
+    <a class="cbi-button" href="<%=luci.dispatcher.build_url('admin', 'services', 'r76s_adguardhome')%>">刷新状态</a>
+    <a class="cbi-button" href="<%=luci.dispatcher.build_url('admin', 'system', 'startup')%>">服务启动项</a>
+  </div>
+</div>
+<%+footer%>

@@ -305,7 +305,7 @@ preserve_source feeds/packages/net/shadow-tls
 
 preserve_source feeds/luci/applications/luci-app-passwall
 
-# R76S V1.2.2 GitHub Actions: checkout the exact reviewed upstream commits.
+# R76S V1.3 GitHub Actions: checkout the exact reviewed upstream commits.
 pin_source_commit() {
   local path="$1"
   local expected="$2"
@@ -471,7 +471,7 @@ if [ "${GITHUB_ACTIONS:-}" = true ]; then
 fi
 
 
-# These hashes are the source revisions reviewed during local V1.2.2 preparation.
+# These hashes are the source revisions reviewed during local V1.3 preparation.
 for pair in \
   "package/passwall-packages:9178f2e627a1a104b0b35d1c47a7672dff42c970" \
   "package/passwall-luci:701d982a26ee0b960d248754b8f8868f6f18fb59" \

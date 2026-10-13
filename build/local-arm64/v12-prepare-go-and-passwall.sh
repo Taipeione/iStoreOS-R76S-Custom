@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "===== R76S V1.2.2 GO126 AND PASSWALL PREFLIGHT ====="
+echo "===== R76S V1.3 GO126 AND PASSWALL PREFLIGHT ====="
 
 test -s .config
 test -d package/feeds/packages
@@ -139,4 +139,4 @@ grep -qxF \
 grep -qxF "CONFIG_PACKAGE_luci-app-ota=y" .config
 
 echo "GO126_PASSWALL_SOURCES=PASS"
-echo "===== V1.2.2 SOURCE PREPARATION PASS ====="
+echo "===== V1.3 SOURCE PREPARATION PASS ====="

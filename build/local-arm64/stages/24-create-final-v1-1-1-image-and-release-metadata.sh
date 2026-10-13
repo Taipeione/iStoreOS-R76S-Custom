@@ -5,9 +5,9 @@ set -euo pipefail
 # REVIEW REQUIRED: not yet adapted for local execution.
 
 TARGET_DIR="$(realpath "$TARGET_DIR")"
-RELEASE_DIR="$TARGET_DIR/R76S-V1.2.2"
+RELEASE_DIR="$TARGET_DIR/R76S-V1.3"
 
-FINAL_NAME="R76S-V1.2.2-TF-squashfs.img.gz"
+FINAL_NAME="R76S-V1.3-TF-squashfs.img.gz"
 FINAL_IMAGE="$RELEASE_DIR/$FINAL_NAME"
 
 mkdir -p "$RELEASE_DIR"
@@ -26,11 +26,11 @@ echo "===== Restore OpenWrt sysupgrade metadata ====="
 test -x "$FWTOOL"
 test -s "$SYSUPGRADE_META"
 "$FWTOOL" -I "$SYSUPGRADE_META" "$FINAL_IMAGE"
-FINAL_RAW="$RELEASE_DIR/R76S-V1.2.2-TF-squashfs.img"
+FINAL_RAW="$RELEASE_DIR/R76S-V1.3-TF-squashfs.img"
 cp "$RAW_IMAGE" "$FINAL_RAW"
 "$FWTOOL" -I "$SYSUPGRADE_META" "$FINAL_RAW"
 
-FINAL_META_CHECK="${R76S_LOCAL_TMP:-/tmp}/R76S-V1.2.2.final.meta"
+FINAL_META_CHECK="${R76S_LOCAL_TMP:-/tmp}/R76S-V1.3.final.meta"
 rm -f "$FINAL_META_CHECK"
 "$FWTOOL" -i "$FINAL_META_CHECK" "$FINAL_IMAGE"
 test -s "$FINAL_META_CHECK"
@@ -40,7 +40,7 @@ with open(sys.argv[1], 'r', encoding='utf-8') as f: meta=json.load(f)
 if 'friendlyarm,nanopi-r76s' not in meta.get('supported_devices', []):
     raise SystemExit('ERROR: final metadata lacks R76S support')
 v=meta.get('version',{})
-exp={'dist':'iStoreOS','version':'24.10.8','revision':'R76S-V1.2.2','target':'rockchip/armv8'}
+exp={'dist':'iStoreOS','version':'24.10.8','revision':'R76S-V1.3','target':'rockchip/armv8'}
 for k,val in exp.items():
     if v.get(k) != val: raise SystemExit(f'ERROR: metadata {k}={v.get(k)!r}, expected {val!r}')
 PY_FINAL_META
@@ -64,22 +64,22 @@ printf '%s  %s\n' \
 # device-specific OTA_URL_BASE. Our ota.sh points that base to this
 # repository's latest GitHub Release assets.
 cat > version.latest <<EOF
-[24.10.8-R76S-V1.2.2]($FINAL_NAME)
-R76S-V1.2.2 / RK3576 / TF
+[24.10.8-R76S-V1.3]($FINAL_NAME)
+R76S-V1.3 / RK3576 / TF
 SHA256: $FINAL_SHA
 EOF
 
 cat > version.index <<'EOF'
-24.10.8-R76S-V1.2.2
+24.10.8-R76S-V1.3
 EOF
 
 cat > ota.footer.html <<'EOF'
-<p>R76S-V1.2.2: TF-first / eMMC-fallback boot policy. Online upgrade preserves configuration by default.</p>
+<p>R76S-V1.3: TF-first / eMMC-fallback boot policy. Online upgrade preserves configuration by default.</p>
 EOF
 
 # R76S_V12_BUILD_STAGE_FIX_20261010: no comments inside backslash-continued printf arguments.
 printf '%s\n' \
-  'R76S-V1.2.2 / PassWall2 / PassWall' \
+  'R76S-V1.3 / PassWall2 / PassWall' \
   '' \
   'Target:' \
   'rockchip/armv8' \

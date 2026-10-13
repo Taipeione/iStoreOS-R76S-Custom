@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# R76S V1.2.2 public, device-provisioned image: never publish a private root hash.
+# R76S V1.3 public, device-provisioned image: never publish a private root hash.
 set -euo pipefail
 umask 077
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)"
 REPO="Taipeione/iStoreOS-R76S-Custom"
-TAG='R76S-V1.2.2'
+TAG='R76S-V1.3'
 IMAGE='r76s-builder:arm64-ubuntu2204-final'
-NAME='R76S-V1.2.2-TF-squashfs.img.gz'
-RELEASE='/home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.2.2'
-DEST="$HOME/Downloads/R76S-V1.2.2-public-draft"
+NAME='R76S-V1.3-TF-squashfs.img.gz'
+RELEASE='/home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.3'
+DEST="$HOME/Downloads/R76S-V1.3-public-draft"
 MODE="${1:-check}"
 
 require_tools() { command -v docker >/dev/null; docker info >/dev/null; }
@@ -33,14 +33,14 @@ verify_public_image() {
     --env "R76S_SOURCE_SHA=$(git -C "$ROOT" rev-parse HEAD)" \
     "$IMAGE" bash -euo pipefail -s <<'IN'
 export R76S_PUBLIC_RELEASE=1
-D=/home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.2.2
-NAME=R76S-V1.2.2-TF-squashfs.img.gz
+D=/home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.3
+NAME=R76S-V1.3-TF-squashfs.img.gz
 cd "$D"
 test -s "$NAME"
 test -s PUBLIC_BUILD_SOURCE_SHA
 [ "$(cat PUBLIC_BUILD_SOURCE_SHA)" = "${R76S_SOURCE_SHA}" ] || { echo "ERROR: public image source commit mismatch" >&2; exit 3; }
-grep -qxF '24.10.8-R76S-V1.2.2' version.index
-grep -qF '[24.10.8-R76S-V1.2.2](R76S-V1.2.2-TF-squashfs.img.gz)' version.latest
+grep -qxF '24.10.8-R76S-V1.3' version.index
+grep -qF '[24.10.8-R76S-V1.3](R76S-V1.3-TF-squashfs.img.gz)' version.latest
 sha256sum -c sha256sums
 expect="$(sha256sum "$NAME" | awk '{print $1}')"
 grep -qF "SHA256: $expect" version.latest
@@ -54,7 +54,7 @@ python3 - "$T/meta.json" <<'PY'
 import json,sys
 m=json.load(open(sys.argv[1]))
 assert 'friendlyarm,nanopi-r76s' in m['supported_devices']
-for k,v in {'dist':'iStoreOS','version':'24.10.8','revision':'R76S-V1.2.2','target':'rockchip/armv8'}.items():
+for k,v in {'dist':'iStoreOS','version':'24.10.8','revision':'R76S-V1.3','target':'rockchip/armv8'}.items():
     assert m['version'][k]==v,(k,m['version'].get(k))
 PY
 gzip -t "$T/image.gz"
@@ -73,8 +73,8 @@ prepare_files() {
     --mount type=volume,src=r76s-v12-work,dst=/home/builder/work,readonly \
     --mount "type=bind,src=$DEST,dst=/public-draft" \
     "$IMAGE" bash -euc '
-      src=/home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.2.2
-      for f in R76S-V1.2.2-TF-squashfs.img.gz R76S-V1.2.2-TF-squashfs.img ota.json sha256 sha256sums version.latest version.index ota.footer.html BOOTLOADER_INFO.txt; do
+      src=/home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.3
+      for f in R76S-V1.3-TF-squashfs.img.gz R76S-V1.3-TF-squashfs.img ota.json sha256 sha256sums version.latest version.index ota.footer.html BOOTLOADER_INFO.txt; do
         test -s "$src/$f"
         cp "$src/$f" "/public-draft/$f"
       done
@@ -104,7 +104,7 @@ case "$MODE" in
    docker run --rm --platform linux/arm64 --user 1000:1000 \
       --mount type=volume,src=r76s-v12-work,dst=/home/builder/work \
       --env "BUILT_SHA=$(git -C "$ROOT" rev-parse HEAD)" "$IMAGE" \
-      sh -ec 'printf "%s\n" "$BUILT_SHA" > /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.2.2/PUBLIC_BUILD_SOURCE_SHA'
+      sh -ec 'printf "%s\n" "$BUILT_SHA" > /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.3/PUBLIC_BUILD_SOURCE_SHA'
    echo 'PUBLIC_CANDIDATE_REBUILD_COMPLETE=YES; NOT PUBLISHED'
    ;;
  audit) verify_public_image ;;
@@ -118,9 +118,9 @@ case "$MODE" in
      echo "ERROR: Release $TAG already exists; refusing to overwrite" >&2; exit 3
    fi
    gh release create "$TAG" --repo "$REPO" --draft --target main \
-     --title 'R76S-V1.2.2' \
+     --title 'R76S-V1.3' \
      --notes 'PUBLIC ROOT-LOCKED CANDIDATE: not validated on physical hardware. Not a stable/latest release. Clean flash requires physical UART access to capture the generated first-boot password; verify OTA credential preservation before promotion.' \
-     "$DEST/$NAME" "$DEST/R76S-V1.2.2-TF-squashfs.img" "$DEST/ota.json" "$DEST/sha256" "$DEST/sha256sums" "$DEST/version.latest" "$DEST/version.index" "$DEST/ota.footer.html" "$DEST/BOOTLOADER_INFO.txt"
+     "$DEST/$NAME" "$DEST/R76S-V1.3-TF-squashfs.img" "$DEST/ota.json" "$DEST/sha256" "$DEST/sha256sums" "$DEST/version.latest" "$DEST/version.index" "$DEST/ota.footer.html" "$DEST/BOOTLOADER_INFO.txt"
    echo 'GITHUB_DRAFT_CREATED=PASS; NOT LATEST; NO AUTOMATIC OTA YET'
    ;;
  promote)
@@ -149,7 +149,7 @@ from pathlib import Path
 local=Path(sys.argv[1]); remote=json.loads(Path(sys.argv[2]).read_text())
 if not remote.get('draft'): raise SystemExit('Remote release is not draft')
 assets={a['name']:a for a in remote['assets']}
-for f in ('R76S-V1.2.2-TF-squashfs.img.gz','R76S-V1.2.2-TF-squashfs.img','ota.json','sha256','version.latest','version.index','sha256sums','ota.footer.html','BOOTLOADER_INFO.txt'):
+for f in ('R76S-V1.3-TF-squashfs.img.gz','R76S-V1.3-TF-squashfs.img','ota.json','sha256','version.latest','version.index','sha256sums','ota.footer.html','BOOTLOADER_INFO.txt'):
     data=local/f
     if f not in assets or not data.is_file(): raise SystemExit('MISSING_ASSET: '+f)
     if assets[f]['digest']!='sha256:'+hashlib.sha256(data.read_bytes()).hexdigest():
@@ -157,7 +157,7 @@ for f in ('R76S-V1.2.2-TF-squashfs.img.gz','R76S-V1.2.2-TF-squashfs.img','ota.js
 print('REMOTE_DRAFT_ASSETS_SHA256=PASS')
 VERIFY_REMOTE
    gh release edit "$TAG" --repo "$REPO" --draft=false --prerelease=false --latest
-   echo 'PUBLIC_RELEASE_PUBLISHED_LATEST=PASS; router web OTA may now check for V1.2.2'
+   echo 'PUBLIC_RELEASE_PUBLISHED_LATEST=PASS; router web OTA may now check for V1.3'
    ;;
  *) echo 'Usage: release-local.sh {check|build|audit|prepare|draft|build-draft|promote}' >&2; exit 2;;
 esac

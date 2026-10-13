@@ -4,9 +4,9 @@ set -euo pipefail
 # Original workflow step: Patch R76S bootloader
 # REVIEW REQUIRED: not yet adapted for local execution.
 
-RAW_IMAGE="${R76S_LOCAL_TMP:-/tmp}/R76S-V1.2.2.img"
-STRIPPED_IMAGE="${R76S_LOCAL_TMP:-/tmp}/R76S-V1.2.2-stripped.img.gz"
-SYSUPGRADE_META="${R76S_LOCAL_TMP:-/tmp}/R76S-V1.2.2.sysupgrade.meta"
+RAW_IMAGE="${R76S_LOCAL_TMP:-/tmp}/R76S-V1.3.img"
+STRIPPED_IMAGE="${R76S_LOCAL_TMP:-/tmp}/R76S-V1.3-stripped.img.gz"
+SYSUPGRADE_META="${R76S_LOCAL_TMP:-/tmp}/R76S-V1.3.sysupgrade.meta"
 FWTOOL="$GITHUB_WORKSPACE/openwrt/staging_dir/host/bin/fwtool"
 
 test -x "$FWTOOL"
@@ -27,7 +27,7 @@ if 'friendlyarm,nanopi-r76s' not in meta.get('supported_devices', []):
 meta['metadata_version']='1.1'
 meta['compat_version']=meta.get('compat_version','1.0')
 v=meta.setdefault('version',{})
-v.update({'dist':'iStoreOS','version':'24.10.8','revision':'R76S-V1.2.2','target':'rockchip/armv8','board':'friendlyarm,nanopi-r76s'})
+v.update({'dist':'iStoreOS','version':'24.10.8','revision':'R76S-V1.3','target':'rockchip/armv8','board':'friendlyarm,nanopi-r76s'})
 with open(p,'w',encoding='utf-8') as f:
     json.dump(meta,f,ensure_ascii=False,separators=(',',':')); f.write('\n')
 PY_META

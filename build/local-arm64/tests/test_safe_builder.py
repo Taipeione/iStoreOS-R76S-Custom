@@ -42,9 +42,9 @@ class Safety(unittest.TestCase):
         self.assertIn('2de5aee7a4c704a5b689fdab47b97a18ad11c1a2',s)
 
     def test_versions_are_v12(self):
-        self.assertIn('CONFIG_VERSION_CODE="R76S-V1.2.2"',(ROOT/'config/R76S.config').read_text())
+        self.assertIn('CONFIG_VERSION_CODE="R76S-V1.3"',(ROOT/'config/R76S.config').read_text())
         for i in (6,23,24,27,29):
-            self.assertIn('V1.2.2',get(i))
+            self.assertIn('V1.3',get(i))
 
     def test_production_is_guarded(self):
         runner=ROOT/'build/local-arm64/macmini.sh'

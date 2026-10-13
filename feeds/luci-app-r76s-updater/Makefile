@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-r76s-updater
 PKG_VERSION:=2.2.4
-PKG_RELEASE:=3
+PKG_RELEASE:=4
 PKGARCH:=all
 
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
