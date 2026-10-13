@@ -1,0 +1,8 @@
+{
+  "admin/network/r76s_wireguard_client": {
+    "title": "WireGuard 客户端生成",
+    "order": 66,
+    "action": { "type": "view", "path": "r76s_wireguard/client" },
+    "depends": { "acl": [ "luci-proto-wireguard" ] }
+  }
+}

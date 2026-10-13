@@ -1,0 +1,29 @@
+<%+header%>
+<% local h = require("luci.util").pcdata %>
+<div class="cbi-map">
+  <h2>国内 / 国外 DNS 策略</h2>
+  <p>国内列表中的域名保留 IPv4、IPv6 回答；其他公网域名只返回 IPv4 回答。局域网名称保留 IPv6。</p>
+  <p>SmartDNS 配置：<strong><%=data.selected and '已添加策略（生效需重新加载 SmartDNS）' or '未添加策略'%></strong></p>
+  <p>IPv6 出站保护：<strong><%=data.guard_enabled and (data.guard_active and '已配置，规则已加载' or '已配置，但未检测到规则') or '未启用'%></strong></p>
+  <pre style="white-space:pre-wrap;overflow-wrap:anywhere"><%=h(data.result)%></pre>
+  <p>IPv6 保护预检：</p>
+  <pre style="white-space:pre-wrap;overflow-wrap:anywhere"><%=h(data.guard_check)%></pre>
+  <div class="cbi-section">
+    <h3>启用前检查</h3>
+    <p>请先手动启用 SmartDNS，并配置 cn 与 foreign 上游组。全局 AAAA 过滤须关闭。若有用户自定义域名规则，应先确认其优先级。</p>
+    <p>策略默认不启用。启用只增加独立配置文件，不修改 DNS 转发链，也不会启动或重启服务。</p>
+    <p>SSH 检查与操作：</p>
+    <pre>/usr/libexec/r76s/r76s-ip-family-policy check
+/usr/libexec/r76s/r76s-ip-family-policy enable
+/usr/libexec/r76s/r76s-ip-family-policy disable</pre>
+    <p>需要防止缓存或硬编码 IPv6 地址绕过时，先关闭流量卸载、确认国内 IPv6 路由列表，再使用独立保护工具：</p>
+    <pre>/usr/libexec/r76s/r76s-ip6-guard check
+/usr/libexec/r76s/r76s-ip6-guard enable
+/usr/libexec/r76s/r76s-ip6-guard disable</pre>
+    <p>保护工具启用时会保存备份并重新加载 firewall、SmartDNS；仅管理独立规则表。微信/腾讯保持双栈，查询得到的 IPv6 地址写入允许集合。</p>
+    <p>保存后在 SmartDNS 管理页手动重新加载服务，并测试国内 A/AAAA、国外 A/AAAA 查询。</p>
+    <p>DNS 策略本身不能阻止硬编码 IPv6。启用出站保护后，仅允许国内 IPv6 网段、已解析的国内/微信/腾讯 IPv6 地址、LAN 和必要本地/控制流量。IP 白名单无法区分共享同一 CDN 地址的域名；外部加密 DNS 的回答不由本页面控制。</p>
+    <a class="cbi-button" href="<%=luci.dispatcher.build_url('admin','services','r76s_ip_policy')%>">刷新检查</a>
+  </div>
+</div>
+<%+footer%>

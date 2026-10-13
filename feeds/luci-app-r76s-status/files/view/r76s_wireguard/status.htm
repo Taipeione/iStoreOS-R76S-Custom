@@ -1,0 +1,32 @@
+<%+header%>
+<% local h = require("luci.util").pcdata %>
+<div class="cbi-map">
+  <h2>WireGuard 管理</h2>
+  <p>配置客户端或服务端，查看接口、Peer、最近握手及累计流量。</p>
+  <p><a class="cbi-button" href="<%=luci.dispatcher.build_url('admin','network','network')%>">接口与 Peer 配置</a>
+     <a class="cbi-button" href="<%=luci.dispatcher.build_url('admin','status','wireguard')%>">原生 WireGuard 状态</a>
+     <a class="cbi-button" href="<%=luci.dispatcher.build_url('admin','network','r76s_wireguard_client')%>">客户端配置与二维码</a>
+     <button class="cbi-button" type="button" id="r76s-wg-refresh">刷新状态</button></p>
+  <p id="r76s-wg-note" aria-live="polite">每 5 秒刷新状态，后台页面暂停刷新。</p>
+  <div id="r76s-wg-live" data-url="<%=luci.dispatcher.build_url('admin','network','r76s_wireguard','data')%>">
+  <% if not data.installed then %><p>WireGuard 工具未安装，暂时无法读取握手信息。</p><% end %>
+  <% if #data.rows == 0 then %><p>尚未配置 WireGuard 接口。请在接口页面添加“WireGuard VPN”。</p><% else %>
+  <div style="overflow-x:auto"><table class="table">
+    <tr class="tr"><th class="th">接口</th><th class="th">状态</th><th class="th">配置 Peer</th><th class="th">运行 Peer</th><th class="th">近期握手</th><th class="th">最后握手</th><th class="th">接收 / 发送</th></tr>
+    <% for _,row in ipairs(data.rows) do %>
+    <tr class="tr"><td class="td"><%=h(row.name)%></td><td class="td"><%=row.up and '已启动' or '已停止'%></td>
+      <td class="td"><%=row.configured_peers%></td><td class="td"><%=row.peers%></td><td class="td"><%=row.recent%></td>
+      <td class="td"><%=h(row.handshake)%></td><td class="td"><%=string.format('%.1f / %.1f KiB',row.rx/1024,row.tx/1024)%></td></tr>
+    <% end %>
+  </table></div><% end %>
+  </div>
+  <script src="<%=resource%>/r76s/wireguard-status.js"></script>
+  <div class="cbi-section">
+    <h3>客户端与服务端配置</h3>
+    <p>客户端：在接口编辑页导入服务端提供的 WireGuard 配置，确认 Endpoint、AllowedIPs、隧道地址和防火墙区域。</p>
+    <p>服务端：设置监听端口及独立隧道网段，为每台设备配置独立 Peer。按需要手动配置 UDP 入站和网络转发。</p>
+    <p>iPhone：在 Peer 页使用“生成配置”二维码导入 WireGuard App。Windows：将生成的标准配置保存为 .conf 后导入。两种客户端均需正确的公网 Endpoint 和独立密钥。</p>
+    <p>近期握手指最近 180 秒内有握手的 Peer；空闲隧道的旧握手不代表故障。NAT 后的客户端按需设置 PersistentKeepalive=25。</p>
+  </div>
+</div>
+<%+footer%>

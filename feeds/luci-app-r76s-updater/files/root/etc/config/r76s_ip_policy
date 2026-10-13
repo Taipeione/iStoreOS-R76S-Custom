@@ -1,0 +1,2 @@
+config policy 'main'
+    option ipv6_guard '0'

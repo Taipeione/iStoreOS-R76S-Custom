@@ -145,3 +145,21 @@ for required in wireguard-tools kmod-wireguard luci-proto-wireguard luci-lib-uqr
 done
 test -s package/custom/luci-app-r76s-status/files/controller/r76s_adguardhome.lua
 test -s package/custom/luci-app-r76s-status/files/view/r76s_adguardhome/status.htm
+for path in controller/r76s_diagnostics.lua model/r76s/diagnostics.lua \
+    model/r76s/diagnostics_collect.lua view/r76s_diagnostics/status.htm \
+    controller/r76s_wireguard.lua view/r76s_wireguard/status.htm \
+    model/r76s/services.lua controller/r76s_ip_policy.lua view/r76s_ip_policy/status.htm \
+    htdocs/luci-static/resources/r76s/wireguard.js \
+    htdocs/luci-static/resources/r76s/wireguard-status.js \
+    htdocs/luci-static/resources/view/r76s_wireguard/client.js \
+    root/usr/share/luci/menu.d/r76s-wireguard-client.json; do
+    test -s "package/custom/luci-app-r76s-status/files/$path"
+done
+test -s package/custom/luci-app-r76s-updater/files/root/usr/libexec/r76s/r76s-ip-family-policy
+sh -n package/custom/luci-app-r76s-updater/files/root/usr/libexec/r76s/r76s-ip-family-policy
+for path in usr/libexec/r76s/r76s-ip6-guard etc/init.d/r76s-ip6-guard etc/firewall.r76s-ip6-guard; do
+    test -s "package/custom/luci-app-r76s-updater/files/root/$path"
+    sh -n "package/custom/luci-app-r76s-updater/files/root/$path"
+done
+test -s package/custom/luci-app-r76s-updater/files/root/usr/share/r76s/tencent-direct.list
+test -s package/custom/luci-app-r76s-updater/files/root/etc/config/r76s_ip_policy

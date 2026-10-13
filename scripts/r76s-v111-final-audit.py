@@ -19,6 +19,10 @@ import sys
 import tempfile
 
 EXECUTABLES = (
+    'usr/libexec/r76s/r76s-ip-family-policy',
+    'usr/libexec/r76s/r76s-ip6-guard',
+    'etc/init.d/r76s-ip6-guard',
+    'etc/firewall.r76s-ip6-guard',
     'usr/libexec/r76s/r76s-ota-preserve-state',
     *(f'usr/libexec/r76s/v111-dns-readonly/{name}' for name in (
         'r76s-v111-dns-detect.sh', 'r76s-v111-dns-guard.sh',
@@ -35,10 +39,26 @@ REQUIRED = (*EXECUTABLES,
     'etc/init.d/smartdns',
     'etc/shadow',
     'etc/init.d/r76s-ota-restore',
+    'lib/upgrade/keep.d/r76s-v110',
+    'etc/config/r76s_ip_policy',
+    'usr/share/r76s/tencent-direct.list',
     'etc/uci-defaults/99-r76s-v110-ota-restore',
     'usr/lib/lua/luci/controller/r76s_updater.lua',
     'usr/lib/lua/luci/controller/r76s_adguardhome.lua',
-    'usr/lib/lua/luci/view/r76s_adguardhome/status.htm')
+    'usr/lib/lua/luci/view/r76s_adguardhome/status.htm',
+    'www/luci-static/resources/r76s/wireguard.js',
+    'www/luci-static/resources/r76s/wireguard-status.js',
+    'www/luci-static/resources/view/r76s_wireguard/client.js',
+    'usr/share/luci/menu.d/r76s-wireguard-client.json',
+    'usr/lib/lua/luci/controller/r76s_diagnostics.lua',
+    'usr/lib/lua/luci/model/r76s/diagnostics.lua',
+    'usr/lib/lua/luci/model/r76s/diagnostics_collect.lua',
+    'usr/lib/lua/luci/view/r76s_diagnostics/status.htm',
+    'usr/lib/lua/luci/controller/r76s_wireguard.lua',
+    'usr/lib/lua/luci/view/r76s_wireguard/status.htm',
+    'usr/lib/lua/luci/model/r76s/services.lua',
+    'usr/lib/lua/luci/controller/r76s_ip_policy.lua',
+    'usr/lib/lua/luci/view/r76s_ip_policy/status.htm')
 BANNED = (
     'etc/rc.d/S99r76s-v111-dns-manager',
     'usr/libexec/r76s/v111-dns-readonly/r76s-v111-dns-transaction.sh',

@@ -1,0 +1,18 @@
+#!/bin/sh /etc/rc.common
+# Create the optional address sets before SmartDNS S18 starts.
+START=17
+STOP=90
+USE_PROCD=1
+
+start_service() {
+    /usr/libexec/r76s/r76s-ip6-guard reload
+}
+
+reload_service() { start_service; }
+
+service_triggers() {
+    procd_add_reload_trigger r76s_ip_policy network
+}
+
+# Service stop/restart must not silently open IPv6. Remove with the explicit
+# r76s-ip6-guard disable command, which also updates the retained config.

@@ -9,12 +9,27 @@
       <tr class="tr"><td class="td">运行状态</td><td class="td"><%=data.running%></td></tr>
       <tr class="tr"><td class="td">开机启动</td><td class="td"><%=data.enabled%></td></tr>
       <tr class="tr"><td class="td">配置状态</td><td class="td"><%=data.configured%></td></tr>
+      <tr class="tr"><td class="td">配置的 DNS 端口</td><td class="td"><%=data.dns_port%></td></tr>
     </table>
     <p>新安装固件默认关闭 AdGuard Home。保留配置升级沿用原有服务状态。</p>
     <p>启停服务请前往“系统 → 启动项”；过滤规则在 AdGuard Home 自身管理界面中设置。首次设置时请确认监听端口和 DNS 上游。</p>
     <p>本页面只读取状态，不启动服务，也不修改 dnsmasq、SmartDNS 或 DNS 转发设置。</p>
+    <p>“DNS 端口已监听”要求端口由 AdGuard Home 进程持有；仍需 DNS 查询验证实际可用性。自定义 YAML 格式无法识别时显示未知。</p>
     <a class="cbi-button" href="<%=luci.dispatcher.build_url('admin', 'services', 'r76s_adguardhome')%>">刷新状态</a>
     <a class="cbi-button" href="<%=luci.dispatcher.build_url('admin', 'system', 'startup')%>">服务启动项</a>
+    <% if data.web_port then %>
+    <a class="cbi-button" id="r76s-agh-web" href="#" target="_blank" rel="noopener noreferrer">AdGuard Home 管理界面</a>
+    <script type="text/javascript">
+    (function() {
+      var url = new URL(window.location.href);
+      url.protocol = 'http:';
+      url.port = '<%=data.web_port%>';
+      url.pathname = '/'; url.search = ''; url.hash = '';
+      url.username = ''; url.password = '';
+      document.getElementById('r76s-agh-web').href = url.href;
+    })();
+    </script>
+    <% end %>
   </div>
 </div>
 <%+footer%>

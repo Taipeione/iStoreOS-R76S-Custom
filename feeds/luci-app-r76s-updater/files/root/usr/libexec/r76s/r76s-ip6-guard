@@ -1,0 +1,227 @@
+#!/bin/sh
+# Independent IPv6 egress guard. Never changes PassWall tables or shunt rules.
+set -eu
+ROOT="${R76S_POLICY_ROOT:-}"
+NFT="${R76S_GUARD_NFT:-nft}"
+DNS_TOOL="${R76S_GUARD_DNS_TOOL:-/usr/libexec/r76s/r76s-ip-family-policy}"
+ROUTES="${R76S_GUARD_CN_ROUTES:-}"
+TABLE='r76s_ip6_guard'
+MARKER='R76S_V13_IPV6_GUARD'
+STATE="$ROOT/etc/config/r76s_ip_policy"
+PROFILE="$ROOT/etc/smartdns/r76s-v13/ip-family.conf"
+DIR="$ROOT/etc/r76s-ip6-guard"
+INCLUDE='r76s_v13_ip6_guard'
+INCLUDE_PATH='/etc/firewall.r76s-ip6-guard'
+
+fail() { echo "ERROR: $*" >&2; exit 1; }
+get() { uci -q get "$1" 2>/dev/null || true; }
+enabled() { [ "$(get r76s_ip_policy.main.ipv6_guard)" = 1 ]; }
+
+resolve_inputs() {
+    if [ -z "$ROUTES" ]; then
+        for path in /usr/share/passwall/rules/chnroute6 /usr/share/passwall2/rules/chnroute6; do
+            if [ -s "$ROOT$path" ]; then ROUTES="$ROOT$path"; break; fi
+        done
+    fi
+    [ -s "$ROUTES" ] || fail 'Domestic IPv6 CIDR list missing'
+    awk 'NF && $1 !~ /^#/ {
+        if(NF!=1 || $1 !~ /^[0-9a-fA-F:]+\/[0-9]+$/) exit 1;
+        split($1,p,"/"); if(p[2]>128) exit 1; count++
+    } END {if(!count) exit 1}' "$ROUTES" || fail 'Invalid domestic IPv6 CIDR list'
+    LAN="${R76S_GUARD_LAN_DEVICES:-$(get r76s_ip_policy.main.lan_devices)}"
+    [ -n "$LAN" ] || LAN="$(get network.lan.device)"
+    [ -n "$LAN" ] || fail 'Configure the trusted LAN device explicitly'
+    for device in $LAN; do
+        case "$device" in *[!A-Za-z0-9_.:-]*|'') fail 'Invalid LAN device';; esac
+        [ "${#device}" -le 15 ] || fail 'LAN device name too long'
+    done
+}
+
+owned_table() {
+    if "$NFT" list table inet "$TABLE" > "$DIR/current.nft" 2>/dev/null; then
+        grep -Fq "$MARKER" "$DIR/current.nft" || fail 'Existing guard table is user-owned'
+        return 0
+    fi
+    return 1
+}
+
+render() {
+    resolve_inputs
+    printf '# %s\n' "$MARKER"
+    printf 'add table inet %s { comment "%s"; }\n' "$TABLE" "$MARKER"
+    printf 'add set inet %s cn6 { type ipv6_addr; flags interval; auto-merge; }\n' "$TABLE"
+    printf 'flush set inet %s cn6\n' "$TABLE"
+    printf 'add element inet %s cn6 { ' "$TABLE"
+    awk 'NF && $1 !~ /^#/ {printf "%s%s",separator,$1;separator=", "}' "$ROUTES"
+    printf ' }\n'
+    # Retain learned addresses and their TTL across firewall/network reloads.
+    printf 'add set inet %s direct6 { type ipv6_addr; flags timeout; timeout 1h; size 65536; }\n' "$TABLE"
+    for chain in forward output; do
+        printf 'add chain inet %s %s { type filter hook %s priority -5; policy accept; }\n' "$TABLE" "$chain" "$chain"
+        printf 'flush chain inet %s %s\n' "$TABLE" "$chain"
+        printf 'add rule inet %s %s meta nfproto != ipv6 return\n' "$TABLE" "$chain"
+        printf 'add rule inet %s %s oifname "lo" return\n' "$TABLE" "$chain"
+        for device in $LAN; do
+            printf 'add rule inet %s %s oifname "%s" return\n' "$TABLE" "$chain" "$device"
+        done
+        printf 'add rule inet %s %s ip6 daddr { ::1/128, fc00::/7, fe80::/10, ff00::/8 } return\n' "$TABLE" "$chain"
+        printf 'add rule inet %s %s meta l4proto ipv6-icmp icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem, nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } return\n' "$TABLE" "$chain"
+        printf 'add rule inet %s %s ip6 daddr @cn6 return\n' "$TABLE" "$chain"
+        printf 'add rule inet %s %s ip6 daddr @direct6 return\n' "$TABLE" "$chain"
+        # No established/related or proxy-mark blanket exception.
+        printf 'add rule inet %s %s counter drop comment "%s_DENY"\n' "$TABLE" "$chain" "$MARKER"
+    done
+}
+
+check() {
+    for package in smartdns firewall r76s_ip_policy; do
+        changes="$(uci -q changes "$package")" || fail "Cannot inspect pending $package changes"
+        [ -z "$changes" ] || fail "Save pending $package changes first"
+    done
+    for key in flow_offloading flow_offloading_hw; do
+        case "$(get "firewall.@defaults[0].$key")" in ''|0) ;; *) fail 'Disable software/hardware flow offloading first';; esac
+    done
+    # Other flowtables can bypass forward hooks too; do not guess their owners.
+    rules="$("$NFT" list ruleset)" || fail 'Cannot inspect nftables ruleset'
+    if printf '%s\n' "$rules" | grep -Eq '^[[:space:]]*flowtable[[:space:]]'; then
+        fail 'An existing flowtable must be removed before guard activation'
+    fi
+    typ="$(get "firewall.$INCLUDE")"
+    if [ -n "$typ" ]; then
+        [ "$typ" = include ] && [ "$(get "firewall.$INCLUDE.path")" = "$INCLUDE_PATH" ] || fail 'Firewall include is user-owned'
+    fi
+    sh "$DNS_TOOL" check >/dev/null
+    resolve_inputs
+}
+
+BACKUP=''; READY=0; DONE=0; LOCKED=0
+finish() {
+    rc="$1"
+    if [ "$READY" = 1 ] && [ "$DONE" = 0 ]; then
+        for package in smartdns firewall r76s_ip_policy; do
+            cp -p "$BACKUP/$package" "$ROOT/etc/config/$package" || true
+            uci -q revert "$package" || true
+        done
+        if [ -f "$BACKUP/profile" ]; then cp -p "$BACKUP/profile" "$PROFILE";
+        else rm -f "$PROFILE"; fi
+        if [ -f "$BACKUP/last-good.nft" ]; then cp -p "$BACKUP/last-good.nft" "$DIR/last-good.nft";
+        else rm -f "$DIR/last-good.nft"; fi
+        if "$NFT" list table inet "$TABLE" >/dev/null 2>&1; then
+            "$NFT" delete table inet "$TABLE" || true
+        fi
+        if [ -s "$BACKUP/table.nft" ]; then "$NFT" -f "$BACKUP/table.nft" || true; fi
+        "$ROOT/etc/init.d/firewall" reload >/dev/null 2>&1 || true
+        if [ "$DNS_WAS_RUNNING" = 1 ]; then "$ROOT/etc/init.d/smartdns" restart >/dev/null 2>&1 || true; fi
+        echo "IPv6 guard failed; restored snapshot: $BACKUP" >&2
+    fi
+    rm -f "$DIR/.rules.$$"
+    if [ "$LOCKED" = 1 ]; then rmdir "$DIR/.lock" || true; fi
+    exit "$rc"
+}
+
+snapshot() {
+    [ ! -L "$DIR" ] || fail 'Symlinked guard directory'
+    mkdir -p "$DIR"
+    mkdir "$DIR/.lock" || fail 'Guard operation already running'
+    LOCKED=1
+    trap 'finish $?' 0
+    trap 'exit 1' 1 2 15
+    BACKUP="$(mktemp -d "$DIR/backup.XXXXXX")"
+    for package in smartdns firewall r76s_ip_policy; do
+        path="$ROOT/etc/config/$package"
+        [ -s "$path" ] && [ ! -L "$path" ] || fail "Missing/unsafe config: $package"
+        cp -p "$path" "$BACKUP/$package"
+    done
+    [ ! -f "$PROFILE" ] || cp -p "$PROFILE" "$BACKUP/profile"
+    [ ! -f "$DIR/last-good.nft" ] || cp -p "$DIR/last-good.nft" "$BACKUP/last-good.nft"
+    if owned_table; then cp "$DIR/current.nft" "$BACKUP/table.nft"; fi
+    DNS_WAS_RUNNING=0
+    if "$ROOT/etc/init.d/smartdns" status >/dev/null 2>&1; then DNS_WAS_RUNNING=1; fi
+    READY=1
+}
+
+load() {
+    resolve_inputs
+    [ ! -L "$DIR" ] && [ ! -L "$DIR/last-good.nft" ] || fail 'Symlinked guard state'
+    if [ -e "$DIR/last-good.nft" ]; then
+        [ "$(head -n1 "$DIR/last-good.nft")" = "# $MARKER" ] || fail 'Recovery file is user-owned'
+    fi
+    mkdir -p "$DIR" || fail 'Cannot create guard state directory'
+    owned_table || true
+    render > "$DIR/.rules.$$" || fail 'Cannot render IPv6 guard'
+    "$NFT" -c -f "$DIR/.rules.$$" || fail 'IPv6 guard validation failed'
+    "$NFT" -f "$DIR/.rules.$$" || fail 'IPv6 guard apply failed'
+    cp "$DIR/.rules.$$" "$DIR/last-good.nft" || fail 'Cannot save guard recovery data'
+    chmod 0600 "$DIR/last-good.nft"
+    rm -f "$DIR/.rules.$$"
+}
+
+recover() {
+    [ ! -L "$DIR" ] || fail 'Symlinked recovery directory'
+    mkdir -p "$DIR"
+    owned_table || true
+    if [ -s "$DIR/last-good.nft" ] &&
+       [ "$(head -n1 "$DIR/last-good.nft")" = "# $MARKER" ] &&
+       "$NFT" -c -f "$DIR/last-good.nft"; then
+        "$NFT" -f "$DIR/last-good.nft" || fail 'Cannot restore retained IPv6 guard'
+        echo 'ERROR: Preflight failed; retained last known IPv6 guard rules' >&2
+    else
+        # If retained data is missing, keep a strict IPv6 deny with only local
+        # and control traffic exceptions. Do not quietly expose IPv6 egress.
+        printf '::1/128\n' > "$DIR/.fallback.$$"
+        ROUTES="$DIR/.fallback.$$" R76S_GUARD_LAN_DEVICES=lo render > "$DIR/.rules.$$"
+        "$NFT" -c -f "$DIR/.rules.$$"
+        "$NFT" -f "$DIR/.rules.$$"
+        rm -f "$DIR/.fallback.$$" "$DIR/.rules.$$"
+        echo 'ERROR: Recovery data missing; IPv6 guard is restrictive until repaired' >&2
+    fi
+}
+
+case "${1:-check}" in
+    render) render ;;
+    check) check; echo 'IPV6_GUARD=READY; AUTOMATIC_CHANGES=NONE' ;;
+    reload)
+        if enabled; then
+            if (check) && (load); then :; else recover; exit 1; fi
+        fi
+        ;;
+    enable)
+        check
+        snapshot
+        [ "$DNS_WAS_RUNNING" = 1 ] || fail 'Start SmartDNS manually first'
+        load
+        uci -q set r76s_ip_policy.main.ipv6_guard=1
+        uci -q commit r76s_ip_policy
+        uci -q set "firewall.$INCLUDE=include"
+        uci -q set "firewall.$INCLUDE.path=$INCLUDE_PATH"
+        uci -q set "firewall.$INCLUDE.type=script"
+        uci -q set "firewall.$INCLUDE.fw4_compatible=1"
+        uci -q set "firewall.$INCLUDE.enabled=1"
+        uci -q commit firewall
+        R76S_POLICY_NFTSET=1 sh "$DNS_TOOL" enable
+        "$ROOT/etc/init.d/firewall" reload
+        "$ROOT/etc/init.d/smartdns" restart
+        DONE=1
+        echo "IPV6_GUARD=ENABLED; backup=$BACKUP"
+        ;;
+    disable)
+        snapshot
+        uci -q set r76s_ip_policy.main.ipv6_guard=0
+        uci -q commit r76s_ip_policy
+        if [ "$(get "firewall.$INCLUDE.path")" = "$INCLUDE_PATH" ]; then
+            uci -q delete "firewall.$INCLUDE"
+            uci -q commit firewall
+        fi
+        if [ -f "$PROFILE" ]; then
+            [ "$(head -n1 "$PROFILE")" = '# R76S_V13_IP_FAMILY_POLICY' ] || fail 'DNS profile is user-owned'
+            R76S_POLICY_NFTSET=0 sh "$DNS_TOOL" render > "$DIR/.rules.$$"
+            cp "$DIR/.rules.$$" "$PROFILE"
+        fi
+        "$ROOT/etc/init.d/firewall" reload
+        if [ "$DNS_WAS_RUNNING" = 1 ]; then "$ROOT/etc/init.d/smartdns" restart; fi
+        if owned_table; then "$NFT" delete table inet "$TABLE"; fi
+        DONE=1
+        echo 'IPV6_GUARD=DISABLED; DNS IPv4-only policy retained'
+        ;;
+    *) echo 'Usage: r76s-ip6-guard {render|check|enable|disable|reload}' >&2; exit 2 ;;
+esac

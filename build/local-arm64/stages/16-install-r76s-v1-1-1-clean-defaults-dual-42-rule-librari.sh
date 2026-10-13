@@ -491,6 +491,9 @@ cat > openwrt/files/lib/upgrade/keep.d/r76s-v110 <<'EOF_KEEP'
 /etc/config/passwall
 /etc/config/passwall2
 /etc/config/smartdns
+/etc/smartdns/r76s-v13/ip-family.conf
+/etc/config/r76s_ip_policy
+/etc/r76s-ip6-guard/last-good.nft
 /etc/config/adguardhome
 /etc/config/r76s_ota_state
 /etc/config/r76s_v111_dns

@@ -13,6 +13,27 @@ Zoom Notion Dropbox'''.split()
 PACKAGES = '''luci-app-store luci-app-ota ppp-mod-pppoe dnsmasq-full firewall4
 odhcp6c odhcpd-ipv6only wireguard-tools kmod-wireguard luci-proto-wireguard luci-lib-uqr ucode
 luci-app-passwall luci-app-passwall2 smartdns luci-app-smartdns adguardhome'''.split()
+PHASE2_FILES = (
+    'www/luci-static/resources/r76s/wireguard.js',
+    'www/luci-static/resources/r76s/wireguard-status.js',
+    'www/luci-static/resources/view/r76s_wireguard/client.js',
+    'usr/share/luci/menu.d/r76s-wireguard-client.json',
+    'usr/lib/lua/luci/controller/r76s_diagnostics.lua',
+    'usr/lib/lua/luci/model/r76s/diagnostics.lua',
+    'usr/lib/lua/luci/model/r76s/diagnostics_collect.lua',
+    'usr/lib/lua/luci/view/r76s_diagnostics/status.htm',
+    'usr/lib/lua/luci/controller/r76s_wireguard.lua',
+    'usr/lib/lua/luci/view/r76s_wireguard/status.htm',
+    'usr/lib/lua/luci/model/r76s/services.lua',
+    'usr/lib/lua/luci/controller/r76s_ip_policy.lua',
+    'usr/lib/lua/luci/view/r76s_ip_policy/status.htm',
+    'usr/libexec/r76s/r76s-ip-family-policy',
+    'usr/libexec/r76s/r76s-ip6-guard',
+    'etc/config/r76s_ip_policy',
+    'etc/init.d/r76s-ip6-guard',
+    'etc/firewall.r76s-ip6-guard',
+    'usr/share/r76s/tencent-direct.list',
+)
 
 
 def audit(root):
@@ -46,9 +67,18 @@ def audit(root):
             if not wechat or f'domain:{domain}' not in wechat.group(1):
                 issues.append(f'{app}: WeChat domain missing: {domain}')
     for name in ('usr/lib/lua/luci/controller/r76s_adguardhome.lua',
-                 'usr/lib/lua/luci/view/r76s_adguardhome/status.htm'):
+                 'usr/lib/lua/luci/view/r76s_adguardhome/status.htm', *PHASE2_FILES):
         if not (root / name).is_file():
-            issues.append(f'AdGuard Home LuCI file absent: {name}')
+            issues.append(f'R76S integration file absent: {name}')
+    keep = root / 'lib/upgrade/keep.d/r76s-v110'
+    if not keep.is_file() or '/etc/smartdns/r76s-v13/ip-family.conf' not in keep.read_text().splitlines():
+        issues.append('IP family policy missing from OTA keep list')
+    for name in ('/etc/config/r76s_ip_policy', '/etc/r76s-ip6-guard/last-good.nft'):
+        if not keep.is_file() or name not in keep.read_text().splitlines():
+            issues.append(f'IPv6 guard missing from OTA keep list: {name}')
+    guard_config = root / 'etc/config/r76s_ip_policy'
+    if not guard_config.is_file() or "option ipv6_guard '0'" not in guard_config.read_text():
+        issues.append('IPv6 guard must be disabled in clean image')
     clean = (root / 'etc/uci-defaults/98-r76s-v110-clean-services').read_text()
     for app in ('passwall', 'passwall2', 'smartdns', 'adguardhome'):
         if f'/etc/init.d/{app} disable' not in clean:

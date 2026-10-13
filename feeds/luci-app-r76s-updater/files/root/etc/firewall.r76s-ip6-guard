@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /usr/libexec/r76s/r76s-ip6-guard reload

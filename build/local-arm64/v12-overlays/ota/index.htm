@@ -179,43 +179,70 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
 .r76s-wrap .r76s-actions{position:sticky;bottom:12px;padding:12px;background:var(--background-color-high,#fff);border:1px solid rgba(127,127,127,.2);border-radius:12px;z-index:1}
 .r76s-wrap .r76s-actions button:focus-visible,.r76s-wrap .r76s-install button:focus-visible{outline:3px solid #568fdb;outline-offset:3px}
 @media(max-width:700px){.r76s-subtitle{font-size:.9em}.r76s-wrap .r76s-actions{position:static}.r76s-wrap .r76s-table .td:first-child{width:100px}}
+/* Phase 2: layout and accessibility; existing OTA logic remains intact. */
+.r76s-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:0;margin:0 0 20px;list-style:none}
+.r76s-steps li{padding:14px 16px;border:1px solid rgba(127,127,127,.2);border-radius:12px;background:rgba(87,119,174,.06)}
+.r76s-steps strong,.r76s-steps span{display:block;line-height:1.6}.r76s-steps span{font-size:.85em;opacity:.8;margin-top:5px;overflow-wrap:anywhere}
+.r76s-wrap .r76s-card{box-shadow:0 6px 20px rgba(0,0,0,.08)}
+.r76s-wrap .r76s-notice li{line-height:1.8}
+@media(max-width:700px){.r76s-steps{grid-template-columns:1fr;gap:8px}.r76s-steps li{padding:10px 14px}.r76s-steps span{margin-top:2px}}
+@media(prefers-reduced-motion:reduce){.r76s-wrap .r76s-progress-bar,.r76s-wrap button.cbi-button{transition:none}}
+@media(prefers-color-scheme:dark){.r76s-wrap .r76s-actions{background:var(--background-color-high,#182335)}}
+/* Phase2.3: final presentation, original OTA script and DOM IDs preserved. */
+.r76s-wrap{color:inherit}.r76s-wrap .r76s-card{background:var(--background-color-high,transparent)}
+.r76s-wrap .r76s-actions{position:static;background:var(--background-color-high,transparent)}
+.r76s-wrap .r76s-section-heading{font-size:1.05rem;margin:8px 0 12px;padding-bottom:10px;border-bottom:1px solid rgba(127,127,127,.2)}
+.r76s-wrap .r76s-table .td:first-child{text-align:left;vertical-align:top}
+.r76s-wrap .r76s-table .td:not(:first-child){font-variant-numeric:tabular-nums}
+.r76s-wrap .r76s-diagnostics-links{display:flex;gap:12px;flex-wrap:wrap;margin:16px 0;line-height:1.7}
+.r76s-wrap .r76s-diagnostics-links a:focus-visible{outline:3px solid #568fdb;outline-offset:3px}
+.r76s-wrap .r76s-notice summary{cursor:pointer;font-weight:600;line-height:1.7}
+.r76s-wrap .r76s-pass{color:#168568}.r76s-wrap .r76s-fail{color:#c34747}
+@media(prefers-color-scheme:dark){.r76s-wrap .r76s-pass{color:#63d8b2}.r76s-wrap .r76s-fail{color:#ff9292}}
+@media(max-width:420px){.r76s-wrap .r76s-table .td:first-child{width:82px}.r76s-wrap .r76s-section{padding:12px}.r76s-wrap .r76s-install .cbi-button{min-width:0}}
 </style>
 
 <div class="r76s-wrap">
 
   <h2 class="r76s-title">R76S-V1.3 · 在线升级</h2>
-  <p class="r76s-subtitle">检查更新 → 下载固件 → 校验镜像 → 保留配置升级</p>
+  <p class="r76s-subtitle">检查更新、核对镜像，保留配置完成升级。</p>
+  <ol class="r76s-steps" aria-label="升级流程">
+    <li><strong>1 · 检查更新</strong><span>核对当前与远端版本</span></li>
+    <li><strong>2 · 下载与校验</strong><span>SHA256、Metadata、Sysupgrade</span></li>
+    <li><strong>3 · 保留配置升级</strong><span>保存服务状态，再安装固件</span></li>
+  </ol>
 
   <div class="cbi-map r76s-card">
     <div class="cbi-section r76s-section">
 
+      <h3 class="r76s-section-heading">版本与升级操作</h3>
       <table class="table r76s-table">
 
         <tr class="tr">
-          <td class="td">当前版本</td>
+          <th scope="row" class="td">当前版本</th>
           <td class="td" id="r76s-current">读取中...</td>
         </tr>
 
         <tr class="tr">
-          <td class="td">最新版本</td>
+          <th scope="row" class="td">最新版本</th>
           <td class="td" id="r76s-latest">尚未检查</td>
         </tr>
 
         <tr class="tr">
-          <td class="td">当前启动盘</td>
+          <th scope="row" class="td">当前启动盘</th>
           <td class="td" id="r76s-boot">读取中...</td>
         </tr>
 
         <tr class="tr">
-          <td class="td">升级方式</td>
+          <th scope="row" class="td">升级方式</th>
           <td class="td r76s-mode">
             保留用户配置 + 增量补齐新版本内容
           </td>
         </tr>
 
         <tr class="tr">
-          <td class="td">状态</td>
-          <td class="td" id="r76s-status">读取中...</td>
+          <th scope="row" class="td">状态</th>
+          <td class="td" id="r76s-status" aria-live="polite">读取中...</td>
         </tr>
 
       </table>
@@ -237,12 +264,13 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
         </button>
       </div>
 
+      <h3 class="r76s-section-heading">下载进度与安装校验</h3>
       <table class="table r76s-table">
 
         <tr class="tr">
-          <td class="td">下载进度</td>
+          <th scope="row" class="td">下载进度</th>
           <td class="td">
-            <div class="r76s-progress">
+            <div class="r76s-progress" aria-hidden="true">
               <div
                 class="r76s-progress-bar"
                 id="r76s-progress-bar">
@@ -251,35 +279,35 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
 
             <div
               class="r76s-progress-text"
-              id="r76s-progress-text">
+              id="r76s-progress-text" aria-live="polite">
               0%
             </div>
           </td>
         </tr>
 
         <tr class="tr">
-          <td class="td">SHA256</td>
+          <th scope="row" class="td">SHA256</th>
           <td class="td" id="r76s-sha">
             — 未校验
           </td>
         </tr>
 
         <tr class="tr">
-          <td class="td">Metadata</td>
+          <th scope="row" class="td">Metadata</th>
           <td class="td" id="r76s-metadata">
             — 未校验
           </td>
         </tr>
 
         <tr class="tr">
-          <td class="td">Sysupgrade</td>
+          <th scope="row" class="td">Sysupgrade</th>
           <td class="td" id="r76s-sysupgrade">
             — 未校验
           </td>
         </tr>
 
         <tr class="tr">
-          <td class="td">启动盘安全检查</td>
+          <th scope="row" class="td">启动盘安全检查</th>
           <td class="td" id="r76s-boot-safe">
             — 检查中
           </td>
@@ -299,10 +327,14 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
 
       <pre
         class="r76s-message"
-        id="r76s-message"
+        id="r76s-message" aria-live="polite"
         style="display:none"></pre>
 
-      <div class="r76s-notice">
+      <nav class="r76s-diagnostics-links" aria-label="升级前诊断">
+        <a href="<%=dsp.build_url('admin','status','r76s_dns_diagnostics')%>">DNS 链路诊断</a>
+        <a href="<%=dsp.build_url('admin','status','r76s_router_security')%>">主路由安全检查</a>
+      </nav>
+      <div class="r76s-notice"><details open><summary>升级时保留哪些配置</summary>
         <strong>
           在线升级：保留用户配置 + 增量补齐新版本内容
         </strong>
@@ -315,7 +347,7 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
           <li>已经存在的内容不会重复添加。</li>
           <li>不会删除或覆盖用户已有的自定义内容。</li>
         </ul>
-      </div>
+      </details></div>
 
     </div>
   </div>

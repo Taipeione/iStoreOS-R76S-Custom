@@ -35,6 +35,10 @@ class ProductionAuditTests(unittest.TestCase):
             clean = write('etc/uci-defaults/98-r76s-v110-clean-services', clean_text)
             write('usr/lib/lua/luci/controller/r76s_adguardhome.lua', 'controller fixture')
             write('usr/lib/lua/luci/view/r76s_adguardhome/status.htm', 'view fixture')
+            for name in production.PHASE2_FILES:
+                write(name, 'phase2 fixture')
+            write('etc/config/r76s_ip_policy', "config policy 'main'\n    option ipv6_guard '0'\n")
+            write('lib/upgrade/keep.d/r76s-v110', '/etc/smartdns/r76s-v13/ip-family.conf\n/etc/config/r76s_ip_policy\n/etc/r76s-ip6-guard/last-good.nft\n')
             self.assertEqual(production.audit(root), [])
             for path, old, new, expected in (
                 (release, 'R76S-V1.3', 'V1.2', 'identity mismatch'),

@@ -1,0 +1,30 @@
+<%+header%>
+<% local h=require('luci.util').pcdata
+local dsp=require 'luci.dispatcher'
+local title=data.kind=='dns' and 'DNS 链路诊断' or '主路由安全检查'
+local levels={pass='检查通过',warn='需要关注',unknown='未确认',info='信息'}
+%>
+<style>
+.r76s-diagnostic{max-width:1100px;margin:auto}.r76s-diagnostic .r76s-findings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.r76s-diagnostic section{border:1px solid rgba(127,127,127,.25);border-radius:12px;padding:16px;overflow-wrap:anywhere}.r76s-diagnostic .r76s-warn{border-left:4px solid #b96d12}.r76s-diagnostic .r76s-unknown{border-left:4px solid #748297}.r76s-diagnostic .r76s-pass{border-left:4px solid #16896c}.r76s-diagnostic .r76s-tools{display:flex;flex-wrap:wrap;gap:10px;margin:18px 0}.r76s-diagnostic section h3{margin-top:0}.r76s-diagnostic section p{line-height:1.7}.r76s-diagnostic .r76s-advice{opacity:.8}@media(max-width:700px){.r76s-diagnostic .r76s-findings{grid-template-columns:1fr}}
+</style>
+<div class="cbi-map r76s-diagnostic">
+<h2><%=h(title)%></h2>
+<p>R76S-V1.3 · 只读检查 · <%=h(data.timestamp)%></p>
+<% if data.kind=='dns' then %>
+<p>根据已读取的配置、进程及端口归属检查本机 DNS 链路。不发起外部 DNS 查询，不证明实际解析成功。未启用的可选 DNS 服务可保持关闭。</p>
+<% else %>
+<p>检查主路由配置与运行规则。结果不等于 WAN 不可达证明；自定义防火墙、上游 NAT 和实际网络可达性需要进一步验证。</p>
+<% end %>
+<div class="r76s-tools">
+<a class="cbi-button" href="<%=dsp.build_url('admin','status',data.kind=='dns' and 'r76s_dns_diagnostics' or 'r76s_router_security')%>">重新检查</a>
+<a class="cbi-button" href="<%=dsp.build_url('admin','status',data.kind=='dns' and 'r76s_router_security' or 'r76s_dns_diagnostics')%>"><%=data.kind=='dns' and '主路由安全检查' or 'DNS 链路诊断'%></a>
+<a class="cbi-button" href="<%=dsp.build_url('admin','services','r76s_ip_policy')%>">IPv4 / IPv6 策略</a>
+</div>
+<div class="r76s-findings">
+<% for _,row in ipairs(data.rows) do %>
+<section class="r76s-<%=h(row.level)%>"><h3><%=h(row.title)%></h3>
+<strong><%=h(levels[row.level] or '未确认')%></strong><p><%=h(row.detail)%></p><p class="r76s-advice"><%=h(row.advice)%></p></section>
+<% end %>
+</div>
+</div>
+<%+footer%>

@@ -1,0 +1,150 @@
+#!/bin/sh
+# Optional SmartDNS domain policy. No service start/restart or dnsmasq changes.
+set -eu
+
+ROOT="${R76S_POLICY_ROOT:-}"
+CN_FILE="${R76S_POLICY_CN_FILE:-/usr/share/passwall/rules/chnlist}"
+TENCENT_FILE="${R76S_POLICY_TENCENT_FILE:-/usr/share/r76s/tencent-direct.list}"
+CN_GROUP="${R76S_POLICY_CN_GROUP:-cn}"
+FOREIGN_GROUP="${R76S_POLICY_FOREIGN_GROUP:-foreign}"
+INCLUDE='/etc/smartdns/r76s-v13/ip-family.conf'
+DIR="$ROOT/etc/smartdns/r76s-v13"
+PROFILE="$ROOT$INCLUDE"
+CONFIG="$ROOT/etc/config/smartdns"
+MARKER='# R76S_V13_IP_FAMILY_POLICY'
+
+fail() { echo "ERROR: $*" >&2; exit 1; }
+case "$ROOT" in ''|/*) ;; *) fail 'Test root must be absolute';; esac
+case "$CN_FILE" in /*) ;; *) fail 'Domestic domain file must be absolute';; esac
+case "$CN_FILE" in *[!A-Za-z0-9_./-]*) fail 'Unsafe domain file path';; esac
+case "$TENCENT_FILE" in /*) ;; *) fail 'Tencent domain file must be absolute';; esac
+case "$TENCENT_FILE" in *[!A-Za-z0-9_./-]*) fail 'Unsafe Tencent domain file path';; esac
+for group in "$CN_GROUP" "$FOREIGN_GROUP"; do
+    case "$group" in ''|*[!A-Za-z0-9_-]*) fail 'Invalid upstream group';; esac
+done
+[ "$CN_GROUP" != "$FOREIGN_GROUP" ] || fail 'Upstream groups must differ'
+
+render() {
+    nftset="${R76S_POLICY_NFTSET:-$(uci -q get r76s_ip_policy.main.ipv6_guard 2>/dev/null || true)}"
+    # Release48.4 does not refill nftsets on cache hits. Domain-level no-cache
+    # ensures allow sets recover after reboot/recreation; global cache stays intact.
+    case "$nftset" in ''|0) suffix='' ;; 1) suffix=' -nftset #6:inet#r76s_ip6_guard#direct6 -no-cache' ;; *) fail 'Invalid nftset mode';; esac
+    printf '%s\n' "$MARKER"
+    printf 'domain-set -name r76s-v13-cn -type list -file %s\n' "$CN_FILE"
+    printf 'domain-set -name r76s-v13-tencent -type list -file %s\n' "$TENCENT_FILE"
+    # Non-listed domains: A permitted, AAAA answered with SOA.
+    printf 'domain-rules /./ -nameserver %s -address #6 -dualstack-ip-selection no\n' "$FOREIGN_GROUP"
+    # Domestic domains: retain upstream A and AAAA; no cross-family preference.
+    printf 'domain-rules /domain-set:r76s-v13-cn/ -nameserver %s -address -6 -dualstack-ip-selection no%s\n' "$CN_GROUP" "$suffix"
+    printf 'domain-rules /domain-set:r76s-v13-tencent/ -nameserver %s -address -6 -dualstack-ip-selection no%s\n' "$CN_GROUP" "$suffix"
+    if [ "$nftset" = 1 ]; then printf 'nftset-timeout yes\n'; fi
+    # Local names keep existing resolver selection and IPv6 availability.
+    for domain in lan home.arpa localhost; do
+        printf 'domain-rules /%s/ -nameserver - -address -6 -dualstack-ip-selection no\n' "$domain"
+    done
+}
+
+owned() {
+    [ ! -L "$ROOT/etc/smartdns" ] && [ ! -L "$DIR" ] && [ ! -L "$PROFILE" ] && [ ! -L "$CONFIG" ] || fail 'Symlinked managed path'
+    if [ -e "$PROFILE" ]; then
+        [ "$(head -n1 "$PROFILE")" = "$MARKER" ] || fail 'Existing profile is user-owned'
+    fi
+}
+
+check() {
+    owned
+    if included && [ ! -s "$PROFILE" ]; then fail 'Selected policy file is missing; disable the policy first'; fi
+    [ -s "$ROOT$CN_FILE" ] || fail 'Domestic domain list is missing or empty'
+    [ -s "$ROOT$TENCENT_FILE" ] || fail 'Tencent domain list is missing or empty'
+    [ "$(uci -q get 'smartdns.@smartdns[0].enabled' || true)" = 1 ] || fail 'Enable SmartDNS manually first'
+    changes="$(uci -q changes smartdns)" || fail 'Cannot inspect pending SmartDNS changes'
+    [ -z "$changes" ] || fail 'Save or revert pending SmartDNS changes first'
+    for key in 'smartdns.@smartdns[0].force_aaaa_soa' 'dhcp.@dnsmasq[0].filter_aaaa' 'dhcp.@dnsmasq[0].filter_a'; do
+        value="$(uci -q get "$key" || true)"
+        case "$value" in ''|0) ;; *) fail "Global address filter conflicts with policy: $key";; esac
+    done
+    for group in "$CN_GROUP" "$FOREIGN_GROUP"; do
+        uci -q show smartdns | awk -v wanted="$group" '
+            { pos=index($0,"="); key=substr($0,1,pos-1); val=substr($0,pos+1);
+              gsub(/\047/,"",val); n=split(key,parts,"."); option=parts[n];
+              if(n==2 && val=="server") { servers[key]=1; next }
+              sub(/\.[^.]+$/,"",key);
+              if(option=="enabled") enabled[key]=val;
+              if(option=="server_group") group[key]=val;
+            }
+            END { for(s in group) if(servers[s] && group[s]==wanted && enabled[s]=="1") found=1; exit !found }
+        ' || fail "No enabled upstream in group: $group"
+    done
+}
+
+included() {
+    uci -q get 'smartdns.@smartdns[0].conf_files' 2>/dev/null |
+        tr ' ' '\n' | grep -Fxq "$INCLUDE"
+}
+
+BACKUP=''
+BACKUP_READY=0
+COMMITTED=0
+LOCKED=0
+finish() {
+    rc="$1"
+    if [ "$COMMITTED" = 0 ] && [ "$BACKUP_READY" = 1 ]; then
+        cp -p "$BACKUP/smartdns" "$CONFIG" || echo 'ERROR: Restore SmartDNS configuration from backup' >&2
+        uci -q revert smartdns || true
+        if [ -f "$BACKUP/profile" ]; then
+            cp -p "$BACKUP/profile" "$PROFILE" || true
+        else
+            rm -f "$PROFILE"
+        fi
+        echo "Policy failed; configuration restored. Backup: $BACKUP" >&2
+    fi
+    rm -f "$DIR/.profile.$$"
+    if [ "$LOCKED" = 1 ]; then rmdir "$DIR/.lock" || true; fi
+    exit "$rc"
+}
+
+snapshot() {
+    owned
+    [ -s "$CONFIG" ] || fail 'SmartDNS configuration missing'
+    changes="$(uci -q changes smartdns)" || fail 'Cannot inspect pending SmartDNS changes'
+    [ -z "$changes" ] || fail 'Pending SmartDNS changes'
+    mkdir -p "$DIR"
+    mkdir "$DIR/.lock" || fail 'Another policy operation is in progress'
+    LOCKED=1
+    trap 'finish $?' 0
+    trap 'exit 1' 1 2 15
+    BACKUP="$(mktemp -d "$DIR/backup.XXXXXX")"
+    cp -p "$CONFIG" "$BACKUP/smartdns"
+    [ ! -e "$PROFILE" ] || cp -p "$PROFILE" "$BACKUP/profile"
+    BACKUP_READY=1
+}
+
+case "${1:-check}" in
+    render) render ;;
+    check) check; echo 'IP_FAMILY_POLICY=READY; AUTOMATIC_CHANGES=NONE' ;;
+    enable)
+        check
+        snapshot
+        render > "$DIR/.profile.$$"
+        chmod 0644 "$DIR/.profile.$$"
+        mv "$DIR/.profile.$$" "$PROFILE"
+        if ! included; then
+            uci -q add_list "smartdns.@smartdns[0].conf_files=$INCLUDE"
+        fi
+        uci -q commit smartdns
+        COMMITTED=1
+        echo "IP_FAMILY_POLICY=SAVED; restart SmartDNS manually to apply; backup=$BACKUP"
+        ;;
+    disable)
+        [ "$(uci -q get r76s_ip_policy.main.ipv6_guard 2>/dev/null || true)" != 1 ] || fail 'Disable the IPv6 guard before removing its DNS policy'
+        owned
+        if included; then
+            snapshot
+            uci -q del_list "smartdns.@smartdns[0].conf_files=$INCLUDE"
+            uci -q commit smartdns
+            COMMITTED=1
+        fi
+        echo 'IP_FAMILY_POLICY=REMOVED_FROM_CONFIG; restart SmartDNS manually to apply'
+        ;;
+    *) echo 'Usage: r76s-ip-family-policy {render|check|enable|disable}' >&2; exit 2 ;;
+esac
