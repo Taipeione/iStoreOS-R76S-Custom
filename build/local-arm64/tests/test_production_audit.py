@@ -39,7 +39,7 @@ class ProductionAuditTests(unittest.TestCase):
                 (status, 'Package: wireguard-tools', 'Package: absent', 'wireguard-tools'),
                 (defaults[0], "shunt_rules 'Xbox'", "shunt_rules 'WrongOrder'", 'order mismatch'),
                 (clean, "port='6053'", "port='53'", 'SmartDNS clean default'),
-                (clean, 'dockerd containerd ttyd ddns', 'ddns', 'optional utility'),
+                (clean, 'dockerd containerd ttyd ddns haproxy', 'dockerd containerd ttyd ddns', 'optional utility'),
             ):
                 with self.subTest(expected=expected):
                     original = path.read_text()

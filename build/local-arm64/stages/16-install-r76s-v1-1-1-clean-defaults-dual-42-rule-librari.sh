@@ -1190,7 +1190,7 @@ PRESERVE_UPGRADE=0
 if [ "$PRESERVE_UPGRADE" != "1" ]; then
     # Optional utilities are installed for manual use; fresh boot runs only
     # the router baseline and its management interface. Preserved OTA state wins.
-    for optional_service in dockerd containerd ttyd ddns; do
+    for optional_service in dockerd containerd ttyd ddns haproxy; do
         if [ -x "/etc/init.d/$optional_service" ]; then
             "/etc/init.d/$optional_service" stop >/dev/null 2>&1 || true
             "/etc/init.d/$optional_service" disable >/dev/null 2>&1 || true

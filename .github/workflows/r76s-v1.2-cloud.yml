@@ -98,7 +98,9 @@ jobs:
           package-manager-cache: false
 
       - name: Restore ccache from prior GitHub builds
-        uses: actions/cache@v4
+        id: restore_ccache
+        continue-on-error: true
+        uses: actions/cache/restore@v4
         with:
           path: ~/.ccache
           key: r76s-v12-x64-ccache-${{ hashFiles('config/R76S.config') }}-${{ github.sha }}
@@ -154,9 +156,18 @@ jobs:
       - name: Trim ccache before saving GitHub cache
         if: always()
         run: |
+          export CCACHE_DIR="$HOME/.ccache"
           ccache -M "$R76S_CCACHE_SIZE" || true
           ccache -c || true
           ccache -s || true
+
+      - name: Save compiler cache even after a failed build
+        if: always() && steps.restore_ccache.outputs.cache-primary-key != '' && steps.restore_ccache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.ccache
+          key: ${{ steps.restore_ccache.outputs.cache-primary-key }}
 
       - name: Upload build diagnostics
         if: always()
