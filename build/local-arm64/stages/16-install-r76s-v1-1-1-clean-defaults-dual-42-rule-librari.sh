@@ -1188,6 +1188,14 @@ PRESERVE_UPGRADE=0
 [ "$STANDARD_PRESERVE" = "1" ] && PRESERVE_UPGRADE=1
 
 if [ "$PRESERVE_UPGRADE" != "1" ]; then
+    # Optional utilities are installed for manual use; fresh boot runs only
+    # the router baseline and its management interface. Preserved OTA state wins.
+    for optional_service in dockerd containerd ttyd ddns; do
+        if [ -x "/etc/init.d/$optional_service" ]; then
+            "/etc/init.d/$optional_service" stop >/dev/null 2>&1 || true
+            "/etc/init.d/$optional_service" disable >/dev/null 2>&1 || true
+        fi
+    done
     # PassWall / PassWall2: clean-image default = disabled and no autostart.
     if uci -q show passwall >/dev/null 2>&1; then
         uci -q set passwall.@global[0].enabled='0' || true

@@ -49,6 +49,9 @@ def audit(root):
     for app in ('passwall', 'passwall2', 'smartdns', 'adguardhome'):
         if f'/etc/init.d/{app} disable' not in clean:
             issues.append(f'{app}: first-boot disable missing')
+    if 'for optional_service in dockerd containerd ttyd ddns; do' not in clean or \
+       '"/etc/init.d/$optional_service" disable' not in clean:
+        issues.append('optional utility first-boot disable missing')
     for requirement in ("smartdns.@smartdns[0].port='6053'",
                         "smartdns.@smartdns[0].auto_set_dnsmasq='0'"):
         if requirement not in clean:
