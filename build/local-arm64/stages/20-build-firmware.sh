@@ -6,7 +6,7 @@ set -euo pipefail
 cd openwrt
 
 # R76S_V12_OTA_EXACT_VERSION_GUARD
-echo "===== Verify V1.3.1 OTA exact-version patch ====="
+echo "===== Verify V1.3.2 OTA exact-version patch ====="
 
 OTA_BIN="package/diy/luci-app-ota/root/bin/ota"
 OTA_PATCHER="/r76s-repo/build/local-arm64/v12-ota-exact-version.py"

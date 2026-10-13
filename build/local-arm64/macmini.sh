@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# R76S V1.3.1 Mac mini M4 local builder helper (safe, no direct flashing).
+# R76S V1.3.2 Mac mini M4 local builder helper (safe, no direct flashing).
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MODE="${1:-check}"
@@ -29,7 +29,7 @@ case "$MODE" in
       bash /r76s-repo/build/local-arm64/toolchain-inside.sh
     ;;
   build|publish|flash)
-    echo 'DENIED: production V1.3.1 not yet feature-complete and verified.' >&2
+    echo 'DENIED: production V1.3.2 not yet feature-complete and verified.' >&2
     echo 'Missing rules: WeChat direct bypass, OTA exact-version, eight DNS modes, GUI, preservation, image audit.' >&2
     exit 3
     ;;

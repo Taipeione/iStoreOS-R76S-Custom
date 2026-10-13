@@ -43,9 +43,15 @@ fi
 # UCI can add a named section only after its package file exists.
 mkdir -p /etc/config || fail 'cannot create config directory'
 if [ ! -e /etc/config/r76s_ota_state ]; then
-    (umask 077; printf "config state 'state'\n" > /etc/config/r76s_ota_state) || fail 'cannot create OTA state file'
+    (umask 077; touch /etc/config/r76s_ota_state) || fail 'cannot create OTA state file'
 fi
-uci -q set 'r76s_ota_state.state=state' || fail 'cannot create OTA state section'
+# Initialize missing/empty packages before UCI loads them. Keep existing snapshots.
+if [ ! -s /etc/config/r76s_ota_state ]; then
+    printf "config state 'state'\n" > /etc/config/r76s_ota_state || fail 'cannot initialize OTA state file'
+fi
+if [ "$(uci -q get r76s_ota_state.state 2>/dev/null || true)" != state ]; then
+    uci -q set 'r76s_ota_state.state=state' || fail 'cannot create OTA state section'
+fi
 uci -q set r76s_ota_state.state.pending='1' || fail 'cannot set pending'
 uci -q set r76s_ota_state.state.passwall_init="$pw_init" || fail 'cannot record passwall init'
 uci -q set r76s_ota_state.state.passwall2_init="$pw2_init" || fail 'cannot record passwall2 init'

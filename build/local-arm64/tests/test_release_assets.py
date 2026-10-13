@@ -18,17 +18,17 @@ class ReleaseAssetsTests(unittest.TestCase):
             target = root / 'target'
             release = target / 'release'
             release.mkdir(parents=True)
-            for name in ('R76S-V1.3.1-TF-squashfs.img',
-                         'R76S-V1.3.1-TF-squashfs.img.gz', 'version.latest',
+            for name in ('R76S-V1.3.2-TF-squashfs.img',
+                         'R76S-V1.3.2-TF-squashfs.img.gz', 'version.latest',
                          'version.index', 'ota.footer.html', 'BOOTLOADER_INFO.txt'):
                 (release / name).write_bytes(name.encode())
             binary = target / 'friendlyarm_nanopi-r76s-test.bin'
             binary.write_bytes(b'real bin')
             assets.generate(release, target, 'owner/repo', 'abc123')
             manifest = json.loads((release / 'ota.json').read_text())
-            self.assertEqual(manifest['version'], 'R76S-V1.3.1')
+            self.assertEqual(manifest['version'], 'R76S-V1.3.2')
             self.assertEqual(manifest['source_commit'], 'abc123')
-            self.assertIn('/releases/download/R76S-V1.3.1/', manifest['url'])
+            self.assertIn('/releases/download/R76S-V1.3.2/', manifest['url'])
             self.assertEqual(len(manifest['artifacts']), 3)
             self.assertEqual(binary.read_bytes(), b'real bin')
             checksums = (release / 'sha256').read_text()

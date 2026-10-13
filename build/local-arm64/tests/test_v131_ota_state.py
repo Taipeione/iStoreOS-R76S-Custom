@@ -1,6 +1,7 @@
 """Exercise the OTA snapshot against firmware UCI in an isolated directory.
 
-Set R76S_TEST_ROOTFS to the existing firmware rootfs to run UCI tests.
+Set R76S_TEST_ROOTFS to a firmware rootfs, or R76S_TEST_UCI=/sbin/uci
+and R76S_TEST_SHELL="busybox ash" on a real OpenWrt device (requires Python 3).
 No router paths, build inputs, or firmware artifacts are written.
 """
 import importlib.util
@@ -30,7 +31,7 @@ class Sources(unittest.TestCase):
             subprocess.run(['sh', '-n'], input=source, text=True, check=True)
 
 
-@unittest.skipUnless(os.environ.get('R76S_TEST_ROOTFS'), 'requires firmware UCI')
+@unittest.skipUnless((os.environ.get('R76S_TEST_ROOTFS') or os.environ.get('R76S_TEST_UCI')), 'requires firmware UCI')
 class RealUCI(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='r76s-v131-test-')
@@ -42,10 +43,15 @@ class RealUCI(unittest.TestCase):
         self.delta.mkdir()
         self.bin = self.base / 'bin'
         self.bin.mkdir()
-        fw = Path(os.environ['R76S_TEST_ROOTFS'])
-        self.command = [str(fw / 'lib/ld-musl-aarch64.so.1'),
-                        '--library-path', str(fw / 'lib'), str(fw / 'sbin/uci'),
-                        '-c', str(self.config), '-t', str(self.delta)]
+        if os.environ.get('R76S_TEST_UCI'):
+            self.command = [os.environ['R76S_TEST_UCI']]
+        else:
+            fw = Path(os.environ['R76S_TEST_ROOTFS'])
+            self.command = [str(fw / 'lib/ld-musl-aarch64.so.1'),
+                            '--library-path', str(fw / 'lib'), str(fw / 'sbin/uci')]
+        self.command += ['-c', str(self.config), '-C', str(self.config),
+                         '-t', str(self.delta)]
+        self.shell = shlex.split(os.environ.get('R76S_TEST_SHELL', 'sh'))
         self.wrapper = self.bin / 'uci'
         self.wrapper.write_text('#!/bin/sh\nexec ' + shlex.join(self.command) + ' "$@"\n')
         self.wrapper.chmod(0o755)
@@ -74,7 +80,7 @@ class RealUCI(unittest.TestCase):
             path.chmod(0o755)
 
     def run_helper(self):
-        return subprocess.run(['sh', '-c', self.source], env=self.env,
+        return subprocess.run(self.shell + ['-c', self.source], env=self.env,
                               capture_output=True, text=True)
 
     def snapshot(self):
@@ -101,6 +107,24 @@ class RealUCI(unittest.TestCase):
             for name, flag in zip(('passwall', 'passwall2', 'smartdns', 'adguardhome'), init):
                 self.assertIn(f"option {name}_init '{flag}'", saved)
 
+    def test_first_ota_does_not_recreate_initialized_section(self):
+        self.seed((1, 0, 1), (1, 0, 1, 1))
+        self.wrapper.write_text('#!/bin/sh\ncase " $* " in *" set r76s_ota_state.state=state "*) exit 1;; esac\nexec '
+                                + shlex.join(self.command) + ' "$@"\n')
+        self.assertFalse((self.config / 'r76s_ota_state').exists())
+        result = self.run_helper()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.config / 'r76s_ota_state').stat().st_mode & 0o777, 0o600)
+        self.assertIn("option pending '1'", self.snapshot())
+
+    def test_existing_package_without_state_section(self):
+        (self.config / 'r76s_ota_state').write_text("config other 'keep'\n\toption value 'saved'\n")
+        self.seed((0, 1, 1), (0, 1, 1, 0))
+        result = self.run_helper()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("option value 'saved'", self.snapshot())
+        self.assertIn("option pending '1'", self.snapshot())
+
     def test_existing_empty_package(self):
         (self.config / 'r76s_ota_state').touch()
         self.seed((1, 0, 1), (1, 0, 0, 1))
@@ -118,7 +142,7 @@ class RealUCI(unittest.TestCase):
             yaml.write_text('dns: {}\n')
             source = hardening.RESTORE_INIT.replace('/etc/init.d', str(self.init))
             source = source.replace('/etc/adguardhome.yaml', str(yaml))
-            result = subprocess.run(['sh', '-c', source + '\nstart\n'],
+            result = subprocess.run(self.shell + ['-c', source + '\nstart\n'],
                                     env=self.env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("option pending '0'", self.snapshot())
