@@ -15,4 +15,11 @@
 
 - 修改文件：`build/local-arm64/prepare-cloud-disk.py`。
 - 修改原因：新增固定 CodeQL、Swift、Haskell 缓存路径；继续只识别已编译二进制，保留源码与源码归档，不涉及固件构建环境。
+- 编译结果：提交 `41299bb`，运行 https://github.com/Taipeione/iStoreOS-R76S-Custom/actions/runs/38295625584 通过空间检查并成功编译 sing-box 1.14.3、xray-core、SmartDNS、iStore、PassWall 和 PassWall2；350 分钟超时取消。日志与诊断 artifact 已下载，终止前仍在编译 Rust/LLVM 和主机 Node/V8，没有导致终止的源码编译错误。
+
+## 2026-10-13：避免非必要 Rust/LLVM 和主机 Node 编译超时
+
+- 修改文件：`config/R76S.config`、stage 11、stage 18、GitHub workflow；新增 `build/local-arm64/v12-node-host-hook.py` 与验证测试。
+- 修改原因：明确关闭 PassWall2 默认开启的可选 Shadowsocks Rust 客户端/服务端；保留 PassWall2 的 Xray 和 sing-box 核心。主机 Node 使用与 feeds 精确匹配的官方 20.20.2 预编译发行版，替换仅 host 的编译/安装规则，目标固件规则不变。
+- 验证：配置生成后检查 Rust 客户端/服务端未被重新选中；主机 Node 版本在构建规则中强校验。
 - 编译结果：待下一轮 Actions 验证。

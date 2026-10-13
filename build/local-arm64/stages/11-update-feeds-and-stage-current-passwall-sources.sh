@@ -463,6 +463,13 @@ test -f package/passwall-packages/xray-core/Makefile
 test -f package/passwall-packages/sing-box/Makefile
 test -f package/passwall-packages/chinadns-ng/Makefile
 
+if [ "${GITHUB_ACTIONS:-}" = true ]; then
+  test "$(node --version)" = v20.20.2
+  NODE_ROOT="$(dirname "$(dirname "$(command -v node)")")"
+  python3 /r76s-repo/build/local-arm64/v12-node-host-hook.py \
+    feeds/packages/lang/node/Makefile "$NODE_ROOT"
+fi
+
 
 # These hashes are the source revisions reviewed during local V1.2 preparation.
 for pair in \

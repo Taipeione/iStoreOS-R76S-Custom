@@ -91,6 +91,12 @@ jobs:
           test "$(go env GOARCH)" = "amd64"
           echo "GITHUB_GO126_HOST=PASS"
 
+      - name: Install matching prebuilt host Node for UI build dependencies
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20.20.2'
+          package-manager-cache: false
+
       - name: Restore ccache from prior GitHub builds
         uses: actions/cache@v4
         with:

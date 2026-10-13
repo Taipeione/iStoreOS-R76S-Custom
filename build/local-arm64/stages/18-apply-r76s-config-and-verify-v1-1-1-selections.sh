@@ -60,6 +60,10 @@ done
 
 make defconfig
 
+# Do not let PassWall2 defaults silently bring back a multi-hour Rust build.
+grep -qxF '# CONFIG_PACKAGE_shadowsocks-rust-sslocal is not set' .config
+grep -qxF '# CONFIG_PACKAGE_shadowsocks-rust-ssserver is not set' .config
+
 echo
 echo "===== Final PassWall selections after make defconfig ====="
 grep -E \
