@@ -59,12 +59,12 @@ jobs:
               awk '$2 == "installed" && $1 ~ /^(dotnet-|aspnetcore-|netstandard-|llvm-|clang-|google-cloud-cli|azure-cli|powershell|firefox|ghc|libghc-|mysql-|postgresql-|temurin-|openjdk-|libboost-|microsoft-edge-|google-chrome-|mongodb-|mssql-|mono-|libmono-)/ {print $1}'
           )
           if [ "${#UNUSED_PACKAGES[@]}" -gt 0 ]; then
-            sudo apt-get purge -y "${UNUSED_PACKAGES[@]}"
+            timeout 240s sudo apt-get purge -y "${UNUSED_PACKAGES[@]}" || echo 'APT_PURGE_TIMEOUT_OR_PARTIAL=CONTINUE'
           fi
-          sudo apt-get autoremove -y
+          timeout 180s sudo apt-get autoremove -y || echo 'APT_AUTOREMOVE_TIMEOUT_OR_PARTIAL=CONTINUE'
           sudo apt-get clean
           # This job builds directly on the host; preloaded container images are unused.
-          sudo docker image prune --all --force
+          timeout 120s sudo docker image prune --all --force || echo 'DOCKER_PRUNE_TIMEOUT_OR_PARTIAL=CONTINUE'
           sudo --preserve-env=GITHUB_ACTIONS python3 build/local-arm64/prepare-cloud-disk.py
           df -h /
           df -Pk /
