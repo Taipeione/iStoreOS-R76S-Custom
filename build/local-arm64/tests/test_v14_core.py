@@ -34,7 +34,7 @@ root="$R76S_SERVICE_ROOT"
 name="${0##*/}"
 case "$1" in
 enabled) test -f "$root/$name.enabled";;
-enable) touch "$root/$name.enabled";;
+enable) [ "${FAIL_ENABLE:-0}" != 1 ] && touch "$root/$name.enabled";;
 disable) rm -f "$root/$name.enabled";;
 restart) [ "${FAIL_RESTART:-0}" != 1 ];;
 stop) exit 0;;
@@ -76,7 +76,40 @@ esac
         self.assertNotEqual(self.run_manager('set','passwall;reboot','1').returncode,0)
         self.assertNotEqual(self.run_manager('set','passwall','2').returncode,0)
 
+    def test_init_enable_failure_restores_uci(self):
+        self.seed(0,0,0)
+        result=self.run_manager('set','passwall','1',FAIL_ENABLE='1')
+        self.assertNotEqual(result.returncode,0)
+        self.assertEqual(json.loads(self.state.read_text())['passwall.@global[0].enabled'],'0')
+        self.assertFalse((self.root/'passwall.enabled').exists())
+
 class CoreSources(unittest.TestCase):
+    @unittest.skipUnless(LUA,'requires Lua interpreter')
+    def test_healthy_wireguard_endpoint_refreshes_guard(self):
+        code='''
+local key=string.rep('A',43)..'='
+local calls={}
+local uci={}
+function uci:get(p,s,k) return '1' end
+function uci:foreach(p,t,fn)
+ if t=='interface' then fn({proto='wireguard',['.name']='wg0'})
+ else fn({endpoint_host='vpn.example',endpoint_port='51820',public_key=key}) end
+end
+local sys={}
+function sys.exec(cmd)
+ if cmd:find('latest%-handshakes') then return key..' '..os.time() end
+ if cmd:find('endpoints') then return key..' [2001:db8::1]:51820' end
+ error('healthy endpoint must not be re-resolved: '..cmd)
+end
+function sys.call(cmd) calls[#calls+1]=cmd;return 0 end
+package.preload['uci']=function()return {cursor=function()return uci end} end
+package.preload['luci.sys']=function()return sys end
+dofile(arg[1])
+assert(#calls==1 and calls[1]:find('2001:db8::1 . 51820 timeout 5m',1,true))
+'''
+        result=subprocess.run([LUA,'-',str(CORE/'r76s-wireguard-endpoint')],input=code,capture_output=True,text=True)
+        self.assertEqual(result.returncode,0,result.stderr)
+
     @unittest.skipUnless(LUA,'requires Lua interpreter')
     def test_dns_transaction_rollback_and_dhcp_preservation(self):
         for scenario in ('success','fail'):

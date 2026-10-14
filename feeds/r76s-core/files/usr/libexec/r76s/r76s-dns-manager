@@ -55,7 +55,8 @@ local ok,err=pcall(function()
     end
     fs.mkdirr(base); fs.chmod('/etc/r76s',448); fs.chmod(base,448)
     local original=base..'/original.json'
-    if mode~='system' and not fs.access(original) then
+    local had_original=fs.access(original)
+    if mode~='system' and not had_original then
         assert(fs.writefile(original,json.stringify({section=section,noresolv=uci:get('dhcp',section,'noresolv'),server=uci:get('dhcp',section,'server')})),'cannot save original DNS configuration')
         fs.chmod(original,384)
     end
@@ -127,6 +128,7 @@ local ok,err=pcall(function()
             call('/etc/init.d/'..p..(running[p] and ' restart' or ' stop'))
         end
         call('/etc/init.d/dnsmasq restart')
+        if not had_original then fs.remove(original) end
         error('DNS transaction restored: '..tostring(why))
     end
     if mode=='system' then fs.remove(original) end

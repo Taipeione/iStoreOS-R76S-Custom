@@ -52,7 +52,11 @@ case "${1:-status}" in
         init_previous=0; "$INIT/$service" enabled >/dev/null 2>&1 && init_previous=1
         uci -q set "$target=$value"
         uci -q commit "$service" || { uci -q revert "$service"; fail 'commit failed'; }
-        sync_one "$service"
+        if ! sync_one "$service"; then
+            uci -q set "$target=$previous"; uci -q commit "$service"
+            if [ "$init_previous" = 1 ]; then "$INIT/$service" enable; else "$INIT/$service" disable; fi
+            fail 'init synchronization failed; previous persistent state restored'
+        fi
         # Release our lock before native init calls its check adapter.
         flock -u 8
         if [ "$value" = 1 ]; then action=restart; else action=stop; fi

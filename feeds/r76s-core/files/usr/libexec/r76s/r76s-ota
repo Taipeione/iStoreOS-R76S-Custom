@@ -52,6 +52,8 @@ local ok,err=pcall(function()
         persist({phase='checked',version=m.version,size=m.size})
     elseif phase=='download' then
         local m=manifest()
+        local free=tonumber(sys.exec("df -Pk /tmp | awk 'END {print $4}'")) or 0
+        assert(free*1024>m.size*2+16*1024*1024,'insufficient temporary space')
         persist({phase='downloading',version=m.version})
         fs.remove('/tmp/firmware.img.sha256sum')
         fetch(m.url,image..'.part')

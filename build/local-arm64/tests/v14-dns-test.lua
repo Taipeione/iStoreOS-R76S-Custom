@@ -54,6 +54,7 @@ if scenario=='fail' then
     assert(config.smartdns.main.enabled=='0')
     assert(config.r76s.main.dns_mode=='system')
     assert(files['/etc/adguardhome.yaml'].dns.port==53)
+    assert(files['/etc/r76s/dns/original.json']==nil,'failed first activation left a stale baseline')
 else
     assert(ok,tostring(err))
     assert(config.dhcp.main.server[1]=='127.0.0.1#3053')
