@@ -1,0 +1,68 @@
+#!/bin/sh
+# R76S_V12_OTA_HARDENING: must return failure if state cannot be saved.
+set -eu
+
+fail() {
+    echo "r76s-ota-preserve-state: $*" >&2
+    logger -t r76s-ota-preserve-state "$*" 2>/dev/null || true
+    exit 1
+}
+
+init_enabled() {
+    name="$1"
+    if [ -x "/etc/init.d/$name" ] && /etc/init.d/"$name" enabled >/dev/null 2>&1; then
+        printf '1\n'
+    else
+        printf '0\n'
+    fi
+}
+
+uci_flag() {
+    key="$1"
+    value="$(uci -q get "$key" 2>/dev/null)" || value=0
+    case "$value" in
+        0|1) printf '%s\n' "$value" ;;
+        *) fail "invalid enabled value for $key: $value" ;;
+    esac
+}
+
+pw_init="$(init_enabled passwall)"
+pw2_init="$(init_enabled passwall2)"
+sd_init="$(init_enabled smartdns)"
+agh_init="$(init_enabled adguardhome)"
+pw_uci="$(uci_flag 'passwall.@global[0].enabled')"
+pw2_uci="$(uci_flag 'passwall2.@global[0].enabled')"
+sd_uci="$(uci_flag 'smartdns.@smartdns[0].enabled')"
+
+# Never create a snapshot requiring both proxy engines to start together.
+if [ "$pw_init" = 1 ] && [ "$pw_uci" = 1 ] && \
+   [ "$pw2_init" = 1 ] && [ "$pw2_uci" = 1 ]; then
+    fail "PassWall and PassWall2 are both enabled; resolve the conflict before OTA"
+fi
+
+# UCI requires its package file before creating a named section.
+mkdir -p /etc/config || fail 'cannot create config directory'
+if [ ! -s /etc/config/r76s_ota_state ]; then
+    (umask 077; printf "config state 'state'\n" > /etc/config/r76s_ota_state) || fail 'cannot initialize OTA state file'
+fi
+uci -q set r76s_ota_state.state='state' || fail 'cannot create OTA state section'
+uci -q set r76s_ota_state.state.pending='1' || fail 'cannot set pending'
+uci -q set r76s_ota_state.state.passwall_init="$pw_init" || fail 'cannot record passwall init'
+uci -q set r76s_ota_state.state.passwall2_init="$pw2_init" || fail 'cannot record passwall2 init'
+uci -q set r76s_ota_state.state.smartdns_init="$sd_init" || fail 'cannot record smartdns init'
+uci -q set r76s_ota_state.state.adguardhome_init="$agh_init" || fail 'cannot record adguardhome init'
+uci -q set r76s_ota_state.state.passwall_uci="$pw_uci" || fail 'cannot record passwall config'
+uci -q set r76s_ota_state.state.passwall2_uci="$pw2_uci" || fail 'cannot record passwall2 config'
+uci -q set r76s_ota_state.state.smartdns_uci="$sd_uci" || fail 'cannot record smartdns config'
+uci -q commit r76s_ota_state || fail 'UCI commit failed'
+[ -s /etc/config/r76s_ota_state ] || fail 'OTA state file is missing/empty'
+[ "$(uci -q get r76s_ota_state.state.pending 2>/dev/null)" = 1 ] || fail 'pending not persisted'
+[ "$(uci -q get r76s_ota_state.state.passwall_init 2>/dev/null)" = "$pw_init" ] || fail 'passwall state not persisted'
+[ "$(uci -q get r76s_ota_state.state.passwall2_init 2>/dev/null)" = "$pw2_init" ] || fail 'passwall2 state not persisted'
+[ "$(uci -q get r76s_ota_state.state.smartdns_init 2>/dev/null)" = "$sd_init" ] || fail 'smartdns state not persisted'
+[ "$(uci -q get r76s_ota_state.state.adguardhome_init 2>/dev/null)" = "$agh_init" ] || fail 'adguardhome state not persisted'
+[ "$(uci -q get r76s_ota_state.state.passwall_uci 2>/dev/null)" = "$pw_uci" ] || fail 'passwall enabled state not persisted'
+[ "$(uci -q get r76s_ota_state.state.passwall2_uci 2>/dev/null)" = "$pw2_uci" ] || fail 'passwall2 enabled state not persisted'
+[ "$(uci -q get r76s_ota_state.state.smartdns_uci 2>/dev/null)" = "$sd_uci" ] || fail 'smartdns enabled state not persisted'
+sync || fail 'sync failed'
+exit 0

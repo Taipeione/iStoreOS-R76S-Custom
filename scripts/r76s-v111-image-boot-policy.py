@@ -61,8 +61,19 @@ def patch_smartdns_source(source, overlay):
                    + original[starts[0].end():])
     if len(re.findall(r'(?m)^START=18[ \t]*$', updated)) != 1:
         raise Blocked('SMARTDNS_START_POSTPATCH_INVALID')
-    if 'start_service() {' in updated and 'r76s-service-manager check smartdns' not in updated:
-        updated=updated.replace('start_service() {','start_service() {\n    /usr/libexec/r76s/r76s-service-manager check smartdns || return 1',1)
+    # The pinned 1.2023.43 init puts the opening brace on the following line.
+    # Match the function declaration structurally and fail before writing on drift.
+    declaration = re.compile(r'(?m)^[ \t]*start_service[ \t]*\([ \t]*\)[ \t\r\n]*\{[ \t]*\r?\n')
+    functions = list(declaration.finditer(updated))
+    if len(functions) != 1:
+        raise Blocked('SMARTDNS_START_SERVICE_ANCHOR_INVALID')
+    guard = '/usr/libexec/r76s/r76s-service-manager check smartdns || return 1'
+    function = functions[0]
+    if guard in updated:
+        if updated.count(guard) != 1 or not updated[function.end():].lstrip().startswith(guard):
+            raise Blocked('SMARTDNS_SERVICE_GUARD_MISPLACED')
+    else:
+        updated = updated[:function.end()] + '\t' + guard + '\n' + updated[function.end():]
     if updated != original:
         source.write_text(updated)
     subprocess.run(['sh', '-n', str(source)], check=True, capture_output=True)
@@ -104,7 +115,7 @@ def selftest():
         else:
             raise Blocked('SELFTEST_UPSTREAM_DRIFT_NOT_BLOCKED')
         source = root/'smartdns.prepared'
-        source.write_text('#!/bin/sh /etc/rc.common\nSTART=19\nSTOP=10\n')
+        source.write_text('#!/bin/sh /etc/rc.common\nSTART=19\nSTOP=10\nstart_service()\n{\n    true\n}\n')
         overlay = root/'overlay'
         overlay.mkdir()
         patch_smartdns_source(source, overlay)

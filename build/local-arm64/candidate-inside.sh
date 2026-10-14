@@ -70,6 +70,11 @@ for n in $(seq -w 1 27); do
   [ "${#paths[@]}" -eq 1 ] || { echo "Expected one stage ${n}, found ${#paths[@]}" >&2; exit 2; }
   f="${paths[0]}"
   echo "===== CANDIDATE STAGE ${n}: $(basename "$f") ====="
+  if [ "$n" = 20 ]; then
+    echo '===== Standalone Stage20 prerequisite validation ====='
+    R76S_STAGE20_PREPARE_ONLY=1 bash -e -o pipefail "$f" 2>&1 | tee "$WORK/logs/r76s-v140-stage20-standalone.log"
+    echo 'STAGE20_STANDALONE=PASS'
+  fi
   # Bash -e and pipefail apply even to old GitHub Actions stages without strict flags.
   bash -e -o pipefail "$f" 2>&1 | tee "$WORK/logs/r76s-v12-candidate-stage-${n}.log"
   apply_env

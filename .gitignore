@@ -3,3 +3,5 @@
 *.img.gz
 *.ipk
 .DS_Store
+
+/reports/R76S-V1.4.0-recovery/

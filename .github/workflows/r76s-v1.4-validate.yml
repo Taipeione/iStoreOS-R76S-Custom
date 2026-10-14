@@ -1,7 +1,7 @@
 name: R76S V1.4 source validation
 on:
   push:
-    branches: [main]
+    branches: [main, 'feature/r76s-v1.4.0*']
   pull_request:
 permissions:
   contents: read

@@ -9,12 +9,12 @@ permissions:
   contents: write
 
 concurrency:
-  group: r76s-v14-cloud-${{ github.ref }}
+  group: r76s-v140-prerelease
   cancel-in-progress: false
 
 jobs:
   build:
-    if: github.repository == 'Taipeione/iStoreOS-R76S-Custom' && github.ref == 'refs/heads/main'
+    if: github.repository == 'Taipeione/iStoreOS-R76S-Custom' && startsWith(github.ref, 'refs/heads/feature/r76s-v1.4.0')
     runs-on: ubuntu-22.04
     timeout-minutes: 350
     defaults:
@@ -44,7 +44,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 build/local-arm64/preflight.py --repo .
-          python3 -m unittest discover -s build/local-arm64/tests -q
+          mkdir -p reports
+          python3 -m unittest discover -s build/local-arm64/tests -v 2>&1 | tee reports/v140-tests.txt
           python3 build/local-arm64/public-release/install.py --repo . --check
           test "${R76S_PUBLIC_RELEASE}" = '1'
           test -z "${R76S_CLEAN_FLASH_PASSWORD_HASH}"
@@ -82,7 +83,7 @@ jobs:
             rsync swig time unzip squashfs-tools util-linux \
             zlib1g-dev file wget curl xsltproc zstd pigz \
             ca-certificates ccache patch pkg-config xz-utils \
-            bzip2 openssl fdisk jq
+            bzip2 openssl fdisk jq qemu-user-static
           python3 -c 'from elftools.elf.elffile import ELFFile; print("ELFTOOLS=PASS")'
 
       - name: Install pinned Go 1.26.6 host toolchain
@@ -160,6 +161,18 @@ jobs:
           sha256sum -c sha256
           echo 'GITHUB_V12_RELEASE_ASSETS=PASS'
 
+      - name: Simulate V1.2.3 upgrade with real target UCI
+        run: |
+          set -euo pipefail
+          rootfs=/home/builder/work/openwrt/build_dir/target-aarch64_generic_musl/root-rockchip
+          test -x "$rootfs/sbin/uci"
+          wrapper=$(mktemp)
+          printf '#!/bin/sh\nexec qemu-aarch64-static -L %s %s/sbin/uci "$@"\n' "$rootfs" "$rootfs" > "$wrapper"
+          chmod 755 "$wrapper"
+          trap 'rm -f "$wrapper"' EXIT
+          R76S_TEST_UCI="$wrapper" python3 -m unittest discover -s build/local-arm64/tests -p 'test_v123_to_v140_ota.py' -v 2>&1 | tee reports/v123-upgrade-tests.txt
+          cp reports/v123-upgrade-tests.txt /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.4.0/OTA-TEST-REPORT.txt
+
       - name: Sign and audit OTA manifest
         env:
           R76S_OTA_SIGNING_KEY: ${{ secrets.R76S_OTA_SIGNING_KEY }}
@@ -175,6 +188,8 @@ jobs:
           openssl pkeyutl -sign -inkey "$keyfile" -rawin -in "$release/ota.json" -out "$release/ota.json.sig"
           cp config/ota-public.pem "$release/ota-public.pem"
           cp docs/R76S-V1.4.0-RELEASE.md "$release/RELEASE-NOTES.md"
+          cp docs/R76S-V1.4.0-OTA-UPGRADE.md "$release/OTA_UPGRADE_GUIDE.md"
+          cp reports/v140-tests.txt "$release/TEST-REPORT.txt"
           cp files/usr/libexec/r76s/r76s-ota-preserve-state "$release/r76s-ota-preserve-state"
           python3 scripts/r76s-release-audit.py "$release" --finalize
 
@@ -200,10 +215,11 @@ jobs:
         with:
           name: R76S-V1.4.0-cloud-diagnostics-${{ github.run_number }}
           path: |
+            reports/
             /home/builder/work/logs/
             /home/builder/work/r76s-build-diagnostics/
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 90
 
       - name: Upload V1.4.0 firmware
         if: success()
@@ -212,10 +228,10 @@ jobs:
           name: R76S-V1.4.0-firmware-${{ github.run_number }}
           path: /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.4.0/*
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 90
           compression-level: 0
 
-      - name: Publish R76S-V1.4.0 GitHub Release and OTA assets
+      - name: Publish R76S-V1.4.0 prerelease without changing stable OTA
         if: success()
         env:
           GH_TOKEN: ${{ github.token }}
@@ -224,20 +240,13 @@ jobs:
           cd /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.4.0
           sha256sum -c sha256
           shopt -s nullglob
-          assets=( *.img *.bin *.gz ota.json sha256 sha256sums version.latest version.index ota.footer.html BOOTLOADER_INFO.txt ota.json.sig ota-public.pem RELEASE-NOTES.md r76s-ota-preserve-state BUILD-VALIDATION.txt sources.lock.json release.json )
+          assets=( *.img *.bin *.gz ota.json sha256 sha256sums version.latest version.index ota.footer.html BOOTLOADER_INFO.txt ota.json.sig ota-public.pem RELEASE-NOTES.md r76s-ota-preserve-state BUILD-VALIDATION.txt sources.lock.json release.json TEST-REPORT.txt OTA-TEST-REPORT.txt OTA_UPGRADE_GUIDE.md )
           # Never overwrite a published version or its OTA assets.
           gh release create R76S-V1.4.0 "${assets[@]}" \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title R76S-V1.4.0 --notes-file RELEASE-NOTES.md --draft
-          gh release edit R76S-V1.4.0 --repo "$GITHUB_REPOSITORY" --draft=false --latest
-
-          # A small signed channel pointer; firmware assets remain immutable on their version tag.
-          if ! gh release view R76S-stable --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create R76S-stable --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title 'R76S stable OTA channel' --notes 'Signed OTA channel metadata. See the referenced version release for validation limits.' --latest=false
-          fi
-          gh release upload R76S-stable ota.json ota.json.sig --clobber --repo "$GITHUB_REPOSITORY"
-          gh release edit R76S-V1.4.0 --repo "$GITHUB_REPOSITORY" --latest
-          mkdir channel-check
-          gh release download R76S-stable --repo "$GITHUB_REPOSITORY" --pattern 'ota.json*' --dir channel-check
-          cmp ota.json channel-check/ota.json
-          openssl pkeyutl -verify -pubin -inkey ota-public.pem -rawin -in channel-check/ota.json -sigfile channel-check/ota.json.sig
+            --title R76S-V1.4.0 --notes-file RELEASE-NOTES.md --draft --prerelease --latest=false
+          gh release edit R76S-V1.4.0 --repo "$GITHUB_REPOSITORY" --draft=false --prerelease --latest=false
+          mkdir published-check
+          gh release download R76S-V1.4.0 --repo "$GITHUB_REPOSITORY" --pattern 'ota.json*' --dir published-check
+          cmp ota.json published-check/ota.json
+          openssl pkeyutl -verify -pubin -inkey ota-public.pem -rawin -in published-check/ota.json -sigfile published-check/ota.json.sig
