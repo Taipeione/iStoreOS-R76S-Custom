@@ -40,8 +40,8 @@ for app in ('passwall','passwall2'):
 # Keep UCI/init consistency when users apply the native SmartDNS page too.
 for path in root.glob('feeds/**/smartdns.init'):
     contents=path.read_text()
-    if 'start_service() {' in contents:
-        contents=contents.replace('start_service() {','start_service() {\n    /usr/libexec/r76s/r76s-service-manager check smartdns || return 1',1)
+    if re.search(r'(?m)^start_service\(\)[ \t]*(?:\n[ \t]*)?\{', contents):
+        contents=re.sub(r'(?m)^start_service\(\)[ \t]*(?:\n[ \t]*)?\{', lambda m: m.group(0) + '\n    /usr/libexec/r76s/r76s-service-manager check smartdns || return 1', contents, count=1)
         path.write_text(contents)
         overlay=root/'files/etc/init.d/smartdns'
         if overlay.exists(): overlay.write_text(contents); overlay.chmod(0o755)
