@@ -37,8 +37,9 @@ def main():
         # contain millions of headers/text files; inspecting every file in
         # Python made the runner appear hung before the build even started.
         candidates = subprocess.run(
-            ['find', str(root), '-xdev', '-type', 'f', '(', '-perm', '-111',
-             '-o', '-name', '*.img', '-o', '-name', '*.jar', '-o', '-name', '*.a', ')', '-print0'],
+            ['find', str(root), '-xdev', '-maxdepth', '8',
+             '(', '-type', 'd', '(', '-name', 'sources', '-o', '-name', 'source', '-o', '-name', 'src', ')', '-prune', ')', '-o',
+             '-type', 'f', '(', '-perm', '-111', '-o', '-name', '*.img', '-o', '-name', '*.jar', '-o', '-name', '*.a', ')', '-print0'],
             check=True, capture_output=True).stdout.split(b'\0')
         for raw in candidates:
             if not raw:
