@@ -114,7 +114,7 @@ function M.security(s)
     local wan_zones={}
     for _,zone in ipairs(s.zones or {}) do
         local iswan=zone.name=='wan'
-        for _,network in ipairs(values(zone.network)) do if network=='wan' or network=='wan6' then iswan=true end end
+        for _,network in ipairs(values(zone.network)) do if network=='wan' or network=='wan6' or network=='wan_6' then iswan=true end end
         if iswan and zone.enabled~='0' then
             local name=zone.name or '未命名区域'
             wan_zones[name]=true
@@ -125,7 +125,7 @@ function M.security(s)
             add(rows,'WAN 区域 '..name..' 转发',(forward=='REJECT' or forward=='DROP') and 'pass' or 'warn','默认 forward = '..tostring(forward or '未确认'),'主路由通常应显式允许 LAN → WAN，而非开放 WAN 转发。')
         end
     end
-    if next(wan_zones)==nil then add(rows,'WAN 防火墙区域','unknown','未识别 wan/wan6 所属区域。','检查自定义网络和防火墙区域映射。') end
+    if next(wan_zones)==nil then add(rows,'WAN 防火墙区域','unknown','未识别 wan/wan_6/wan6 所属区域。','检查自定义网络和防火墙区域映射。') end
     local function tcp(proto)
         if not proto or proto=='' then return true end
         for _,v in ipairs(values(proto)) do if v=='tcp' or v=='all' or v=='tcpudp' then return true end end
@@ -158,7 +158,7 @@ function M.security(s)
     add(rows,'管理服务绑定',s.management_wildcard and 'info' or 'unknown',s.management_wildcard and '管理服务存在通配地址监听配置。' or '未识别通配地址监听配置。','实际可达性取决于服务运行状态和防火墙。')
     if s.upnp then add(rows,'自动端口映射','warn','UPnP 配置启用。','确认需要自动端口映射的设备和授权范围。') end
     if s.redirect_count>0 then add(rows,'端口转发','info','配置了 '..s.redirect_count..' 条端口转发。','在防火墙页面核对暴露的内部服务。') end
-    add(rows,'WAN 链路',s.wan_up and 'info' or 'unknown',s.wan_up and '检测到 WAN/wan6 接口运行。' or '未确认 WAN/wan6 接口运行。','自定义接口名称需人工核对。')
+    add(rows,'WAN 链路',s.wan_up and 'info' or 'unknown',s.wan_up and '检测到 WAN/wan_6/wan6 接口运行。' or '未确认 WAN/wan_6/wan6 接口运行。','自定义接口名称需人工核对。')
     if s.proxy_enabled then
         add(rows,'代理 IPv6 出站保护',s.guard_active and 'info' or 'warn',s.guard_active and '检测到独立 IPv6 出站保护规则。' or '代理已配置启用，未检测到独立 IPv6 出站保护规则。','规则存在不等于实测无绕过；结合 DNS 策略和出口测试确认。')
         if s.guard_active and s.offload then add(rows,'IPv6 保护与流量卸载','warn','IPv6 保护规则存在，同时配置流量卸载。','核对卸载是否绕过保护；使用 Phase2.1 预检。') end

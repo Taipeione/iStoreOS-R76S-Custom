@@ -19,6 +19,7 @@ import sys
 import tempfile
 
 EXECUTABLES = (
+    'usr/bin/r76s-health',
     *(f'usr/libexec/r76s/{name}' for name in ('r76s-service-manager','r76s-ota','r76s-dns-manager','r76s-config-migrate','r76s-healthcheck','r76s-watchdog','r76s-wireguard-endpoint')),
     'etc/init.d/r76s-reconcile',
     'usr/libexec/r76s/r76s-ip-family-policy',
@@ -35,6 +36,7 @@ EXECUTABLES = (
     'etc/init.d/r76s-v111-dns-manager',
 )
 REQUIRED = (
+    'usr/bin/r76s-health',
     'etc/config/r76s',
     'etc/init.d/r76s-reconcile',
     'usr/libexec/r76s/r76s-service-manager',

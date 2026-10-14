@@ -73,7 +73,7 @@ function M.snapshot()
                     if type(address)=='table' and type(address.address)=='string' then local_ips[address.address]=true end
                 end
             end
-            if item.interface=='wan' or item.interface=='wan6' then
+            if item.interface=='wan' or item.interface=='wan6' or item.interface=='wan_6' then
                 wan_up=wan_up or item.up==true
                 wan_dns_count=wan_dns_count+#(type(item['dns-server'])=='table' and item['dns-server'] or {})
             end

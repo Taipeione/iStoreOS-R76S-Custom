@@ -23,7 +23,7 @@ fi
 if [ "$MODE" = status ]; then
   docker run --rm --platform linux/arm64 --user 1000:1000 \
     --mount type=volume,src=r76s-v12-work,dst=/home/builder/work,readonly \
-    "$IMAGE" bash -c 'find /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.4.0 -maxdepth 1 -type f -printf "%f %s bytes\n" 2>/dev/null || true'
+    "$IMAGE" bash -c 'find /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.4.1 -maxdepth 1 -type f -printf "%f %s bytes\n" 2>/dev/null || true'
   exit 0
 fi
 # No assumptions about GitHub account ownership: derive from the actual repository origin.

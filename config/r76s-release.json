@@ -1,7 +1,7 @@
 {
-  "version": "R76S-V1.4.0",
+  "version": "R76S-V1.4.1",
   "openwrt_version": "24.10.8",
-  "channel": "stable",
+  "channel": "prerelease",
   "target": "rockchip/armv8",
   "supported_devices": [
     "friendlyarm,nanopi-r76s"

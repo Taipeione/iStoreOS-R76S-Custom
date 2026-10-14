@@ -34,8 +34,10 @@ local function snapshot()
     d.dns_upstream = query([[uci -q get dhcp.@dnsmasq[0].extraconftext 2>/dev/null | grep -m1 '^server=' 2>/dev/null]])
     if d.dns_upstream == "" then d.dns_upstream = "未检测到固定上游" end
     d.dns_manager = query("uci -q get r76s.main.dns_active 2>/dev/null")
-    d.wan6 = query([[ubus call network.interface.wan6 status 2>/dev/null | jsonfilter -e '@["ipv6-address"][*].address' 2>/dev/null]])
-    d.pd = query([[ubus call network.interface.wan6 status 2>/dev/null | jsonfilter -e '@["ipv6-prefix"][*].address' 2>/dev/null]])
+    local v6if = query([[ubus call network.interface.wan_6 status 2>/dev/null | jsonfilter -e '@.up' 2>/dev/null]]) == 'true' and 'wan_6' or 'wan6'
+    d.ipv6_interface = v6if
+    d.wan6 = query("ubus call network.interface."..v6if..[[ status 2>/dev/null | jsonfilter -e '@["ipv6-address"][*].address' 2>/dev/null]])
+    d.pd = query("ubus call network.interface."..v6if..[[ status 2>/dev/null | jsonfilter -e '@["ipv6-prefix"][*].address' 2>/dev/null]])
     d.cpu = query("head -n1 /proc/stat")
     d.services = {}
     for _,name in ipairs({'passwall','passwall2','smartdns','adguardhome'}) do

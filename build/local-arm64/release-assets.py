@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import shutil
 
-VERSION = 'R76S-V1.4.0'
+VERSION = 'R76S-V1.4.1'
 
 
 def digest(path):
@@ -38,7 +38,7 @@ def generate(release, target, repository, commit):
             'supported_devices': ['friendlyarm,nanopi-r76s'],
             'source_commit': commit, 'image': primary.name,
             'url': f'{base}/{primary.name}', 'sha256': digest(primary),
-            'size': primary.stat().st_size, 'channel': 'stable',
+            'size': primary.stat().st_size, 'channel': 'prerelease',
             'baseline_commit': '1daed16ac79d66666847bca6e4c29bc5f4c88b95',
             'hardware_validation': 'not_performed',
             'artifacts': artifacts}

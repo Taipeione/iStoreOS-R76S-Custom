@@ -4,7 +4,7 @@ from pathlib import Path
 import argparse
 import re
 
-VERSION = 'R76S-V1.4.0'
+VERSION = 'R76S-V1.4.1'
 RULES = '''ChatGPTLogin OpenAI GitHub GoogleWork GoogleAI YouTube Netflix Disney
 MaxHBO PrimeVideo Twitter Telegram Google TikTok PlayStation Nintendo Instagram
 Xbox Signal Spotify Slack DirectGame ProxyGame AIGC Streaming Proxy Direct LINE

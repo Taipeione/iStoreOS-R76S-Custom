@@ -1,0 +1,39 @@
+#!/bin/sh
+# Safe one-shot R76S diagnostic report. It intentionally never prints UCI
+# password, PPPoE secret, node credentials, private keys, or raw config.
+set -u
+PATH='/usr/sbin:/usr/bin:/sbin:/bin'
+VERSION="$(sed -n "s/^DISTRIB_REVISION='\([^']*\)'.*/\1/p" /etc/openwrt_release 2>/dev/null | head -n1)"
+[ -n "$VERSION" ] || VERSION='未知'
+MODEL="$(cat /tmp/sysinfo/model 2>/dev/null || cat /proc/device-tree/model 2>/dev/null || printf 'FriendlyElec NanoPi R76S')"
+UPTIME="$(uptime 2>/dev/null || awk '{printf "%ss",$1}' /proc/uptime 2>/dev/null)"
+iface_field() { ubus call network.interface "$1" status 2>/dev/null; }
+wan4="$(iface_field wan)"
+wan6_name='wan_6'; wan6="$(iface_field wan_6)"
+if ! printf '%s' "$wan6" | grep -q '"up":true'; then wan6_name='wan6'; wan6="$(iface_field wan6)"; fi
+up_value() { printf '%s' "$1" | grep -q '"up":true' && printf '正常' || printf '未运行'; }
+ipv4="$(printf '%s' "$wan4" | jsonfilter -e '@["ipv4-address"][0].address' 2>/dev/null || true)"
+ipv6="$(printf '%s' "$wan6" | jsonfilter -e '@["ipv6-address"][*].address' 2>/dev/null | tr '\n' ' ' || true)"
+pd="$(printf '%s' "$wan6" | jsonfilter -e '@["ipv6-prefix"][*].address' 2>/dev/null | tr '\n' ' ' || true)"
+printf '%s\n' 'R76S 健康检查报告'
+printf '固件版本：%s\n设备型号：%s\n运行时间：%s\n' "$VERSION" "$MODEL" "$UPTIME"
+printf 'WAN PPPoE：%s\n' "$(uci -q get network.wan.proto 2>/dev/null | grep -qx pppoe && printf '已配置' || printf '未确认')"
+printf 'IPv4：%s%s\n' "$(up_value "$wan4")" "${ipv4:+ ($ipv4)}"
+if printf '%s' "$wan6" | grep -q '"up":true' && [ -n "$ipv6" ] && [ -n "$pd" ]; then printf 'IPv6：正常（接口 %s，公网地址和 delegated prefix 已发现）\n' "$wan6_name"; else printf 'IPv6：%s（优先检查 wan_6，其次 wan6；地址或 delegated prefix 未完整发现）\n' "$(up_value "$wan6")"; fi
+printf 'DNS：%s\n' "$(pgrep -f '[d]nsmasq' >/dev/null 2>&1 && printf 'dnsmasq 运行中' || printf '未确认')"
+printf 'PassWall：%s\n' "$(uci -q get passwall.@global[0].enabled 2>/dev/null | grep -qx 1 && printf '已启用' || printf '未启用')"
+printf 'Xray：%s\n' "$(pgrep -f '[x]ray' >/dev/null 2>&1 && printf '运行中' || printf '未运行')"
+printf 'ChinaDNS-NG：%s\n' "$(pgrep -f '[c]hinadns-ng' >/dev/null 2>&1 && printf '运行中' || printf '未运行')"
+RULE_FILE='/usr/share/r76s/rules.json'; names=''
+if [ -r "$RULE_FILE" ]; then names="$(sed -n 's/^[[:space:]]*"name":[[:space:]]*"\([^"]*\)".*/\1/p' "$RULE_FILE")"; fi
+if [ -z "$names" ]; then names="$(uci show passwall 2>/dev/null | sed -n "s/.*=shunt_rules.*/&/p" | sed -n 's/.*\.\([^.=]*\)=shunt_rules/\1/p')"; fi
+count="$(printf '%s\n' "$names" | sed '/^$/d' | wc -l | tr -d ' ')"; [ -n "$count" ] || count=0
+printf '分流规则数量：%s\n' "$count"
+printf '分流规则顺序：%s\n' "$(printf '%s' "$names" | paste -sd '>' -)"
+first="$(printf '%s\n' "$names" | sed -n '1p')"; last="$(printf '%s\n' "$names" | sed -n '$p')"
+printf 'WeChatDirect：%s\n' "$([ "$first" = WeChatDirect ] && printf '存在且第一条' || printf '未确认第一条')"
+printf 'TencentMediaDirect：%s\n' "$([ "$last" = TencentMediaDirect ] && printf '存在且最后一条' || printf '未确认最后一条')"
+OTA_STATE='/etc/config/r76s_ota_state'; printf 'OTA state：%s\n' "$([ -r "$OTA_STATE" ] && printf '已存在' || printf '未找到')"
+printf 'Google DNS：%s\n' "$(nslookup google.com 127.0.0.1 2>/dev/null | grep -q 'Address' && printf '通过' || printf '未确认')"
+printf 'GitHub DNS：%s\n' "$(nslookup github.com 127.0.0.1 2>/dev/null | grep -q 'Address' && printf '通过' || printf '未确认')"
+printf 'WeChat DNS：%s\n' "$(nslookup wx.qq.com 127.0.0.1 2>/dev/null | grep -q 'Address' && printf '通过' || printf '未确认')"

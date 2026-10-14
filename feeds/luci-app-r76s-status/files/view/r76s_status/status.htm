@@ -23,7 +23,7 @@
 <tr><td>运行时间</td><td><%=luci.util.pcdata(data.uptime or "")%></td></tr></table></section>
 <section class="r76s-dash-card"><h3>网络及 DNS</h3><table class="r76s-dash-table">
 <tr><td>LAN IPv4</td><td><%=luci.util.pcdata(data.lan or "")%></td></tr><tr><td>WAN IPv4</td><td><%=luci.util.pcdata(data.wan or "")%></td></tr>
-<tr><td>WAN IPv6</td><td><%=luci.util.pcdata(data.wan6 or "")%></td></tr><tr><td>IPv6 PD</td><td><%=luci.util.pcdata(data.pd or "")%></td></tr>
+<tr><td>WAN IPv6</td><td><%=luci.util.pcdata(data.wan6 or "")%>（接口 <%=luci.util.pcdata(data.ipv6_interface or "未知")%>）</td></tr><tr><td>IPv6 PD</td><td><%=luci.util.pcdata(data.pd or "")%></td></tr>
 <tr><td>dnsmasq</td><td><%=luci.util.pcdata(data.dnsmasq or "")%></td></tr><tr><td>DNS 监听端口</td><td><%=luci.util.pcdata(data.dns_listeners or "")%></td></tr>
 <tr><td>dnsmasq 上游</td><td><%=luci.util.pcdata(data.dns_upstream or "")%></td></tr><tr><td>DNS 管理器</td><td><%=luci.util.pcdata(data.dns_manager or "")%></td></tr></table></section>
 <section class="r76s-dash-card"><h3>服务运行状态</h3><table class="r76s-dash-table">

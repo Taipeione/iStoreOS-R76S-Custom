@@ -15,6 +15,7 @@ REQUIRED_REPO = (
     'feeds/luci-app-r76s-updater/Makefile',
     'feeds/luci-app-r76s-updater/files/controller/r76s_updater.lua',
     'feeds/luci-app-r76s-updater/files/view/r76s_updater/index.htm',
+    'feeds/r76s-core/files/usr/bin/r76s-health',
     'scripts/r76s-v111-prebuild-tests.py',
     'scripts/r76s-v111-final-audit.py',
 )
@@ -60,8 +61,10 @@ def audit(root: Path):
     release=json.loads((root/'config/r76s-release.json').read_text())
     rules=json.loads((root/'config/rules/r76s-rules.json').read_text())['rules']
     names=[rule['name'] for rule in rules]
-    manifest_ok=release['version']=='R76S-V1.4.0' and len(names)==43 and len(set(names))==43
-    for path in (root/'feeds/r76s-core/files/usr/libexec/r76s').iterdir():
+    expected_rules = ['WeChatDirect','ChatGPTLogin','OpenAI','GitHub','GoogleWork','GoogleAI','YouTube','Netflix','Disney','MaxHBO','PrimeVideo','Twitter','Telegram','Google','TikTok','PlayStation','Nintendo','Instagram','Xbox','Signal','Spotify','Slack','DirectGame','ProxyGame','AIGC','Streaming','Proxy','Direct','LINE','WhatsApp','Discord','Facebook','Reddit','Claude','Perplexity','Copilot','Grok','Apple','Microsoft','Zoom','Notion','Dropbox','TencentMediaDirect']
+    manifest_ok=release['version']=='R76S-V1.4.1' and names==expected_rules
+    shell_files = list((root/'feeds/r76s-core/files/usr/libexec/r76s').iterdir()) + [root/'feeds/r76s-core/files/usr/bin/r76s-health']
+    for path in shell_files:
         if path.read_text().startswith('#!/bin/sh'):
             result=subprocess.run(['sh','-n',str(path)],capture_output=True)
             manifest_ok=manifest_ok and result.returncode==0

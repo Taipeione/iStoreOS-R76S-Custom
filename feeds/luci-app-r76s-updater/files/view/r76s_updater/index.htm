@@ -153,7 +153,7 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
     }
 }
 
-/* R76S-V1.4.0: responsive Argon-inspired theme; all OTA gates/IDs remain unchanged. */
+/* R76S-V1.4.1: responsive Argon-inspired theme; all OTA gates/IDs remain unchanged. */
 .r76s-wrap{max-width:1100px;margin:0 auto;color:var(--text-color,#e9eef8)}
 .r76s-wrap .r76s-title{font-size:clamp(1.35rem,3vw,1.85rem);font-weight:720;letter-spacing:.01em}
 .r76s-wrap .r76s-card{background:var(--background-color-high,rgba(17,24,39,.89));border:1px solid rgba(148,163,184,.22);border-radius:16px;box-shadow:0 10px 34px rgba(0,0,0,.13);overflow:hidden}
@@ -173,7 +173,7 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
 .r76s-wrap .r76s-install .cbi-button{max-width:100%;width:min(100%,300px)}
 @media(prefers-color-scheme:light){.r76s-wrap{color:var(--text-color,#233047)}.r76s-wrap .r76s-card{background:var(--background-color-high,#fff);box-shadow:0 12px 24px rgba(29,58,99,.09)}}
 @media(max-width:700px){.r76s-wrap .r76s-table .td{padding:8px 6px}.r76s-wrap .r76s-table .td:first-child{width:115px}.r76s-wrap .r76s-actions .cbi-button{width:100%}}
-/* R76S-V1.4.0 presentation only: API, DOM IDs and JavaScript unchanged. */
+/* R76S-V1.4.1 presentation only: API, DOM IDs and JavaScript unchanged. */
 .r76s-subtitle{margin:0 0 20px;line-height:1.7;opacity:.8}
 .r76s-wrap .r76s-table .tr:nth-child(even){background:rgba(127,127,127,.045)}
 .r76s-wrap .r76s-actions{position:sticky;bottom:12px;padding:12px;background:var(--background-color-high,#fff);border:1px solid rgba(127,127,127,.2);border-radius:12px;z-index:1}
@@ -204,7 +204,7 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
 
 <div class="r76s-wrap">
 
-  <h2 class="r76s-title">R76S-V1.4.0 · 在线升级</h2>
+  <h2 class="r76s-title">R76S-V1.4.1 · 在线升级</h2>
   <p class="r76s-subtitle">检查更新、核对镜像，保留配置完成升级。</p>
   <ol class="r76s-steps" aria-label="升级流程">
     <li><strong>1 · 检查更新</strong><span>核对当前与远端版本</span></li>
@@ -348,6 +348,21 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
           <li>不会删除或覆盖用户已有的自定义内容。</li>
         </ul>
       </details></div>
+
+      <h3 class="r76s-section-heading">配置备份</h3>
+      <p>备份包含网络、PPPoE、PassWall、PassWall2、SmartDNS、AdGuard Home、WireGuard、防火墙、DHCP/DNS 以及分流规则。备份文件可能包含设备配置，请妥善保存。</p>
+      <form method="post" action="<%=api_base%>/backup">
+        <input type="hidden" name="token" value="<%=luci.dispatcher.context.authtoken%>" />
+        <input class="cbi-button cbi-button-apply" type="submit" value="生成并下载备份" />
+      </form>
+
+      <h3 class="r76s-section-heading">恢复配置与固件升级说明</h3>
+      <ul class="r76s-notice">
+        <li>只建议恢复同一台 R76S、同一系列固件生成的备份；恢复后可能需要重启。</li>
+        <li>固件升级用于升级 R76S 系统版本，推荐使用命名为 R76S-Vx.x.x 的 squashfs 镜像。</li>
+        <li>默认保留配置，不会清空 PPPoE、PassWall、DNS 或分流规则，除非用户明确选择不保留配置。</li>
+        <li>升级前会检查设备型号、镜像完整性、SHA256、sysupgrade -T、/tmp 可用空间、配置保留选项和是否已生成备份。</li>
+      </ul>
 
     </div>
   </div>

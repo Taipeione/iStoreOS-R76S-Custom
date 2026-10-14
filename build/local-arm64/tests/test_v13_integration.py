@@ -58,7 +58,7 @@ class V13Integration(unittest.TestCase):
         self.assertIn('r76s-metadata', current)
         self.assertEqual(re.findall(r'id="([^"]+)"', current),
                          re.findall(r'id="([^"]+)"', baseline))
-        self.assertIn('R76S-V1.4.0 · 在线升级', current)
+        self.assertIn('R76S-V1.4.1 · 在线升级', current)
 
     def test_generated_rules_match_stable_baseline(self):
         stage = next((ROOT / 'build/local-arm64/stages').glob('16-*.sh'))

@@ -25,6 +25,7 @@ function index()
     entry({"admin", "system", "r76s_updater", "api", "download"}, post("api_download")).leaf = true
     entry({"admin", "system", "r76s_updater", "api", "verify"}, post("api_verify")).leaf = true
     entry({"admin", "system", "r76s_updater", "api", "install"}, post("api_install")).leaf = true
+    entry({"admin", "system", "r76s_updater", "api", "backup"}, post("api_backup")).leaf = true
 
     -- Keep the old component-updater URL usable after moving the UI under System.
     local legacy = entry({"admin", "services", "r76s_updater"}, alias("admin", "system", "r76s_updater", "components"), nil)
@@ -293,13 +294,18 @@ function action_firmware()
     template.render("r76s_updater/index")
 end
 
-local valid = { passwall=true, smartdns=true, adguardhome=true }
+local valid = {
+    passwall=true, passwall2=true, ['xray-core']=true, ['sing-box']=true,
+    ['chinadns-ng']=true, smartdns=true, adguardhome=true, ['dnsmasq-full']=true,
+    wireguard=true, ddns=true, upnp=true, docker=true, istore=true,
+    quickstart=true, ['r76s-status']=true, ['r76s-updater']=true, ['r76s-health']=true
+}
 
 local function rows_from_tsv(text)
     local rows = {}
     for line in (text or ""):gmatch("[^\r\n]+") do
-        local a,b,c,d,e,f = line:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t(.*)$")
-        if a then rows[#rows+1] = {id=a, name=b, current=c, remote=d, update=e, message=f} end
+        local a,b,c,d,e,f,g,h,i,j,k = line:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t(.*)$")
+        if a then rows[#rows+1] = {id=a, name=b, category=c, current=d, remote=e, installed=f, running=g, autostart=h, backup=i, update=j, message=k} end
     end
     return rows
 end
@@ -310,12 +316,14 @@ function action_components()
     local action = http.formvalue("action")
     local id = http.formvalue("id")
 
-    if action == "update" and valid[id] then
-        message = sys.exec("/usr/libexec/r76s/r76s-component-updater update " .. id .. " 2>&1")
+    if valid[id] and (action == "update" or action == "restart" or action == "log") then
+        message = sys.exec("/usr/libexec/r76s/r76s-component-updater " .. action .. " " .. id .. " 2>&1")
     end
 
-    local mode = http.formvalue("check") and "check" or "status"
-    local out = sys.exec("/usr/libexec/r76s/r76s-component-updater " .. mode .. " all 2>&1")
+    local mode = (http.formvalue("check") or http.formvalue("checkid")) and "check" or "status"
+    local check_id = http.formvalue("checkid")
+    local target = (check_id and valid[check_id]) and check_id or "all"
+    local out = sys.exec("/usr/libexec/r76s/r76s-component-updater " .. mode .. " " .. target .. " 2>&1")
     template.render("r76s_updater/components", { rows=rows_from_tsv(out), result=message })
 end
 
@@ -385,4 +393,17 @@ function api_install()
         ok = true,
         message = "升级已启动，目标为当前启动盘 " .. boot.medium .. " (" .. boot.path .. ")。设备将自动重启。"
     })
+end
+
+function api_backup()
+    local backup = "/tmp/r76s-r76s-config-backup.tar.gz"
+    fs.remove(backup)
+    local rc, out = run_with_rc("/sbin/sysupgrade -b " .. backup .. " 2>&1")
+    if rc ~= 0 or not fs.access(backup) then
+        json_reply({ok=false, message="配置备份生成失败，请查看系统日志。" .. (out ~= "" and (" " .. out) or "")})
+        return
+    end
+    http.prepare_content("application/gzip")
+    http.header("Content-Disposition", 'attachment; filename="R76S-config-backup.tar.gz"')
+    http.write(fs.readfile(backup) or "")
 end

@@ -115,6 +115,7 @@ fi
 echo
 echo "===== FINAL V1.1.1 ROOTFS OVERLAY ASSERTIONS ====="
 test -x files/usr/libexec/r76s/r76s-ota-preserve-state
+test -x files/usr/bin/r76s-health
 grep -qF 'r76s_ota_state.state.pending' files/usr/libexec/r76s/r76s-ota-preserve-state
 test -s files/www/luci-static/resources/ui.js
 grep -qF 'timeout: 0' files/www/luci-static/resources/ui.js
@@ -140,7 +141,7 @@ grep -qF 'R76S_V12_OTA_HARDENING' files/etc/uci-defaults/99-r76s-v110-ota-restor
 grep -qF 'R76S_V14_OTA_BACKEND' package/custom/luci-app-r76s-updater/files/controller/r76s_updater.lua
 ! grep -qF 'r76s-ota-preserve-state && /sbin/sysupgrade' package/custom/luci-app-r76s-updater/files/controller/r76s_updater.lua
 
-# R76S-V1.4.0 phase 1: native WireGuard UI and read-only AGH service entry.
+# R76S-V1.4.1 phase 1: native WireGuard UI and read-only AGH service entry.
 for required in wireguard-tools kmod-wireguard luci-proto-wireguard luci-lib-uqr ucode; do
     grep -qxF "CONFIG_PACKAGE_${required}=y" .config || {
         echo "ERROR: WireGuard integration missing: $required" >&2; exit 1;
