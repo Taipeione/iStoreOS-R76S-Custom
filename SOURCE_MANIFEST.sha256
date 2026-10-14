@@ -36,7 +36,7 @@ b3c996f54bc50bedd6b7582a77768df2bfbfdd97bed38a4f19e042e0662873fe  build/local-ar
 97f1de9004c15b68978668d3175f4160a7b18f1a224f920a559ddf3fd0e0be9d  build/local-arm64/stages/14-copy-and-fix-r76s-status-package.sh
 bba011f55105480c87e15e5f79dced2e371fe1b32d141cf68655defe2f59973b  build/local-arm64/stages/15-stage-v1-1-1-component-updater-and-smartdns-release48-4.sh
 9b7201d4ba9d7696ac8d1a6288869e3891c47e1ae2355a93dd8764d7ac9dc9ca  build/local-arm64/stages/16-install-r76s-v1-1-1-clean-defaults-dual-42-rule-librari.sh
-b022c5312fe3cbbad2eae7887f2ea2666842e7ccb2825f36e00f571ba6c8b56b  build/local-arm64/stages/17-verify-r76s-status-package.sh
+45a9edc1a1085cae25b171a5176e0f989c9518a163ae07ccb660eb7619c337ed  build/local-arm64/stages/17-verify-r76s-status-package.sh
 5a6b02ace29b6490b7240f7e16f57c3eca14b692f1341899661772263b88148b  build/local-arm64/stages/18-apply-r76s-config-and-verify-v1-1-1-selections.sh
 478fac6e8a82083647abf92d8d17878d362372327b1501896d5ebfe5b6e00750  build/local-arm64/stages/19-verify-final-r76s-configuration.sh
 a50440a8bddf1c5d8c87067dfb3e99627a1f87e039bf02224285a4e8e917ccd5  build/local-arm64/stages/20-build-firmware.sh
@@ -56,7 +56,7 @@ ae5ed5c589bb0b33de62102778393c3c8a5fee7c064c32da29ba871fafe188f1  build/local-ar
 35404bb5fd0d25e1c2643d2dc4a1ba347b0b48af6dd512f68d2195cb1eda1ca1  build/local-arm64/tests/test_safe_builder.py
 8f758c1951d87229f26b20da6ff1eb9545f48f3a71e9541bf90a140bf70fb0c4  build/local-arm64/tests/test_v12_features.py
 428b71694ab52245f3512d585eb765cb0265f97443bec7b907db36d770c21228  build/local-arm64/tests/test_v131_ota_state.py
-1c4586e4cae49df79e2b86f9e8300b144c32ec1089b0f1d572c2be9daae02b11  build/local-arm64/tests/test_v13_integration.py
+aa7926440860314013bc3fdfc161eb3c3db9fdd3e729eeebdf186eebeacdff8f  build/local-arm64/tests/test_v13_integration.py
 347a5fdbaeff1cdada13c523e160262c5d39ab9c3f84fd6f512e1b39f53d248d  build/local-arm64/tests/test_v13_phase21_guard.py
 9876fcb79e59ef2590f12dac631621912598c0345a28c544cfd7789dfde2ee5f  build/local-arm64/tests/test_v13_phase21_native.py
 b74efe3811eaf34fec11475dd1c5736a7429029a9d20dbd0bad66678583345fd  build/local-arm64/tests/test_v13_phase22_wireguard.py

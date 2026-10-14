@@ -17,7 +17,7 @@ grep -qF 'Rockchip RK3576' \
 grep -qF 'd.soc' \
   openwrt/package/custom/luci-app-r76s-status/files/controller/r76s_status.lua
 
-grep -qF '<%=data.soc%>' \
+grep -qF 'luci.util.pcdata(data.soc' \
   openwrt/package/custom/luci-app-r76s-status/files/view/r76s_status/status.htm
 
 grep -qF 'PassWall2' \

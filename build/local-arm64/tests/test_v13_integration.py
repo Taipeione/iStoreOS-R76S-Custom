@@ -21,6 +21,9 @@ class V13Integration(unittest.TestCase):
                 env={**os.environ, 'R76S_REPO_ROOT': str(ROOT)},
                 capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            verify = next((ROOT/'build/local-arm64/stages').glob('17-*.sh'))
+            checked=subprocess.run(['bash','-e',str(verify)],cwd=work,capture_output=True,text=True)
+            self.assertEqual(checked.returncode,0,checked.stdout+checked.stderr)
             package = work / 'openwrt/package/custom/luci-app-r76s-status'
             controller = package / 'files/controller/r76s_adguardhome.lua'
             view = package / 'files/view/r76s_adguardhome/status.htm'
