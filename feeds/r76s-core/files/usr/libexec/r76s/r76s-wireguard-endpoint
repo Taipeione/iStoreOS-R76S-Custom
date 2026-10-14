@@ -4,6 +4,16 @@ local sys=require 'luci.sys'
 local uci=require('uci').cursor()
 local function safe(s) return type(s)=='string' and s:match('^[%w%.:%-]+$') end
 local function q(s) return "'"..s.."'" end
+local function allow_endpoint(address,port)
+    local object='inet r76s_ip6_guard wg6'
+    local element=address..' . '..port
+    -- nft add on an existing element succeeds without extending its timeout.
+    -- Ensure existence, then reset the lease in a single netlink transaction.
+    if sys.call("nft add element "..object.." '{ "..element.." timeout 5m }' >/dev/null 2>&1")~=0 then return false end
+    local remove='delete element '..object..' { '..element..' }'
+    local add='add element '..object..' { '..element..' timeout 5m }'
+    return sys.call("printf '%s\\n' "..q(remove)..' '..q(add)..' | nft -f - >/dev/null 2>&1')==0
+end
 local ipv6=uci:get('r76s','main','endpoint_ipv6')=='1'
 uci:foreach('network','interface',function(interface)
     if interface.proto~='wireguard' then return end
@@ -25,7 +35,7 @@ uci:foreach('network','interface',function(interface)
         end
         local live6,liveport=(endpoint or ''):match('^%[([%x:]+)%]:(%d+)$')
         if live6 and uci:get('r76s_ip_policy','main','ipv6_guard')=='1' then
-            sys.call("nft add element inet r76s_ip6_guard wg6 '{ "..live6..' . '..liveport.." timeout 5m }' >/dev/null 2>&1")
+            if not allow_endpoint(live6,liveport) then return end
         end
         if handshakes[key] and now-handshakes[key]<180 then return end
         local v6=sys.exec('resolveip -6 -t 3 '..q(peer.endpoint_host)..' 2>/dev/null'):match('([%x:]+)')
@@ -36,8 +46,7 @@ uci:foreach('network','interface',function(interface)
         if addr then
             if addr:sub(1,1)=='[' and uci:get('r76s_ip_policy','main','ipv6_guard')=='1' then
                 -- Guard exception is only the encrypted router-originated UDP endpoint.
-                local element=v6..' . '..port..' timeout 5m'
-                if sys.call("nft add element inet r76s_ip6_guard wg6 '{ "..element.." }' >/dev/null 2>&1")~=0 then return end
+                if not allow_endpoint(v6,port) then return end
             end
             sys.call('wg set '..q(name)..' peer '..q(key)..' endpoint '..q(addr..':'..port)..' >/dev/null 2>&1')
         end

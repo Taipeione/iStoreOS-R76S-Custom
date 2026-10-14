@@ -105,7 +105,8 @@ function sys.call(cmd) calls[#calls+1]=cmd;return 0 end
 package.preload['uci']=function()return {cursor=function()return uci end} end
 package.preload['luci.sys']=function()return sys end
 dofile(arg[1])
-assert(#calls==1 and calls[1]:find('2001:db8::1 . 51820 timeout 5m',1,true))
+assert(#calls==2 and calls[1]:find('2001:db8::1 . 51820 timeout 5m',1,true))
+assert(calls[2]:find('delete element',1,true) and calls[2]:find('add element',1,true))
 '''
         result=subprocess.run([LUA,'-',str(CORE/'r76s-wireguard-endpoint')],input=code,capture_output=True,text=True)
         self.assertEqual(result.returncode,0,result.stderr)

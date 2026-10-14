@@ -38,7 +38,7 @@ bba011f55105480c87e15e5f79dced2e371fe1b32d141cf68655defe2f59973b  build/local-ar
 9b7201d4ba9d7696ac8d1a6288869e3891c47e1ae2355a93dd8764d7ac9dc9ca  build/local-arm64/stages/16-install-r76s-v1-1-1-clean-defaults-dual-42-rule-librari.sh
 45a9edc1a1085cae25b171a5176e0f989c9518a163ae07ccb660eb7619c337ed  build/local-arm64/stages/17-verify-r76s-status-package.sh
 5a6b02ace29b6490b7240f7e16f57c3eca14b692f1341899661772263b88148b  build/local-arm64/stages/18-apply-r76s-config-and-verify-v1-1-1-selections.sh
-478fac6e8a82083647abf92d8d17878d362372327b1501896d5ebfe5b6e00750  build/local-arm64/stages/19-verify-final-r76s-configuration.sh
+09116e8236607f08864f0af3978f459d34932608917d15a98e4c1ba32b71464f  build/local-arm64/stages/19-verify-final-r76s-configuration.sh
 a50440a8bddf1c5d8c87067dfb3e99627a1f87e039bf02224285a4e8e917ccd5  build/local-arm64/stages/20-build-firmware.sh
 e0ef2f075f74f41e27b9e0ec260e1d4f5a4ba028956b206b0afdfbb4022cc9a7  build/local-arm64/stages/21-verify-built-passwall2-chinese-package-and-rule-default.sh
 14bb3d3eef616f53899ac3612bb10fd051f6bc06c05413c4f1a51e01567d1a54  build/local-arm64/stages/22-locate-r76s-firmware.sh
@@ -63,7 +63,7 @@ b74efe3811eaf34fec11475dd1c5736a7429029a9d20dbd0bad66678583345fd  build/local-ar
 dfcb490e59b82200bad09c25388658a49923fe36151ff4ae7a8ef33422146904  build/local-arm64/tests/test_v13_phase23_diagnostics.py
 665b41ad85c61a22c85c1d2eb379d87a59abfb6cc6ed238a957887848d985c06  build/local-arm64/tests/test_v13_phase2_dns.py
 85a7598de2c723f4d51538999b8ba2070204ec742f1b4b8108a375886f86003f  build/local-arm64/tests/test_v13_phase2_ui.py
-b684ccf24e30d2ebe1500cdc8013f177209d5e3fc7eea8a40a4b1ecf07f530d5  build/local-arm64/tests/test_v14_core.py
+077f05956354b8bb2b2ec1577724af0b3358e7a2c4bfecc0dde0b195f0ae3210  build/local-arm64/tests/test_v14_core.py
 fb1a168b6206f5fd39b2e4592a3af77a8ff3204175c6e07e0b88c238d2dfeabd  build/local-arm64/tests/v13-diagnostics-test.lua
 1e65c1ef1c41123273f6d21aa77fc33e15284ef3f2370d8f16292dc2c5838620  build/local-arm64/tests/v13-services-test.lua
 152c92bdfc310a71f4fc5e70ba2a26f77218e0890119f9c9dd5ce74d26814ecc  build/local-arm64/tests/v13-wireguard-client-test.js
@@ -142,7 +142,7 @@ a86206085b928ef102b5770ff4d1ef862c26b0c366cb39e8a9812c5ab5802c65  feeds/r76s-cor
 f7be4a53db8a6237eb789bb0fdddc5f8b39d4fef6d80445e4a4e29d7a75c6fdf  feeds/r76s-core/files/usr/libexec/r76s/r76s-ota
 7e3306d045fc8e74d07965822faa89f43b47b1733953f5f4b1b6b439072c210d  feeds/r76s-core/files/usr/libexec/r76s/r76s-service-manager
 33f36575d6d6c87d706796726295062f4f6fd7c2e28e4cc460e41272d4ea5cc9  feeds/r76s-core/files/usr/libexec/r76s/r76s-watchdog
-16644ff7887cd04cb3cf3b19cfc311888db1115544c3b2f5d842787461ee39fa  feeds/r76s-core/files/usr/libexec/r76s/r76s-wireguard-endpoint
+5caa704be684ace02628b06fe5b756aa2934d8c76e651a416b4def6eb5178470  feeds/r76s-core/files/usr/libexec/r76s/r76s-wireguard-endpoint
 0b1f41731b880214f082f8162e79dbc3c44d7572492b1db9f30d43df59113749  files/etc/config/r76s_ota_state
 037e299dcfaddef85e018cd03d18d3d9de8dc17e0f2f77719349725e297a937b  files/etc/init.d/r76s-ota-restore
 034202d7e67861d92169b82c3d1eb7406f8a62c5c2472f7fa559b94d8b42b0e0  files/etc/uci-defaults/99-r76s-first-root-password
