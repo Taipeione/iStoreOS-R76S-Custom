@@ -115,7 +115,7 @@ fi
 echo
 echo "===== FINAL V1.1.1 ROOTFS OVERLAY ASSERTIONS ====="
 test -x files/usr/libexec/r76s/r76s-ota-preserve-state
-test -x files/usr/bin/r76s-health
+test -x package/custom/r76s-core/files/usr/bin/r76s-health
 grep -qF 'r76s_ota_state.state.pending' files/usr/libexec/r76s/r76s-ota-preserve-state
 test -s files/www/luci-static/resources/ui.js
 grep -qF 'timeout: 0' files/www/luci-static/resources/ui.js
