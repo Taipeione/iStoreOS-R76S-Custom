@@ -1,6 +1,6 @@
 #!/bin/sh
 # R76S plugin online update center. Firmware/core packages are deliberately
-# outside this command; they are upgraded only by the signed sysupgrade path.
+# outside this command; they are upgraded only by the signed full image path.
 set -u
 PATH='/usr/sbin:/usr/bin:/sbin:/bin'
 TMPROOT='/tmp/r76s-component-updater'
