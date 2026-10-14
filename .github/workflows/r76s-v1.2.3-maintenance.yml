@@ -1,0 +1,222 @@
+# R76S V1.2.3 cloud-only build. GitHub Actions compiles; Mac mini only edits source.
+name: R76S Build V1.2.3
+run-name: "R76S-V1.2.3 #${{ github.run_number }}"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: r76s-v123-cloud-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.repository == 'Taipeione/iStoreOS-R76S-Custom' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 350
+    defaults:
+      run:
+        shell: bash
+        working-directory: firmware
+    env:
+      R76S_PUBLIC_RELEASE: "1"
+      R76S_CLEAN_FLASH_PASSWORD_HASH: ""
+      R76S_JOBS: "4"
+      R76S_CCACHE_SIZE: "1G"
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - name: Checkout maintenance patch
+        uses: actions/checkout@v4
+        with:
+          path: maintenance
+          persist-credentials: false
+
+      - name: Checkout V1.2.2 baseline
+        uses: actions/checkout@v4
+        with:
+          ref: 1daed16ac79d66666847bca6e4c29bc5f4c88b95
+          path: firmware
+          persist-credentials: false
+
+      - name: Apply isolated V1.2.3 OTA fix
+        run: python3 ../maintenance/build/maintenance/prepare-v123.py --repo .
+
+      - name: Validate source before cloud build
+        run: |
+          set -euo pipefail
+          python3 build/local-arm64/preflight.py --repo .
+          python3 -m unittest discover -s build/local-arm64/tests -q
+          python3 build/local-arm64/public-release/install.py --repo . --check
+          test "${R76S_PUBLIC_RELEASE}" = '1'
+          test -z "${R76S_CLEAN_FLASH_PASSWORD_HASH}"
+          echo 'V12_CLOUD_PREFLIGHT=PASS'
+
+      - name: Prepare GitHub runner disk space
+        run: |
+          set -euo pipefail
+          # Remove unrelated preinstalled packages through apt, preserving sources.
+          mapfile -t UNUSED_PACKAGES < <(
+            dpkg-query -W -f='${binary:Package} ${db:Status-Status}\n' |
+              awk '$2 == "installed" && $1 ~ /^(dotnet-|aspnetcore-|netstandard-|llvm-|clang-|google-cloud-cli|azure-cli|powershell|firefox|ghc|libghc-|mysql-|postgresql-|temurin-|openjdk-|libboost-|microsoft-edge-|google-chrome-|mongodb-|mssql-|mono-|libmono-)/ {print $1}'
+          )
+          if [ "${#UNUSED_PACKAGES[@]}" -gt 0 ]; then
+            sudo apt-get purge -y "${UNUSED_PACKAGES[@]}"
+          fi
+          sudo apt-get autoremove -y
+          sudo apt-get clean
+          # This job builds directly on the host; preloaded container images are unused.
+          sudo docker image prune --all --force
+          sudo --preserve-env=GITHUB_ACTIONS python3 build/local-arm64/prepare-cloud-disk.py
+          df -h /
+          df -Pk /
+          # Prior run exhausted ~18 GiB before finishing package compilation.
+          test "$(df -Pk / | awk 'END {print $4}')" -gt 33554432
+
+      - name: Install x86_64 cross-compile dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang flex bison gawk gettext gcc-multilib \
+            git libelf-dev libncurses-dev libssl-dev python3 \
+            python3-dev python3-pyelftools python3-setuptools \
+            rsync swig time unzip squashfs-tools util-linux \
+            zlib1g-dev file wget curl xsltproc zstd pigz \
+            ca-certificates ccache patch pkg-config xz-utils \
+            bzip2 openssl fdisk jq
+          python3 -c 'from elftools.elf.elffile import ELFFile; print("ELFTOOLS=PASS")'
+
+      - name: Install pinned Go 1.26.6 host toolchain
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.6'
+          cache: false
+
+      - name: Verify GitHub host Go
+        run: |
+          set -euo pipefail
+          test "$(go env GOVERSION)" = "go1.26.6"
+          test "$(go env GOARCH)" = "amd64"
+          echo "GITHUB_GO126_HOST=PASS"
+
+      - name: Install matching prebuilt host Node for UI build dependencies
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20.20.2'
+          package-manager-cache: false
+
+      - name: Restore ccache from prior GitHub builds
+        id: restore_ccache
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.ccache
+          key: r76s-v12-x64-ccache-${{ hashFiles('firmware/config/R76S.config') }}-${{ github.sha }}
+          restore-keys: |
+            r76s-v12-x64-ccache-${{ hashFiles('firmware/config/R76S.config') }}-
+            r76s-v12-x64-ccache-
+
+      - name: Prepare clean GitHub build workspace and pin iStoreOS source
+        run: |
+          set -euo pipefail
+          sudo install -d -m 0755 -o "$(id -u)" -g "$(id -g)" /home/builder
+          sudo install -d -m 0755 -o "$(id -u)" -g "$(id -g)" /home/builder/work
+          test ! -e /r76s-repo
+          sudo ln -s "$GITHUB_WORKSPACE/firmware" /r76s-repo
+          mkdir -p "$HOME/.ccache" /home/builder/.cache
+          ln -s "$HOME/.ccache" /home/builder/.ccache
+          ccache -M "$R76S_CCACHE_SIZE" || true
+          cd /home/builder/work
+          git init -q openwrt
+          git -C openwrt remote add origin https://github.com/istoreos/istoreos.git
+          git -C openwrt -c http.version=HTTP/1.1 fetch --depth=1 origin fb971407ffd9a094e6f16d9c029f1f580ed5c2ad
+          git -C openwrt checkout -q --detach FETCH_HEAD
+          test "$(git -C openwrt rev-parse HEAD)" = fb971407ffd9a094e6f16d9c029f1f580ed5c2ad
+          echo 'ISTOREOS_PINNED_SOURCE=PASS'
+
+      - name: Build V1.2.3 using all existing 27 guarded stages
+        run: |
+          set -euo pipefail
+          export GITHUB_SHA="${{ github.sha }}"
+          echo "BUILD_SOURCE_SHA=$GITHUB_SHA"
+          export V=s
+          echo "BUILD_VERBOSE=$V"
+          test "${R76S_PUBLIC_RELEASE}" = 1
+          test -z "${R76S_CLEAN_FLASH_PASSWORD_HASH}"
+          V=s bash build/local-arm64/candidate-inside.sh
+          echo 'BUILD_COMPLETE=YES'
+
+      - name: Verify V1.2.3 artifacts and SHA256
+        run: |
+          set -euo pipefail
+          cd /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.2.3
+          test -s R76S-V1.2.3-TF-squashfs.img.gz
+          test -s version.latest
+          test -s version.index
+          grep -qxF '24.10.8-R76S-V1.2.3' version.index
+          grep -qF '[24.10.8-R76S-V1.2.3](R76S-V1.2.3-TF-squashfs.img.gz)' version.latest
+          cp "$GITHUB_WORKSPACE/firmware/build/maintenance-v123/r76s-ota-preserve-state" .
+          cp "$GITHUB_WORKSPACE/maintenance/docs/R76S-V1.2.3-OTA.md" OTA_UPGRADE_GUIDE.md
+          sha256sum r76s-ota-preserve-state > ota-helper.sha256
+          sha256sum -c ota-helper.sha256
+          sha256sum -c sha256sums
+          echo 'GITHUB_V12_IMAGE_STATIC_AUDIT=PASS'
+          test -s ota.json
+          sha256sum -c sha256
+          echo 'GITHUB_V12_RELEASE_ASSETS=PASS'
+
+      - name: Trim ccache before saving GitHub cache
+        if: always()
+        run: |
+          export CCACHE_DIR="$HOME/.ccache"
+          ccache -M "$R76S_CCACHE_SIZE" || true
+          ccache -c || true
+          ccache -s || true
+
+      - name: Save compiler cache even after a failed build
+        if: always() && steps.restore_ccache.outputs.cache-primary-key != '' && steps.restore_ccache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.ccache
+          key: ${{ steps.restore_ccache.outputs.cache-primary-key }}
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: R76S-V1.2.3-cloud-diagnostics-${{ github.run_number }}
+          path: |
+            /home/builder/work/logs/
+            /home/builder/work/r76s-build-diagnostics/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload V1.2.3 firmware
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: R76S-V1.2.3-firmware-${{ github.run_number }}
+          path: /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.2.3/*
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Publish R76S-V1.2.3 GitHub Release and OTA assets
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.2.3
+          sha256sum -c sha256
+          shopt -s nullglob
+          assets=( *.img *.bin *.gz ota.json sha256 sha256sums version.latest version.index ota.footer.html BOOTLOADER_INFO.txt r76s-ota-preserve-state ota-helper.sha256 OTA_UPGRADE_GUIDE.md )
+          # Never overwrite a published version or its OTA assets.
+          gh release create R76S-V1.2.3 "${assets[@]}" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title R76S-V1.2.3 --notes-file OTA_UPGRADE_GUIDE.md --draft
+          gh release edit R76S-V1.2.3 --repo "$GITHUB_REPOSITORY" --draft=false --latest=false
