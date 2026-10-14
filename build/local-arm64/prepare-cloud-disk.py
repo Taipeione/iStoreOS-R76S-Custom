@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Free unrelated compiled SDK assets on a disposable GitHub runner only."""
 import os
-import shutil
+import subprocess
 from pathlib import Path
 
 SDK_ROOTS = tuple(map(Path, (
@@ -35,7 +35,7 @@ def main():
         # These SDKs are preinstalled convenience toolchains and are not used
         # by the pinned OpenWrt cross build. Removing each exact root avoids a
         # multi-million-file Python walk while leaving the workspace untouched.
-        shutil.rmtree(root)
+        subprocess.run(['rm', '-rf', '--', str(root)], check=True)
         print(f'UNUSED_PREINSTALLED_SDK_ROOT={root}', flush=True)
     print(f'RECLAIMED_SDK_ALLOCATED_BYTES={released}', flush=True)
 
