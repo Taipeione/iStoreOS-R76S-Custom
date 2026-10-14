@@ -1,0 +1,17 @@
+/etc/config/r76s
+/etc/config/network
+/etc/config/firewall
+/etc/config/dhcp
+/etc/config/ddns
+/etc/config/passwall
+/etc/config/passwall2
+/etc/config/smartdns
+/etc/config/r76s_ota_state
+/etc/config/r76s_ip_policy
+/etc/passwall/
+/etc/passwall2/
+/etc/smartdns/
+/etc/adguardhome.yaml
+/etc/adguardhome/
+/etc/r76s/
+/etc/r76s-ip6-guard/

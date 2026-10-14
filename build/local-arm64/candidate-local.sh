@@ -23,7 +23,7 @@ fi
 if [ "$MODE" = status ]; then
   docker run --rm --platform linux/arm64 --user 1000:1000 \
     --mount type=volume,src=r76s-v12-work,dst=/home/builder/work,readonly \
-    "$IMAGE" bash -c 'find /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.3.2 -maxdepth 1 -type f -printf "%f %s bytes\n" 2>/dev/null || true'
+    "$IMAGE" bash -c 'find /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.4.0 -maxdepth 1 -type f -printf "%f %s bytes\n" 2>/dev/null || true'
   exit 0
 fi
 # No assumptions about GitHub account ownership: derive from the actual repository origin.
@@ -68,7 +68,7 @@ if [[ ! "$R76S_CLEAN_FLASH_PASSWORD_HASH" =~ ^\$6\$[A-Za-z0-9./]{8,16}\$[A-Za-z0
 fi
 fi
 # Required staging inputs must be present, and the host repository stays read-only.
-for item in config/R76S.config feeds/luci-app-r76s-status/Makefile feeds/luci-app-r76s-updater/Makefile files/etc/uci-defaults/99-r76s-v2-defaults; do
+for item in config/R76S.config feeds/luci-app-r76s-status/Makefile feeds/luci-app-r76s-updater/Makefile config/rules/r76s-rules.json; do
   test -s "$ROOT/$item" || { echo "Missing required input: $item" >&2; exit 2; }
 done
 export GITHUB_REPOSITORY

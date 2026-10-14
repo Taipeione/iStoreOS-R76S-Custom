@@ -42,7 +42,7 @@ class Phase2UI(unittest.TestCase):
 
     @unittest.skipUnless(NODE, 'Node syntax checker not available')
     def test_page_javascript_syntax(self):
-        pages = [ROOT/'build/local-arm64/v12-overlays/ota/index.htm',
+        pages = [ROOT/'feeds/luci-app-r76s-updater/files/view/r76s_updater/index.htm',
                  FILES/'view/r76s_adguardhome/status.htm']
         for path in pages:
             for script in re.findall(r'<script[^>]*>(.*?)</script>', path.read_text(), re.S):

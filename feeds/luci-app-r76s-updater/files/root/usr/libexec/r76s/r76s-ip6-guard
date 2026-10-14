@@ -56,6 +56,7 @@ render() {
     printf ' }\n'
     # Retain learned addresses and their TTL across firewall/network reloads.
     printf 'add set inet %s direct6 { type ipv6_addr; flags timeout; timeout 1h; size 65536; }\n' "$TABLE"
+    printf 'add set inet %s wg6 { type ipv6_addr . inet_service; flags timeout; timeout 5m; }\n' "$TABLE"
     for chain in forward output; do
         printf 'add chain inet %s %s { type filter hook %s priority -5; policy accept; }\n' "$TABLE" "$chain" "$chain"
         printf 'flush chain inet %s %s\n' "$TABLE" "$chain"
@@ -68,6 +69,9 @@ render() {
         printf 'add rule inet %s %s meta l4proto ipv6-icmp icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem, nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } return\n' "$TABLE" "$chain"
         printf 'add rule inet %s %s ip6 daddr @cn6 return\n' "$TABLE" "$chain"
         printf 'add rule inet %s %s ip6 daddr @direct6 return\n' "$TABLE" "$chain"
+        if [ "$chain" = output ]; then
+            printf 'add rule inet %s %s meta l4proto udp ip6 daddr . udp dport @wg6 return\n' "$TABLE" "$chain"
+        fi
         # No established/related or proxy-mark blanket exception.
         printf 'add rule inet %s %s counter drop comment "%s_DENY"\n' "$TABLE" "$chain" "$MARKER"
     done

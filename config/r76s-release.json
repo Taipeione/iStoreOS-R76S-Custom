@@ -1,0 +1,12 @@
+{
+  "version": "R76S-V1.4.0",
+  "openwrt_version": "24.10.8",
+  "channel": "stable",
+  "target": "rockchip/armv8",
+  "supported_devices": [
+    "friendlyarm,nanopi-r76s"
+  ],
+  "baseline_commit": "1daed16ac79d66666847bca6e4c29bc5f4c88b95",
+  "baseline_patch": "V1.2.3 OTA initialization fix",
+  "hardware_validation": "not_performed"
+}

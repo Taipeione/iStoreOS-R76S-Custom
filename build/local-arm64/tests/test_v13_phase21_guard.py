@@ -162,7 +162,7 @@ class GuardTransactions(unittest.TestCase):
         code=stage.split("<<'PY_RULES'\n",1)[1].split('\nPY_RULES\n',1)[0]
         paths=[self.root/'pw',self.root/'pw2']
         for path in paths:path.write_text("config global 'global'\n")
-        result=subprocess.run(['python3','-',str(ROOT/'files/etc/uci-defaults/99-r76s-v2-defaults'),*map(str,paths)],
+        result=subprocess.run(['python3','-',str(ROOT/'config/rules/r76s-rules.json'),*map(str,paths)],
                               input=code,text=True,capture_output=True)
         self.assertEqual(result.returncode,0,result.stderr)
         import re

@@ -1,0 +1,135 @@
+#!/usr/bin/lua
+-- Explicit DNS modes, reversible configuration snapshots and conservative fallback.
+local fs=require 'nixio.fs'
+local sys=require 'luci.sys'
+local json=require 'luci.jsonc'
+local uci=require('uci').cursor()
+local yaml=require 'lyaml'
+local mode=arg[2]
+local base='/etc/r76s/dns'
+local function fail(message) io.stderr:write(message..'\n'); os.exit(1) end
+local function call(command) return sys.call(command..' >/dev/null 2>&1')==0 end
+local function quote(s) return "'"..s:gsub("'", "'\\''").."'" end
+local function probe(port)
+    return call("dig @127.0.0.1 -p "..port.." example.com A +time=2 +tries=1 +noall +comments | grep -q 'status: NOERROR'")
+end
+local section
+uci:foreach('dhcp','dnsmasq',function(s) section=section or s['.name'] end)
+if not section then fail('dnsmasq configuration absent') end
+local function route(port)
+    uci:set('dhcp',section,'noresolv','1')
+    uci:set('dhcp',section,'server',{'127.0.0.1#'..port})
+    assert(uci:commit('dhcp'),'dnsmasq commit failed')
+    assert(call('/etc/init.d/dnsmasq restart'),'dnsmasq restart failed')
+end
+local active=uci:get('r76s','main','dns_active') or 'system'
+if arg[1]=='status' then
+    print(json.stringify({requested=uci:get('r76s','main','dns_mode') or 'system',active=active,
+        smartdns=probe(6053),adguard=probe(3053)})); os.exit(0)
+end
+if arg[1]~='set' and arg[1]~='health' then fail('usage: set system|smartdns|adguard|combined | health | status') end
+if not fs.mkdir('/tmp/r76s-dns.lock') then fail('DNS transaction already running') end
+local function finish(ok,message)
+    fs.rmdir('/tmp/r76s-dns.lock')
+    if not ok then fail(message) end
+end
+local ok,err=pcall(function()
+    if arg[1]=='health' then
+        local requested=uci:get('r76s','main','dns_mode') or 'system'
+        if requested=='system' then return end
+        local desired
+        if (requested=='adguard' or requested=='combined') and probe(3053) then desired='3053'
+        elseif (requested=='combined' or requested=='smartdns') and probe(6053) then desired='6053'
+        else desired='9' end -- local reject port: never silently leak foreign queries to WAN DNS.
+        local label=desired=='9' and 'failed' or (desired=='3053' and requested or 'smartdns')
+        if active~=label then
+            route(desired)
+            uci:set('r76s','main','dns_active',label); assert(uci:commit('r76s'))
+        end
+        return
+    end
+    assert(({system=true,smartdns=true,adguard=true,combined=true})[mode],'invalid DNS mode')
+    for _,p in ipairs({'dhcp','smartdns','r76s'}) do
+        local changes=uci:changes(p)
+        assert(not changes or not next(changes),'save pending UCI changes first: '..p)
+    end
+    fs.mkdirr(base); fs.chmod('/etc/r76s',448); fs.chmod(base,448)
+    local original=base..'/original.json'
+    if mode~='system' and not fs.access(original) then
+        assert(fs.writefile(original,json.stringify({section=section,noresolv=uci:get('dhcp',section,'noresolv'),server=uci:get('dhcp',section,'server')})),'cannot save original DNS configuration')
+        fs.chmod(original,384)
+    end
+    -- Back up exactly the files this operation owns before any changes.
+    local backup=base..'/transaction'
+    fs.mkdirr(backup)
+    for _,p in ipairs({'dhcp','smartdns','r76s'}) do assert(fs.copy('/etc/config/'..p,backup..'/'..p)) end
+    local agh=uci:get('r76s','main','agh_config') or '/etc/adguardhome.yaml'
+    assert(agh=='/etc/adguardhome.yaml' or agh=='/etc/adguardhome/adguardhome.yaml','select a supported AGH YAML path')
+    local agh_present=fs.access(agh)
+    if agh_present then assert(fs.copy(agh,backup..'/agh.yaml')); fs.chmod(backup..'/agh.yaml',384) end
+    local enabled,running={},{}
+    for _,p in ipairs({'smartdns','adguardhome'}) do enabled[p]=call('/etc/init.d/'..p..' enabled'); running[p]=call(p=='smartdns' and "pgrep -f '[s]martdns'" or 'pgrep -x AdGuardHome') end
+    local applied,why=pcall(function()
+        if mode=='system' then
+            if fs.access(original) then
+                local saved=assert(json.parse(fs.readfile(original)))
+                assert(saved.section==section,'dnsmasq section changed; restore manually')
+                for _,key in ipairs({'noresolv','server'}) do
+                    if saved[key] then uci:set('dhcp',section,key,saved[key]) else uci:delete('dhcp',section,key) end
+                end
+                assert(uci:commit('dhcp'))
+            end
+            assert(call('/etc/init.d/dnsmasq restart'))
+        else
+            if mode=='smartdns' or mode=='combined' then
+                local sd
+                uci:foreach('smartdns','smartdns',function(s) sd=sd or s['.name'] end)
+                assert(sd,'SmartDNS configuration absent')
+                uci:set('smartdns',sd,'enabled','1'); uci:set('smartdns',sd,'port','6053')
+                uci:set('smartdns',sd,'auto_set_dnsmasq','0'); assert(uci:commit('smartdns'))
+                assert(call('/usr/libexec/r76s/r76s-ip-family-policy enable'),'configure cn/foreign SmartDNS groups first')
+                assert(call('/etc/init.d/smartdns enable') and call('/etc/init.d/smartdns restart'))
+                assert(probe(6053),'SmartDNS query failed')
+            end
+            if mode=='adguard' or mode=='combined' then
+                assert(agh_present,'configure AdGuard Home first')
+                local data=yaml.load(assert(fs.readfile(agh)))
+                assert(type(data)=='table' and type(data.dns)=='table','invalid AGH YAML')
+                if mode=='combined' then
+                    data.dns.upstream_dns={'127.0.0.1:6053'}
+                    data.dns.fallback_dns={}
+                else
+                    assert(type(data.dns.upstream_dns)=='table' and #data.dns.upstream_dns>0,'AGH upstream absent')
+                    for _,up in ipairs(data.dns.upstream_dns) do
+                        assert(not up:match('127%.0%.0%.1[:#]?53$') and up~='127.0.0.1' and up~='::1','AGH upstream loops to dnsmasq')
+                    end
+                end
+                data.dns.port=3053; data.dns.bind_hosts={'127.0.0.1'}
+                -- Stop before replacing YAML: AGH writes its configuration on shutdown.
+                assert(call('/etc/init.d/adguardhome stop'))
+                assert(fs.writefile(agh,yaml.dump({data}))); fs.chmod(agh,384)
+                assert(call('/etc/init.d/adguardhome enable') and call('/etc/init.d/adguardhome start'))
+                assert(probe(3053),'AGH query failed')
+            end
+            route(mode=='smartdns' and '6053' or '3053')
+        end
+        uci:set('r76s','main','dns_mode',mode); uci:set('r76s','main','dns_active',mode)
+        assert(uci:commit('r76s'))
+    end)
+    if not applied then
+        call('/etc/init.d/adguardhome stop')
+        for _,p in ipairs({'dhcp','smartdns','r76s'}) do
+            assert(fs.copy(backup..'/'..p,'/etc/config/'..p)); uci:unload(p)
+        end
+        if agh_present then assert(fs.copy(backup..'/agh.yaml',agh)) end
+        for _,p in ipairs({'smartdns','adguardhome'}) do
+            call('/etc/init.d/'..p..(enabled[p] and ' enable' or ' disable'))
+            call('/etc/init.d/'..p..(running[p] and ' restart' or ' stop'))
+        end
+        call('/etc/init.d/dnsmasq restart')
+        error('DNS transaction restored: '..tostring(why))
+    end
+    if mode=='system' then fs.remove(original) end
+    print('DNS_MODE='..mode)
+end)
+finish(ok,tostring(err))

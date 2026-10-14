@@ -30,11 +30,11 @@ set -eu
 field="$(sed -n 's/^root:\([^:]*\):.*/\1/p' /etc/shadow)"
 [ "$field" = '!' ] || exit 0  # OTA with existing root hash must not be overwritten
 # REQUIRE physical serial console on FIRST boot; no passphrase is printed to syslog/network.
-true
+[ -c /dev/ttyS0 ] || { echo 'R76S: UART not detected; root remains locked' >&2; exit 1; }
 command -v openssl >/dev/null 2>&1 || { echo 'R76S: openssl absent; root remains locked' >&2; exit 1; }
 command -v base64 >/dev/null 2>&1 || exit 1
-secret="password"
-[ -n "$secret" ] || exit 1
+secret="$(dd if=/dev/urandom bs=24 count=1 2>/dev/null | base64 | tr -d '\r\n')"
+[ "${#secret}" -ge 32 ] || exit 1
 hash="$(printf '%s\n' "$secret" | openssl passwd -6 -stdin)"
 case "$hash" in \$6\$*) ;; *) exit 1 ;; esac
 # On initial setup root is deliberately disabled. Replace only that exact field.
@@ -43,12 +43,11 @@ chmod 0600 /etc/shadow
 [ "$(sed -n 's/^root:\([^:]*\):.*/\1/p' /etc/shadow)" = "$hash" ] || exit 1
 {
   printf '\r\n================ R76S FIRST BOOT ================\r\n'
-  printf 'Default login:\r\n'
-  printf 'username: root\r\n'
-  printf 'password: password\r\n'
-  printf 'Please change the password after first login.\r\n'
+  printf 'Device-generated root password (record it securely):\r\n%s\r\n' "$secret"
+  printf 'Set a new password immediately after login: passwd\r\n'
+  printf 'Password appears ONCE on local physical UART console only.\r\n'
   printf '=================================================\r\n'
-} > /etc/banner
+} > /dev/ttyS0 || exit 1
 unset secret hash
 exit 0
 R76S_PUBLIC_SERIAL
@@ -107,7 +106,7 @@ PY_LUCI_LANG
 grep -q "option lang 'zh_cn'" "$LUCI_CFG"
 
 echo "===== Build exact V2.2.5 42-rule library into PassWall + PassWall2 ROM defaults ====="
-RULE_SOURCE="files/etc/uci-defaults/99-r76s-v2-defaults"
+RULE_SOURCE="config/rules/r76s-rules.json"
 PW1_DEFAULT="openwrt/package/passwall-luci/luci-app-passwall/root/usr/share/passwall/0_default_config"
 PW2_DEFAULT="openwrt/package/passwall2-luci/luci-app-passwall2/root/usr/share/passwall2/0_default_config"
 test -s "$RULE_SOURCE"
@@ -115,325 +114,8 @@ test -s "$PW1_DEFAULT"
 test -s "$PW2_DEFAULT"
 
 python3 - "$RULE_SOURCE" "$PW1_DEFAULT" "$PW2_DEFAULT" <<'PY_RULES'
-from pathlib import Path
-import re, sys
-
-source = Path(sys.argv[1]).read_text()
-pw1 = Path(sys.argv[2])
-pw2 = Path(sys.argv[3])
-
-def parse_rules(text):
-    lines = text.splitlines()
-    rules = []
-    i = 0
-    while i < len(lines):
-        m = re.match(r"\s*uci -q set passwall\.([A-Za-z0-9_]+)='shunt_rules'\s*$", lines[i])
-        if not m:
-            i += 1
-            continue
-        name = m.group(1)
-        props = []
-        i += 1
-        while i < len(lines):
-            if re.match(r"\s*uci -q delete passwall\.", lines[i]) or re.match(r"\s*uci -q set passwall\.[A-Za-z0-9_]+='shunt_rules'\s*$", lines[i]):
-                break
-            pm = re.match(r"\s*uci -q set passwall\." + re.escape(name) + r"\.([A-Za-z0-9_]+)='(.*)$", lines[i])
-            if pm:
-                key = pm.group(1)
-                value = pm.group(2)
-                while not value.endswith("'"):
-                    i += 1
-                    if i >= len(lines):
-                        raise SystemExit(f'ERROR: unterminated value for {name}.{key}')
-                    value += "\n" + lines[i]
-                value = value[:-1]
-                if "'" in value:
-                    raise SystemExit(f"ERROR: single quote in {name}.{key}; parser must be extended")
-                props.append((key, value))
-            i += 1
-        rules.append((name, props))
-    return rules
-
-rules = parse_rules(source)
-if len(rules) != 42:
-    raise SystemExit(f'ERROR: expected 42 source rules, got {len(rules)}')
-names = [n for n,_ in rules]
-if len(set(names)) != 42:
-    raise SystemExit('ERROR: duplicate rule names in V1.1.1 source')
-
-# R76S-V1.1.1 canonical shunt rule order.
-desired_order = [
-    'WeChatTencent',
-    'ChatGPTLogin',
-    'OpenAI',
-    'GitHub',
-    'GoogleWork',
-    'GoogleAI',
-    'YouTube',
-    'Netflix',
-    'Disney',
-    'MaxHBO',
-    'PrimeVideo',
-    'Twitter',
-    'Telegram',
-    'Google',
-    'TikTok',
-    'PlayStation',
-    'Nintendo',
-    'Instagram',
-    'Xbox',
-    'Signal',
-    'Spotify',
-    'Slack',
-    'DirectGame',
-    'ProxyGame',
-    'AIGC',
-    'Streaming',
-    'Proxy',
-    'Direct',
-    'LINE',
-    'WhatsApp',
-    'Discord',
-    'Facebook',
-    'Reddit',
-    'Claude',
-    'Perplexity',
-    'Copilot',
-    'Grok',
-    'Apple',
-    'Microsoft',
-    'Zoom',
-    'Notion',
-    'Dropbox',
-]
-
-if len(desired_order) != 42 or len(set(desired_order)) != 42:
-    raise SystemExit('ERROR: V1.1.1 desired rule order must contain 42 unique names')
-
-missing = [n for n in desired_order if n not in names]
-extra = [n for n in names if n not in desired_order]
-
-if missing or extra:
-    raise SystemExit(
-        f'ERROR: V1.1.1 rule-set mismatch; missing={missing}, extra={extra}'
-    )
-
-rule_map = {name: props for name, props in rules}
-rules = [(name, rule_map[name]) for name in desired_order]
-
-# R76S-V1.1.1: strengthen WeChat / QQ / Tencent media direct rule.
-# Keep existing domains and add only missing V1.1.1 entries.
-wechat_required_domains = [
-    'domain:wechat.com',
-    'domain:weixin.com',
-    'domain:servicewechat.com',
-    'domain:weixinbridge.com',
-    'domain:weixinsxy.com',
-    'domain:wechatos.net',
-    'domain:wechatlegal.net',
-    'domain:wx.qq.com',
-    'domain:wxs.qq.com',
-    'domain:wxapp.tc.qq.com',
-    'domain:gtimg.com',
-    'domain:wx.gtimg.com',
-    'domain:lbs.gtimg.com',
-    'domain:vweixinthumb.tc.qq.com',
-    'domain:wxgateway.com',
-]
-
-updated_rules = []
-wechat_found = False
-
-for name, props in rules:
-    if name != 'WeChatTencent':
-        updated_rules.append((name, props))
-        continue
-
-    wechat_found = True
-    new_props = []
-    domain_found = False
-
-    for key, value in props:
-        if key == 'domain_list':
-            domain_found = True
-            domains = [
-                x.strip()
-                for x in value.splitlines()
-                if x.strip()
-            ]
-
-            for domain in wechat_required_domains:
-                if domain not in domains:
-                    domains.append(domain)
-
-            value = '\n'.join(domains)
-
-        new_props.append((key, value))
-
-    if not domain_found:
-        new_props.append(
-            ('domain_list', '\n'.join(wechat_required_domains))
-        )
-
-    updated_rules.append((name, new_props))
-
-if not wechat_found:
-    raise SystemExit('ERROR: WeChatTencent rule missing in V1.1.1')
-
-# V1.3.2 migration: split the original 24-entry direct list into independent
-# WeChat and Tencent/QQ media direct groups. Original 41 other rules unchanged.
-legacy_rule = next((props for name,props in updated_rules if name == 'WeChatTencent'), None)
-if legacy_rule is None:
-    raise SystemExit('ERROR: legacy V1.1.1 domain list source is missing')
-legacy_domains = next((v.splitlines() for k,v in legacy_rule if k == 'domain_list'), [])
-legacy_domains = list(dict.fromkeys(x.strip() for x in legacy_domains if x.strip()))
-if len(legacy_domains) != 24:
-    raise SystemExit(f'ERROR: expected 24 distinct prior direct entries, got {len(legacy_domains)}')
-wechat_domains = {
-    'domain:wechat.com', 'domain:weixin.com', 'domain:servicewechat.com',
-    'domain:weixinbridge.com', 'domain:weixinsxy.com', 'domain:wechatos.net',
-    'domain:wechatlegal.net', 'domain:wx.qq.com', 'domain:wxs.qq.com',
-    'domain:wxapp.tc.qq.com', 'domain:wx.gtimg.com',
-    'domain:vweixinthumb.tc.qq.com', 'domain:wxgateway.com',
-    'domain:weixin.qq.com', 'domain:weixin110.qq.com',
-}
-if not wechat_domains.issubset(set(legacy_domains)):
-    raise SystemExit('ERROR: V1.3.2 WeChat domain set mismatches original 24 entries')
-wechat = [d for d in legacy_domains if d in wechat_domains]
-media = [d for d in legacy_domains if d not in wechat_domains]
-assert len(wechat) + len(media) == 24 and len(wechat) == 15 and len(media) == 9
-common_network = next((v for k,v in legacy_rule if k == 'network'), 'tcp,udp')
-new_rules = [
-    ('WeChatDirect', [('remarks', '微信专属域名直连'), ('network', common_network), ('domain_list', '\n'.join(legacy_domains))]),
-    ('TencentMediaDirect', [('remarks', '腾讯QQ媒体旧直连保留'), ('network', common_network), ('domain_list', '\n'.join(media))]),
-]
-media_rule = new_rules.pop()
-new_rules += [(n,p) for n,p in updated_rules if n != 'WeChatTencent']
-new_rules.append(media_rule)
-rules = new_rules
-output_order = ['WeChatDirect'] + desired_order[1:] + ['TencentMediaDirect']
-if [n for n,_ in rules] != output_order:
-    raise SystemExit('ERROR: V1.3.2 managed rules order mismatch')
-
-def sections(text):
-    starts = list(re.finditer(r"(?m)^config\s+([^\s]+)(?:\s+'([^']+)')?\s*$", text))
-    if not starts:
-        raise SystemExit('ERROR: UCI default has no config sections')
-    prefix = text[:starts[0].start()]
-    out = []
-    for idx,m in enumerate(starts):
-        e = starts[idx+1].start() if idx+1 < len(starts) else len(text)
-        out.append((m.group(1), m.group(2), text[m.start():e].rstrip() + '\n'))
-    return prefix, out
-
-def set_option(block, key, value):
-    pat = re.compile(r"(?m)^(\s*option\s+" + re.escape(key) + r"\s+)'[^']*'\s*$")
-    if pat.search(block):
-        return pat.sub(r"\1'" + value + "'", block, count=1)
-    lines = block.rstrip().splitlines()
-    lines.insert(1, "\toption %s '%s'" % (key, value))
-    return '\n'.join(lines) + '\n'
-
-def rule_fragment(app):
-    out = []
-    for name, props in rules:
-        out.append("config shunt_rules '%s'" % name)
-        for k,v in props:
-            out.append("\toption %s '%s'" % (k, v))
-        out.append('')
-    out.append("config nodes 'myshunt'")
-    out.append("\toption remarks '分流总节点'")
-    out.append("\toption type 'Xray'")
-    out.append("\toption protocol '_shunt'")
-    out.append("\toption Direct '_direct'")
-    out.append("\toption WeChatDirect '_direct'")
-    out.append("\toption TencentMediaDirect '_direct'")
-    out.append("\toption default_node '_direct'")
-    out.append("\toption domainStrategy 'IPOnDemand'")
-    out.append("\toption domainMatcher 'hybrid'")
-    if app == 'passwall2':
-        out.append("\toption write_ipset_direct '1'")
-        out.append("\toption enable_geoview_ip '1'")
-        out.append("\toption shunt_group 'CN'")
-    out.append('')
-    return '\n'.join(out) + '\n'
-
-def transform(path, app):
-    text = path.read_text()
-    prefix, secs = sections(text)
-    kept = []
-    global_done = False
-    for typ, name, block in secs:
-        if typ == 'shunt_rules':
-            continue
-        if typ == 'nodes':
-            # Drop upstream shunt/demo nodes; clean firmware contains no personal proxy node.
-            if name in {'myshunt','rulenode','examplenode'} or "option protocol '_shunt'" in block or "passwall2.github" in block:
-                continue
-        if typ == 'global' and not global_done:
-            block = set_option(block, 'enabled', '0')
-            block = set_option(block, 'node', 'myshunt')
-            if app == 'passwall2':
-                block = set_option(block, 'auto_lang', 'zh_cn')
-            global_done = True
-        kept.append(block.rstrip() + '\n\n')
-    if not global_done:
-        raise SystemExit(f'ERROR: no global section in {path}')
-    final = prefix.rstrip() + ('\n\n' if prefix.strip() else '') + ''.join(kept).rstrip() + '\n\n' + rule_fragment(app)
-    path.write_text(final)
-
-transform(pw1, 'passwall')
-transform(pw2, 'passwall2')
-
-generated_orders = []
-
-for p in (pw1,pw2):
-    s = p.read_text()
-
-    actual_order = re.findall(
-        r"(?m)^config\s+shunt_rules\s+'([^']+)'\s*$",
-        s
-    )
-
-    if len(actual_order) != 43:
-        raise SystemExit(
-            f'ERROR: {p} has {len(actual_order)} shunt_rules after transform'
-        )
-
-    if actual_order != output_order:
-        raise SystemExit(
-            f'ERROR: {p} V1.1.1 shunt order mismatch: {actual_order}'
-        )
-
-    if actual_order[0] != 'WeChatDirect':
-        raise SystemExit(
-            f'ERROR: {p} first rules are not the V1.3.2 direct groups'
-        )
-
-    if actual_order[-2:] != ['Dropbox', 'TencentMediaDirect']:
-        raise SystemExit(
-            f'ERROR: {p} last shunt rule is not Dropbox'
-        )
-
-    for required in [
-        "config nodes 'myshunt'",
-        "option remarks '分流总节点'",
-        "option default_node '_direct'",
-        "option WeChatDirect '_direct'",
-        "option TencentMediaDirect '_direct'",
-        "option enabled '0'",
-    ]:
-        if required not in s:
-            raise SystemExit(f'ERROR: {required!r} missing from {p}')
-
-    generated_orders.append(actual_order)
-
-if generated_orders[0] != generated_orders[1]:
-    raise SystemExit(
-        'ERROR: PassWall and PassWall2 shunt rule order differs'
-    )
-
-print('PassWall and PassWall2 V1.3.2 43-rule order verified, no legacy WeChatTencent rule.')
+import runpy
+runpy.run_path('scripts/r76s-generate-rules.py', run_name='__main__')
 PY_RULES
 
 PW1_COUNT="$(grep -c '^config shunt_rules ' "$PW1_DEFAULT")"
@@ -1567,3 +1249,5 @@ echo "R76S-V1.1.1 clean defaults and online-upgrade preservation hooks verified.
 
 # R76S_V12_OTA_HARDENING_HOOK: apply after Stage16 regenerates/re-stages files.
 python3 "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../patches" && pwd)/r76s-v12-ota-hardening.py"
+
+python3 "$R76S_REPO_ROOT/scripts/r76s-v14-stage.py" openwrt

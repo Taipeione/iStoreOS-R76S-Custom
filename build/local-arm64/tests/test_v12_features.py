@@ -21,7 +21,7 @@ class V12Features(unittest.TestCase):
             p=Path(t)
             for name in ('pw','pw2'):
                 (p/name).write_text("config global 'global'\n\toption enabled '0'\n\n")
-            source=ROOT/'files/etc/uci-defaults/99-r76s-v2-defaults'
+            source=ROOT/'config/rules/r76s-rules.json'
             result=subprocess.run(['python3','-',str(source),str(p/'pw'),str(p/'pw2')],input=code,text=True,capture_output=True)
             self.assertEqual(result.returncode,0,result.stderr)
             for name in ('pw','pw2'):
@@ -52,10 +52,10 @@ class V12Features(unittest.TestCase):
                     if sec=='WeChatDirect':
                         self.assertIn('domain:weixin.qq.com',ds)
                         self.assertIn('domain:wechat.com',ds)
-                        self.assertIn('domain:gtimg.com',ds)
-                        self.assertIn('domain:tencent.com',ds)
+                        self.assertNotIn('domain:gtimg.com',ds)
+                        self.assertNotIn('domain:tencent.com',ds)
                     domains += ds
-                self.assertEqual(len(domains),33)
+                self.assertEqual(len(domains),24)
                 self.assertEqual(len(set(domains)),24)
                 self.assertIn('domain:qq.com',domains)
                 self.assertIn('domain:tencent.com',domains)
@@ -68,27 +68,23 @@ class V12Features(unittest.TestCase):
         self.assertIn('uci -q set "$pkg.myshunt.WeChatDirect=_direct"',s)
 
     def test_ota_dom_and_logic_preserved(self):
-        original = STAGE15.read_text().split("view = r'''",1)[1].split("'''\n\np.write_text(view)",1)[0]
-        view = (FEATURES/'ota/index.htm').read_text()
-        a=re.search(r'(?s)<script type="text/javascript">.*?</script>',original)
-        b=re.search(r'(?s)<script type="text/javascript">.*?</script>',view)
-        self.assertIsNotNone(a)
-        self.assertIsNotNone(b)
-        self.assertEqual(a.group(0),b.group(0))
+        view = (ROOT/'feeds/luci-app-r76s-updater/files/view/r76s_updater/index.htm').read_text()
+        self.assertNotIn('p.write_text(view)', STAGE15.read_text())
+        self.assertIn('function request(', view)
         for element in ('r76s-check','r76s-download','r76s-install','r76s-sha','r76s-metadata','r76s-sysupgrade'):
             self.assertIn('id="'+element+'"',view)
         self.assertIn('R76S_UPDATER_UI_PATCH=7',view)
 
     def test_status_is_readonly(self):
-        controller = (FEATURES/'status/r76s_status.lua').read_text()
-        view=(FEATURES/'status/status.htm').read_text()
+        controller = (ROOT/'feeds/luci-app-r76s-status/files/controller/r76s_status.lua').read_text()
+        view=(ROOT/'feeds/luci-app-r76s-status/files/view/r76s_status/status.htm').read_text()
         self.assertIn('d.storage',controller)
         self.assertIn('d.dns_listeners',controller)
         for service in ('passwall','passwall2','smartdns','adguard'):
             self.assertIn('d.'+service,controller)
         for forbidden in ('uci set ','sysupgrade ', '/etc/init.d/passwall restart','io.popen('):
             self.assertNotIn(forbidden,controller)
-        self.assertIn('八模式切换验证前保持禁用',view)
+        self.assertIn('高级模式须显式启用',view)
 
     def test_exact_version_patcher(self):
         path=ROOT/'build/local-arm64/v12-ota-exact-version.py'

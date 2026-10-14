@@ -1,0 +1,11 @@
+#!/bin/sh
+# Bounded background checks. No enable or DNS takeover occurs without opt-in.
+while sleep 30; do
+    if [ "$(uci -q get r76s_ota_state.state.pending)" = 1 ] || [ "$(uci -q get r76s_ota_state.state.standard_preserve)" = 1 ]; then
+        sh /etc/uci-defaults/99-r76s-v110-ota-restore >/tmp/r76s-ota-restore.log 2>&1 || true
+    fi
+    /usr/libexec/r76s/r76s-dns-manager health >/tmp/r76s-dns-health.log 2>&1 || true
+    if [ "$(uci -q get r76s.main.endpoint_recovery)" = 1 ]; then
+        /usr/libexec/r76s/r76s-wireguard-endpoint >/tmp/r76s-wg-recovery.log 2>&1 || true
+    fi
+done

@@ -61,6 +61,8 @@ def patch_smartdns_source(source, overlay):
                    + original[starts[0].end():])
     if len(re.findall(r'(?m)^START=18[ \t]*$', updated)) != 1:
         raise Blocked('SMARTDNS_START_POSTPATCH_INVALID')
+    if 'start_service() {' in updated and 'r76s-service-manager check smartdns' not in updated:
+        updated=updated.replace('start_service() {','start_service() {\n    /usr/libexec/r76s/r76s-service-manager check smartdns || return 1',1)
     if updated != original:
         source.write_text(updated)
     subprocess.run(['sh', '-n', str(source)], check=True, capture_output=True)

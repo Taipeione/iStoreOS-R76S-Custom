@@ -3,12 +3,13 @@
 from pathlib import Path
 import argparse
 import re
+import json
 import subprocess
 import sys
 
 REQUIRED_REPO = (
     'config/R76S.config',
-    'files/etc/uci-defaults/99-r76s-v2-defaults',
+    'config/rules/r76s-rules.json',
     'feeds/luci-app-r76s-status/Makefile',
     'feeds/luci-app-r76s-status/files/controller/r76s_status.lua',
     'feeds/luci-app-r76s-updater/Makefile',
@@ -56,9 +57,18 @@ def audit(root: Path):
     print('V12_DNS_8_MODE_LIVE_SAFETY=UNVERIFIED')
     print('V12_GUI_CHANGES=UNVERIFIED')
 
-    ok = len(stages) == 29 and not syntax_bad and not missing and safe
+    release=json.loads((root/'config/r76s-release.json').read_text())
+    rules=json.loads((root/'config/rules/r76s-rules.json').read_text())['rules']
+    names=[rule['name'] for rule in rules]
+    manifest_ok=release['version']=='R76S-V1.4.0' and len(names)==43 and len(set(names))==43
+    for path in (root/'feeds/r76s-core/files/usr/libexec/r76s').iterdir():
+        if path.read_text().startswith('#!/bin/sh'):
+            result=subprocess.run(['sh','-n',str(path)],capture_output=True)
+            manifest_ok=manifest_ok and result.returncode==0
+    print('V14_MANIFESTS_AND_SHELL=' + ('PASS' if manifest_ok else 'FAIL'))
+    ok = len(stages) == 29 and not syntax_bad and not missing and safe and manifest_ok
     print('REPO_INPUTS=' + ('PASS' if ok else 'INCOMPLETE'))
-    print('PRODUCTION_IMAGE_RELEASE=BLOCKED_PENDING_V12_FUNCTIONAL_GATES')
+    print('HARDWARE_VALIDATION=NOT_PERFORMED; RELEASE_REQUIRES_EXPLICIT_WORKFLOW')
     print('===== PRE-FLIGHT FINISHED =====')
     return 0 if ok else 2
 

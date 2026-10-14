@@ -25,7 +25,7 @@
 
 ### 原准备包的缺失输入（当前增补版已经包含）
 
-- `files/etc/uci-defaults/99-r76s-v2-defaults`（42 条原始规则及 24 个腾讯微信域名，必须做分类迁移）
+- `config/rules/r76s-rules.json`（42 条原始规则及 24 个腾讯微信域名，必须做分类迁移）
 - `feeds/luci-app-r76s-updater/`（OTA Lua controller、LuCI 模板、runtime helper）
 - `feeds/luci-app-r76s-status/`（状态页 LuCI controller、模板）
 
@@ -50,7 +50,7 @@
 
 ## 2026-10-09 补充源码后的 V1.2 功能补丁（第一轮）
 
-已纳入真实的 `files/etc/uci-defaults/99-r76s-v2-defaults`、
+已纳入真实的 `config/rules/r76s-rules.json`、
 `feeds/luci-app-r76s-updater`、`feeds/luci-app-r76s-status` 源码（用户原始压缩包），
 并修改**生成固件时实际覆盖这些旧文件的**阶段 14、15、16、21。
 

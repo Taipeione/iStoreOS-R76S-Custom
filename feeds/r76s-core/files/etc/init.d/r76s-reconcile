@@ -1,0 +1,24 @@
+#!/bin/sh /etc/rc.common
+START=97
+STOP=10
+USE_PROCD=1
+start_service() {
+    /usr/libexec/r76s/r76s-service-manager reconcile || return 1
+    # rcS may have expanded its symlink list before reconciliation creates S99.
+    # OTA's S98 restore owns startup when a restore is pending.
+    if [ "$(uci -q get r76s_ota_state.state.pending)" != 1 ] &&
+       [ "$(uci -q get r76s_ota_state.state.standard_preserve)" != 1 ]; then
+        for service in passwall passwall2 smartdns; do
+            if [ "$service" = smartdns ]; then key="smartdns.@smartdns[0].enabled"; else key="$service.@global[0].enabled"; fi
+            if [ "$(uci -q get "$key")" = 1 ]; then
+                /etc/init.d/"$service" start >/dev/null 2>&1 &
+            fi
+        done
+    fi
+    # Network recovery is opt-in; never changes DNS on a clean installation.
+    procd_open_instance
+    procd_set_param command /usr/libexec/r76s/r76s-watchdog
+    procd_set_param respawn 3600 5 5
+    procd_close_instance
+}
+service_triggers() { procd_add_reload_trigger r76s; }

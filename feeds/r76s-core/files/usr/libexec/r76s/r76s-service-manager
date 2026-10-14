@@ -1,0 +1,73 @@
+#!/bin/sh
+# UCI describes persistent intent. This manager does not rewrite nodes or subscriptions.
+set -eu
+ROOT="${R76S_SERVICE_ROOT:-}"
+INIT="$ROOT/etc/init.d"
+LOCK="$ROOT/tmp/r76s-services.lock"
+mkdir -p "$ROOT/tmp"
+exec 8>"$LOCK"
+flock -w 10 8 || exit 1
+fail() { echo "r76s-services: $*" >&2; exit 1; }
+key() {
+    case "$1" in
+        passwall|passwall2) printf '%s.@global[0].enabled' "$1" ;;
+        smartdns) printf 'smartdns.@smartdns[0].enabled' ;;
+        *) fail 'unsupported service' ;;
+    esac
+}
+intent() {
+    flag="$(uci -q get "$(key "$1")" 2>/dev/null || echo 0)"
+    case "$flag" in 0|1) printf '%s' "$flag" ;; *) fail "invalid enabled: $1" ;; esac
+}
+conflict() {
+    [ "$(intent passwall)$(intent passwall2)" != 11 ] || fail 'both transparent proxies selected; disable one explicitly'
+}
+sync_one() {
+    [ -x "$INIT/$1" ] || return 0
+    if [ "$(intent "$1")" = 1 ]; then "$INIT/$1" enable; else "$INIT/$1" disable; fi
+}
+case "${1:-status}" in
+    check)
+        service="${2:-}"
+        key "$service" >/dev/null
+        conflict
+        sync_one "$service"
+        ;;
+    reconcile)
+        conflict
+        for service in passwall passwall2 smartdns; do sync_one "$service"; done
+        ;;
+    set)
+        service="${2:-}"; value="${3:-}"
+        case "$value" in 0|1) ;; *) fail 'expected 0 or 1';; esac
+        target="$(key "$service")"
+        [ -x "$INIT/$service" ] || fail 'service absent'
+        if [ "$value" = 1 ]; then
+            case "$service" in
+                passwall) [ "$(intent passwall2)" = 0 ] || fail 'disable PassWall2 first' ;;
+                passwall2) [ "$(intent passwall)" = 0 ] || fail 'disable PassWall first' ;;
+            esac
+        fi
+        previous="$(intent "$service")"
+        init_previous=0; "$INIT/$service" enabled >/dev/null 2>&1 && init_previous=1
+        uci -q set "$target=$value"
+        uci -q commit "$service" || { uci -q revert "$service"; fail 'commit failed'; }
+        sync_one "$service"
+        # Release our lock before native init calls its check adapter.
+        flock -u 8
+        if [ "$value" = 1 ]; then action=restart; else action=stop; fi
+        if ! "$INIT/$service" "$action"; then
+            uci -q set "$target=$previous"; uci -q commit "$service"
+            if [ "$init_previous" = 1 ]; then "$INIT/$service" enable; else "$INIT/$service" disable; fi
+            [ "$previous" = 0 ] || "$INIT/$service" restart || true
+            fail 'service operation failed; previous persistent state restored'
+        fi
+        ;;
+    status)
+        for service in passwall passwall2 smartdns; do
+            enabled=0; if [ -x "$INIT/$service" ] && "$INIT/$service" enabled >/dev/null 2>&1; then enabled=1; fi
+            printf '%s\t%s\t%s\n' "$service" "$(intent "$service")" "$enabled"
+        done
+        ;;
+    *) fail 'usage: status | reconcile | check SERVICE | set SERVICE 0|1' ;;
+esac

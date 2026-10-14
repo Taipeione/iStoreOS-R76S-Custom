@@ -1,0 +1,94 @@
+#!/bin/sh
+# R76S_V110_STANDARD_PRESERVE_RESTORE
+# R76S_V12_OTA_HARDENING: preserve first-boot restore marker until success.
+CUSTOM_PENDING="$(uci -q get r76s_ota_state.state.pending)"
+STANDARD_PRESERVE="$(uci -q get r76s_ota_state.state.standard_preserve)"
+
+restore_error() {
+    echo "r76s-ota-restore: $*" >&2
+    logger -t r76s-ota-restore "$*" 2>/dev/null || true
+    exit 1
+}
+
+is_flag() {
+    case "$1" in 0|1) return 0 ;; *) return 1 ;; esac
+}
+
+service_init_state() {
+    name="$1"
+    enabled="$2"
+    [ -x "/etc/init.d/$name" ] || restore_error "missing service $name"
+    case "$enabled" in
+        1) /etc/init.d/"$name" enable >/dev/null 2>&1 || restore_error "enable $name failed" ;;
+        0)
+            /etc/init.d/"$name" stop >/dev/null 2>&1 || true
+            /etc/init.d/"$name" disable >/dev/null 2>&1 || restore_error "disable $name failed"
+            ;;
+        *) restore_error "invalid init state $name=$enabled" ;;
+    esac
+}
+
+if [ "$CUSTOM_PENDING" = 1 ]; then
+    /etc/init.d/r76s-ota-restore start || restore_error 'custom OTA restore failed; pending retained'
+fi
+
+if [ "$CUSTOM_PENDING" != 1 ] && [ "$STANDARD_PRESERVE" = 1 ]; then
+    pw_init="$(uci -q get r76s_ota_state.state.standard_passwall_init)"
+    pw2_init="$(uci -q get r76s_ota_state.state.standard_passwall2_init)"
+    sd_init="$(uci -q get r76s_ota_state.state.standard_smartdns_init)"
+    agh_init="$(uci -q get r76s_ota_state.state.standard_adguardhome_init)"
+    pw_uci="$(uci -q get 'passwall.@global[0].enabled')"
+    pw2_uci="$(uci -q get 'passwall2.@global[0].enabled')"
+    sd_uci="$(uci -q get 'smartdns.@smartdns[0].enabled')"
+
+    for value in "$pw_init" "$pw2_init" "$sd_init" "$agh_init" "$pw_uci" "$pw2_uci" "$sd_uci"; do
+        is_flag "$value" || restore_error 'invalid/missing standard-preserve state; marker retained'
+    done
+
+    if [ "$pw_init" = 1 ] && [ "$pw_uci" = 1 ] && \
+       [ "$pw2_init" = 1 ] && [ "$pw2_uci" = 1 ]; then
+        /etc/init.d/passwall stop >/dev/null 2>&1 || true
+        /etc/init.d/passwall2 stop >/dev/null 2>&1 || true
+        restore_error 'PassWall and PassWall2 conflict; marker retained, neither restarted'
+    fi
+
+    service_init_state passwall "$pw_init"
+    service_init_state passwall2 "$pw2_init"
+    service_init_state smartdns "$sd_init"
+    service_init_state adguardhome "$agh_init"
+
+    if [ "$pw_init" = 1 ] && [ "$pw_uci" = 1 ]; then
+        /etc/init.d/passwall restart >/dev/null 2>&1 || restore_error 'passwall restart failed'
+    fi
+    if [ "$pw2_init" = 1 ] && [ "$pw2_uci" = 1 ]; then
+        /etc/init.d/passwall2 restart >/dev/null 2>&1 || restore_error 'passwall2 restart failed'
+    fi
+    if [ "$sd_init" = 1 ] && [ "$sd_uci" = 1 ]; then
+        /etc/init.d/smartdns restart >/dev/null 2>&1 || restore_error 'smartdns restart failed'
+    fi
+    if [ "$agh_init" = 1 ]; then
+        [ -s /etc/adguardhome.yaml ] || [ -s /etc/adguardhome/adguardhome.yaml ] || \
+            restore_error 'AdGuard Home config YAML missing'
+        /etc/init.d/adguardhome restart >/dev/null 2>&1 || restore_error 'adguardhome restart failed'
+    fi
+
+fi
+
+# A new image also normalizes snapshots produced by old V1.2.3 helpers.
+if [ "$CUSTOM_PENDING" = 1 ] || [ "$STANDARD_PRESERVE" = 1 ]; then
+    if [ -x /usr/libexec/r76s/r76s-config-migrate ]; then
+        /usr/libexec/r76s/r76s-config-migrate || restore_error 'service migration failed'
+        /usr/libexec/r76s/r76s-healthcheck || restore_error 'post-upgrade health failed; markers retained'
+    fi
+fi
+
+# The standard marker is also produced on custom OTA. Clear it only when
+# custom or standard restoration is successful, never on a failed restore.
+if [ "$CUSTOM_PENDING" = 1 ] || [ "$STANDARD_PRESERVE" = 1 ]; then
+    for key in standard_preserve standard_passwall_init standard_passwall2_init \
+               standard_smartdns_init standard_adguardhome_init; do
+        uci -q delete "r76s_ota_state.state.$key" 2>/dev/null || true
+    done
+    uci -q commit r76s_ota_state || restore_error 'cannot commit restore cleanup'
+fi
+exit 0

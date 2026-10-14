@@ -1,0 +1,16 @@
+#!/bin/sh
+# Safe to repeat after interruption. Existing user nodes, rules and credentials win.
+set -eu
+uci -q get r76s.main >/dev/null 2>&1 || {
+    [ -s /rom/etc/config/r76s ] || exit 1
+    cp /rom/etc/config/r76s /etc/config/r76s
+}
+/usr/libexec/r76s/r76s-service-manager reconcile
+for service in passwall passwall2 smartdns; do
+    if [ "$service" = smartdns ]; then key='smartdns.@smartdns[0].enabled'; pattern='[s]martdns'; else key="$service.@global[0].enabled"; pattern="/tmp/etc/$service/"; fi
+    if [ "$(uci -q get "$key")" = 1 ] && ! pgrep -f "$pattern" >/dev/null; then
+        /etc/init.d/"$service" start || exit 1
+    fi
+done
+uci -q set r76s.main.schema='1' 
+uci -q commit r76s

@@ -1,0 +1,93 @@
+#!/bin/sh /etc/rc.common
+# R76S_V12_OTA_HARDENING: fail closed and retain pending on restore failure.
+START=98
+STOP=10
+
+restore_error() {
+    echo "r76s-ota-restore: $*" >&2
+    logger -t r76s-ota-restore "$*" 2>/dev/null || true
+    return 1
+}
+
+is_flag() {
+    case "$1" in 0|1) return 0 ;; *) return 1 ;; esac
+}
+
+service_init_state() {
+    name="$1"
+    enabled="$2"
+    [ -x "/etc/init.d/$name" ] || { restore_error "missing service $name"; return 1; }
+    case "$enabled" in
+        1) /etc/init.d/"$name" enable >/dev/null 2>&1 || { restore_error "enable $name failed"; return 1; } ;;
+        0)
+            /etc/init.d/"$name" stop >/dev/null 2>&1 || true
+            /etc/init.d/"$name" disable >/dev/null 2>&1 || { restore_error "disable $name failed"; return 1; }
+            ;;
+        *) restore_error "unknown init state $name=$enabled"; return 1 ;;
+    esac
+}
+
+start() {
+    [ "$(uci -q get r76s_ota_state.state.pending 2>/dev/null)" = 1 ] || return 0
+    pw_uci="$(uci -q get r76s_ota_state.state.passwall_uci)"
+    pw2_uci="$(uci -q get r76s_ota_state.state.passwall2_uci)"
+    sd_uci="$(uci -q get r76s_ota_state.state.smartdns_uci)"
+    pw_init="$(uci -q get r76s_ota_state.state.passwall_init)"
+    pw2_init="$(uci -q get r76s_ota_state.state.passwall2_init)"
+    sd_init="$(uci -q get r76s_ota_state.state.smartdns_init)"
+    agh_init="$(uci -q get r76s_ota_state.state.adguardhome_init)"
+
+    for value in "$pw_uci" "$pw2_uci" "$sd_uci" "$pw_init" "$pw2_init" "$sd_init" "$agh_init"; do
+        is_flag "$value" || { restore_error 'incomplete/invalid OTA snapshot'; return 1; }
+    done
+
+    if [ "$pw_init" = 1 ] && [ "$pw_uci" = 1 ] && \
+       [ "$pw2_init" = 1 ] && [ "$pw2_uci" = 1 ]; then
+        /etc/init.d/passwall stop >/dev/null 2>&1 || true
+        /etc/init.d/passwall2 stop >/dev/null 2>&1 || true
+        restore_error 'PassWall and PassWall2 conflict; no proxy auto-start; pending retained'
+        return 1
+    fi
+
+    uci -q set 'passwall.@global[0].enabled'="$pw_uci" || return 1
+    uci -q set 'passwall2.@global[0].enabled'="$pw2_uci" || return 1
+    uci -q set 'smartdns.@smartdns[0].enabled'="$sd_uci" || return 1
+    uci -q commit passwall || return 1
+    uci -q commit passwall2 || return 1
+    uci -q commit smartdns || return 1
+    [ "$(uci -q get 'passwall.@global[0].enabled')" = "$pw_uci" ] || return 1
+    [ "$(uci -q get 'passwall2.@global[0].enabled')" = "$pw2_uci" ] || return 1
+    [ "$(uci -q get 'smartdns.@smartdns[0].enabled')" = "$sd_uci" ] || return 1
+
+    service_init_state passwall "$pw_init" || return 1
+    service_init_state passwall2 "$pw2_init" || return 1
+    service_init_state smartdns "$sd_init" || return 1
+    service_init_state adguardhome "$agh_init" || return 1
+
+    if [ "$pw_init" = 1 ] && [ "$pw_uci" = 1 ]; then
+        /etc/init.d/passwall restart >/dev/null 2>&1 || { restore_error 'passwall restart failed'; return 1; }
+    fi
+    if [ "$pw2_init" = 1 ] && [ "$pw2_uci" = 1 ]; then
+        /etc/init.d/passwall2 restart >/dev/null 2>&1 || { restore_error 'passwall2 restart failed'; return 1; }
+    fi
+    if [ "$sd_init" = 1 ] && [ "$sd_uci" = 1 ]; then
+        /etc/init.d/smartdns restart >/dev/null 2>&1 || { restore_error 'smartdns restart failed'; return 1; }
+    fi
+    if [ "$agh_init" = 1 ]; then
+        if [ ! -s /etc/adguardhome.yaml ] && [ ! -s /etc/adguardhome/adguardhome.yaml ]; then
+            restore_error 'AdGuard Home was enabled but its YAML configuration is absent'
+            return 1
+        fi
+        /etc/init.d/adguardhome restart >/dev/null 2>&1 || { restore_error 'adguardhome restart failed'; return 1; }
+    fi
+
+    if [ -x /usr/libexec/r76s/r76s-config-migrate ]; then
+        /usr/libexec/r76s/r76s-config-migrate || return 1
+        /usr/libexec/r76s/r76s-healthcheck || return 1
+        uci -q set r76s_ota_state.state.phase='complete' || return 1
+    fi
+    uci -q set r76s_ota_state.state.pending='0'  || return 1
+    uci -q commit r76s_ota_state || return 1
+    [ "$(uci -q get r76s_ota_state.state.pending)" = 0 ] || return 1
+    return 0
+}

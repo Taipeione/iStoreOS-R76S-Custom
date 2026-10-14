@@ -1,0 +1,8 @@
+config policy 'main'
+	option dns_mode 'system'
+	option dns_active 'system'
+	option agh_config '/etc/adguardhome.yaml'
+	option channel 'stable'
+	option endpoint_ipv6 '1'
+	option endpoint_recovery '0'
+	option schema '1'

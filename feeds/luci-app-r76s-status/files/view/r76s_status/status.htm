@@ -1,22 +1,58 @@
 <%+header%>
-<h2>R76S 状态</h2>
-<div class="cbi-map">
-  <div class="cbi-section">
-    <h3>FriendlyElec NanoPi R76S / Rockchip RK3576</h3>
-    <table class="table">
-      <tr class="tr"><td class="td left">设备</td><td class="td"><%=data.model%></td></tr>
-      <tr class="tr"><td class="td left">SoC</td><td class="td"><%=data.soc%></td></tr>
-      <tr class="tr"><td class="td left">架构</td><td class="td"><%=data.arch%></td></tr>
-      <tr class="tr"><td class="td left">内核</td><td class="td"><%=data.kernel%></td></tr>
-      <tr class="tr"><td class="td left">温度</td><td class="td"><%=data.temp%></td></tr>
-      <tr class="tr"><td class="td left">内存</td><td class="td"><%=data.mem%></td></tr>
-      <tr class="tr"><td class="td left">负载</td><td class="td"><%=data.load%></td></tr>
-      <tr class="tr"><td class="td left">LAN</td><td class="td"><%=data.lan%></td></tr>
-      <tr class="tr"><td class="td left">WAN</td><td class="td"><%=data.wan%></td></tr>
-      <tr class="tr"><td class="td left">SmartDNS</td><td class="td"><%=data.smartdns%></td></tr>
-      <tr class="tr"><td class="td left">PassWall</td><td class="td"><%=data.passwall%></td></tr>
-      <tr class="tr"><td class="td left">运行时间</td><td class="td"><%=data.uptime%></td></tr>
-    </table>
-  </div>
-</div>
+<style>
+.r76s-dash{max-width:1080px;margin:0 auto;color:var(--text-color,#e6edf9)}
+.r76s-dash h2{margin:8px 0 18px;font-size:clamp(1.4rem,3vw,1.9rem)}
+.r76s-dash-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.r76s-dash-card{border:1px solid rgba(137,157,185,.22);background:var(--background-color-high,rgba(26,36,53,.88));border-radius:16px;padding:18px 22px;box-shadow:0 12px 26px rgba(0,0,0,.08)}
+.r76s-dash-card h3{font-size:1rem;margin:0 0 14px}
+.r76s-dash-table{width:100%;border-collapse:collapse;table-layout:fixed}
+.r76s-dash-table td{padding:10px 6px;border-bottom:1px solid rgba(127,127,127,.15);overflow-wrap:anywhere}
+.r76s-dash-table tr:last-child td{border-bottom:0}
+.r76s-dash-table td:first-child{width:36%;opacity:.78}
+.r76s-dash-note{opacity:.72;font-size:.85em;margin-top:16px}
+@media(max-width:720px){.r76s-dash-grid{grid-template-columns:1fr}.r76s-dash-card{padding:14px}}
+@media(prefers-color-scheme:light){.r76s-dash{color:var(--text-color,#1f2b42)}.r76s-dash-card{background:var(--background-color-high,#fff)}}
+</style>
+<div class="r76s-dash"><h2>R76S · 状态中心</h2><div class="r76s-dash-grid">
+<section class="r76s-dash-card"><h3>设备信息</h3><table class="r76s-dash-table">
+<tr><td>型号</td><td><%=luci.util.pcdata(data.model or "")%></td></tr><tr><td>处理器</td><td><%=luci.util.pcdata(data.soc or "")%></td></tr>
+<tr><td>架构</td><td><%=luci.util.pcdata(data.arch or "")%></td></tr><tr><td>内核</td><td><%=luci.util.pcdata(data.kernel or "")%></td></tr>
+<tr><td>CPU 温度</td><td><%=luci.util.pcdata(data.temp or "")%></td></tr><tr><td>内存</td><td><%=luci.util.pcdata(data.mem or "")%></td></tr>
+<tr><td>CPU 利用率</td><td id="r76s-cpu">采样中</td></tr>
+<tr><td>负载</td><td><%=luci.util.pcdata(data.load or "")%></td></tr><tr><td>存储 /overlay</td><td><%=luci.util.pcdata(data.storage or "")%></td></tr>
+<tr><td>运行时间</td><td><%=luci.util.pcdata(data.uptime or "")%></td></tr></table></section>
+<section class="r76s-dash-card"><h3>网络及 DNS</h3><table class="r76s-dash-table">
+<tr><td>LAN IPv4</td><td><%=luci.util.pcdata(data.lan or "")%></td></tr><tr><td>WAN IPv4</td><td><%=luci.util.pcdata(data.wan or "")%></td></tr>
+<tr><td>WAN IPv6</td><td><%=luci.util.pcdata(data.wan6 or "")%></td></tr><tr><td>IPv6 PD</td><td><%=luci.util.pcdata(data.pd or "")%></td></tr>
+<tr><td>dnsmasq</td><td><%=luci.util.pcdata(data.dnsmasq or "")%></td></tr><tr><td>DNS 监听端口</td><td><%=luci.util.pcdata(data.dns_listeners or "")%></td></tr>
+<tr><td>dnsmasq 上游</td><td><%=luci.util.pcdata(data.dns_upstream or "")%></td></tr><tr><td>DNS 管理器</td><td><%=luci.util.pcdata(data.dns_manager or "")%></td></tr></table></section>
+<section class="r76s-dash-card"><h3>服务运行状态</h3><table class="r76s-dash-table">
+<tr><td>PassWall</td><td><%=luci.util.pcdata(data.passwall or "")%></td></tr><tr><td>PassWall2</td><td><%=luci.util.pcdata(data.passwall2 or "")%></td></tr>
+<tr><td>SmartDNS</td><td><%=luci.util.pcdata(data.smartdns or "")%></td></tr><tr><td>AdGuard Home</td><td><%=luci.util.pcdata(data.adguard or "")%></td></tr></table></section>
+<section class="r76s-dash-card"><h3>配置与开机状态</h3><table class="r76s-dash-table">
+<% for _,service in ipairs(data.services) do %>
+<tr><td><%=luci.util.pcdata(service.name or "")%></td><td>配置 <%=luci.util.pcdata(service.configured or "")%> / 开机 <%=service.autostart and '开' or '关'%> / <%=luci.util.pcdata(service.runtime or "")%></td></tr>
+<% end %></table><p><a href="<%=luci.dispatcher.build_url('admin','services','r76s_control')%>">服务与 DNS 管理</a></p></section>
+</div><p class="r76s-dash-note">本页面仅查看运行状态，不更改网络配置。DNS 端口监听不能代替端到端 DNS 测试；高级模式须显式启用；故障时显示降级状态。</p></div>
+<script>
+(function(){
+  var previous=null;
+  function sample(){
+    if(document.hidden)return;
+    fetch('<%=luci.dispatcher.build_url("admin","status","r76s","data")%>',{cache:'no-store'})
+      .then(function(r){if(!r.ok)throw Error('status');return r.json();})
+      .then(function(data){
+        var a=data.cpu.trim().split(/\s+/).slice(1).map(Number).slice(0,8);
+        var current={total:a.reduce(function(x,y){return x+y;},0),idle:a[3]+a[4]};
+        if(previous&&current.total>previous.total){
+          var usage=100*(1-(current.idle-previous.idle)/(current.total-previous.total));
+          document.getElementById('r76s-cpu').textContent=Math.max(0,Math.min(100,usage)).toFixed(1)+'%';
+        }
+        previous=current;
+      }).catch(function(){document.getElementById('r76s-cpu').textContent='状态读取失败';});
+  }
+  sample();var timer=setInterval(sample,5000);
+  window.addEventListener('pagehide',function(){clearInterval(timer);});
+})();
+</script>
 <%+footer%>

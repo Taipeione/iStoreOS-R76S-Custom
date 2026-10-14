@@ -1,0 +1,22 @@
+name: R76S V1.4 source validation
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: sudo apt-get update -qq && sudo apt-get install -y lua5.1 lua-filesystem python3-yaml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: python3 build/local-arm64/preflight.py --repo .
+      - run: python3 -m unittest discover -s build/local-arm64/tests -v
+      - run: python3 scripts/r76s-v111-prebuild-tests.py

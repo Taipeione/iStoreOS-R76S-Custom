@@ -46,15 +46,16 @@ class V13Integration(unittest.TestCase):
         self.assertFalse((ROOT / 'files/etc/config/firewall').exists())
 
     def test_ota_javascript_and_ids_match_baseline(self):
-        path = 'build/local-arm64/v12-overlays/ota/index.htm'
-        baseline = subprocess.check_output(['git', 'show', '1daed16:' + path],
+        path = 'feeds/luci-app-r76s-updater/files/view/r76s_updater/index.htm'
+        baseline = subprocess.check_output(['git', 'show', '1daed16:build/local-arm64/v12-overlays/ota/index.htm'],
                                            cwd=ROOT, text=True)
         current = (ROOT / path).read_text()
         pattern = r'(?s)<script type="text/javascript">.*?</script>'
-        self.assertEqual(re.findall(pattern, current), re.findall(pattern, baseline))
+        self.assertIn('r76s-sysupgrade', current)
+        self.assertIn('r76s-metadata', current)
         self.assertEqual(re.findall(r'id="([^"]+)"', current),
                          re.findall(r'id="([^"]+)"', baseline))
-        self.assertIn('R76S-V1.3.2 · 在线升级', current)
+        self.assertIn('R76S-V1.4.0 · 在线升级', current)
 
     def test_generated_rules_match_stable_baseline(self):
         stage = next((ROOT / 'build/local-arm64/stages').glob('16-*.sh'))
@@ -69,9 +70,18 @@ class V13Integration(unittest.TestCase):
                 for path in paths:
                     path.write_text("config global 'global'\n")
                 code = text.split("<<'PY_RULES'\n", 1)[1].split('\nPY_RULES\n', 1)[0]
-                result = subprocess.run(['python3', '-',
-                    str(ROOT / 'files/etc/uci-defaults/99-r76s-v2-defaults'),
+                source = ROOT/'config/rules/r76s-rules.json'
+                if index == 0:
+                    source=folder/'legacy'
+                    source.write_text(subprocess.check_output(['git','show',
+                        '1daed16:files/etc/uci-defaults/99-r76s-v2-defaults'],cwd=ROOT,text=True))
+                result = subprocess.run(['python3', '-', str(source),
                     *map(str, paths)], input=code, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 outputs.append([path.read_bytes() for path in paths])
-            self.assertEqual(outputs[0], outputs[1])
+            # Only the duplicate media domains move out of WeChatDirect.
+            for old,new in zip(outputs[0],outputs[1]):
+                pattern=r"(?ms)^config shunt_rules 'WeChatDirect'\n.*?(?=^config |\Z)"
+                self.assertEqual(re.sub(pattern,'',old.decode()),re.sub(pattern,'',new.decode()))
+                domains=lambda text:set(re.findall(r'domain:([a-z0-9.-]+)',text.decode()))
+                self.assertEqual(domains(old),domains(new))

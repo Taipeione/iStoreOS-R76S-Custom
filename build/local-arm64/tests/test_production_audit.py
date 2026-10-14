@@ -20,7 +20,7 @@ class ProductionAuditTests(unittest.TestCase):
                 path.write_text(text)
                 return path
             release = write('etc/openwrt_release',
-                "DISTRIB_RELEASE='24.10.8'\nDISTRIB_REVISION='R76S-V1.3.2'\n")
+                "DISTRIB_RELEASE='24.10.8'\nDISTRIB_REVISION='R76S-V1.4.0'\n")
             status = write('usr/lib/opkg/status', ''.join(
                 f'Package: {name}\nStatus: install user installed\n\n'
                 for name in production.PACKAGES))
@@ -28,7 +28,7 @@ class ProductionAuditTests(unittest.TestCase):
             code = stage.split("<<'PY_RULES'\n", 1)[1].split('\nPY_RULES\n', 1)[0]
             defaults = [write(f'usr/share/{app}/0_default_config', "config global 'global'\n")
                         for app in ('passwall', 'passwall2')]
-            result = subprocess.run(['python3', '-', str(ROOT / 'files/etc/uci-defaults/99-r76s-v2-defaults'),
+            result = subprocess.run(['python3', '-', str(ROOT / 'config/rules/r76s-rules.json'),
                 *map(str, defaults)], input=code, text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             clean_text = stage.split("<<'EOF_CLEAN_SERVICES'\n", 1)[1].split('\nEOF_CLEAN_SERVICES', 1)[0]
@@ -41,7 +41,7 @@ class ProductionAuditTests(unittest.TestCase):
             write('lib/upgrade/keep.d/r76s-v110', '/etc/smartdns/r76s-v13/ip-family.conf\n/etc/config/r76s_ip_policy\n/etc/r76s-ip6-guard/last-good.nft\n')
             self.assertEqual(production.audit(root), [])
             for path, old, new, expected in (
-                (release, 'R76S-V1.3.2', 'V1.2', 'identity mismatch'),
+                (release, 'R76S-V1.4.0', 'V1.2', 'identity mismatch'),
                 (status, 'Package: wireguard-tools', 'Package: absent', 'wireguard-tools'),
                 (defaults[0], "shunt_rules 'Xbox'", "shunt_rules 'WrongOrder'", 'order mismatch'),
                 (clean, "port='6053'", "port='53'", 'SmartDNS clean default'),

@@ -65,6 +65,7 @@ test -x files/etc/init.d/smartdns
 cmp -s "$SMARTDNS_INIT" files/etc/init.d/smartdns
 grep -qxF 'START=18' files/etc/init.d/smartdns
 grep -qF 'R76S_V111_SMARTDNS_BOOT_ORDER' files/etc/init.d/smartdns
+grep -qF 'r76s-service-manager check smartdns' files/etc/init.d/smartdns
 sh -n files/etc/init.d/smartdns
 echo "SMARTDNS_BOOT_ORDER=PASS_FINAL_OVERLAY_STAGED"
 

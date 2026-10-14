@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-r76s-status
-PKG_VERSION:=2.2.4
+PKG_VERSION:=1.4.0
 PKG_RELEASE:=6
 PKGARCH:=all
 
@@ -12,7 +12,7 @@ define Package/luci-app-r76s-status
   CATEGORY:=LuCI
   SUBMENU:=3. Applications
   TITLE:=R76S Device and AdGuard Home Status
-  DEPENDS:=+luci-base +luci-lib-jsonc +luci-proto-wireguard +luci-lib-uqr
+  DEPENDS:=+luci-base +luci-lib-jsonc +luci-proto-wireguard +luci-lib-uqr +r76s-core
 endef
 
 define Package/luci-app-r76s-status/description
@@ -29,6 +29,9 @@ define Package/luci-app-r76s-status/install
 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/view/r76s_wireguard
 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/model/r76s
 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/view/r76s_ip_policy
+	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/view/r76s_control
+	$(INSTALL_DATA) ./files/controller/r76s_control.lua $(1)/usr/lib/lua/luci/controller/r76s_control.lua
+	$(CP) ./files/view/r76s_control/* $(1)/usr/lib/lua/luci/view/r76s_control/
 	$(INSTALL_DATA) ./files/controller/r76s_status.lua $(1)/usr/lib/lua/luci/controller/r76s_status.lua
 	$(INSTALL_DATA) ./files/controller/r76s_adguardhome.lua $(1)/usr/lib/lua/luci/controller/r76s_adguardhome.lua
 	$(INSTALL_DATA) ./files/view/r76s_adguardhome/status.htm $(1)/usr/lib/lua/luci/view/r76s_adguardhome/status.htm

@@ -1,0 +1,103 @@
+#!/usr/bin/lua
+-- Serialized OTA operations with signed manifests and immutable version URLs.
+local fs=require 'nixio.fs'
+local sys=require 'luci.sys'
+local json=require 'luci.jsonc'
+local run='/tmp/r76s-ota'
+local repository='https://github.com/Taipeione/iStoreOS-R76S-Custom/releases/download/'
+local image='/tmp/firmware.img'
+local function q(s) return "'"..s:gsub("'","'\\''").."'" end
+local function call(s) return sys.call(s..' >/dev/null 2>&1')==0 end
+local function read(p) return fs.readfile(p) or '' end
+local function revision(s)
+    local a,b,c=s:match('^R76S%-V(%d+)%.(%d+)%.(%d+)$')
+    if not a then return nil end
+    return tonumber(a)*100000000+tonumber(b)*10000+tonumber(c)
+end
+local function persist(state)
+    assert(fs.writefile(run..'/state.tmp',json.stringify(state)))
+    assert(fs.rename(run..'/state.tmp',run..'/state.json'))
+end
+local function fetch(url,dst)
+    assert(call('curl --fail --location --proto =https --proto-redir =https --connect-timeout 10 --max-time 600 --retry 2 '..q(url)..' -o '..q(dst)),'download failed')
+end
+local function manifest()
+    assert(call('openssl pkeyutl -verify -pubin -inkey /usr/share/r76s/ota-public.pem -rawin -in '..run..'/ota.json -sigfile '..run..'/ota.json.sig'),'manifest signature invalid')
+    local m=json.parse(read(run..'/ota.json'))
+    assert(type(m)=='table' and m.schema_version==1 and revision(m.version or ''),'invalid OTA manifest')
+    assert(m.target=='rockchip/armv8' and m.openwrt_version=='24.10.8','unsupported target/base')
+    local supported=false
+    for _,d in ipairs(m.supported_devices or {}) do if d=='friendlyarm,nanopi-r76s' then supported=true end end
+    assert(supported,'wrong device')
+    assert(m.url==repository..m.version..'/'..m.version..'-TF-squashfs.img.gz','noncanonical image URL')
+    assert(type(m.sha256)=='string' and #m.sha256==64 and m.sha256:match('^%x+$'),'invalid digest')
+    assert(type(m.size)=='number' and m.size>0 and m.size<1024*1024*1024,'invalid image size')
+    return m
+end
+fs.mkdirr(run)
+fs.chmod(run,448)
+if arg[1]=='status' then io.write(read(run..'/state.json')); os.exit(0) end
+if not fs.mkdir(run..'/lock') then io.stderr:write('OTA busy\n'); os.exit(1) end
+local phase=arg[1] or 'check'
+local ok,err=pcall(function()
+    if phase=='check' then
+        fetch(repository..'R76S-stable/ota.json',run..'/ota.json.part')
+        fetch(repository..'R76S-stable/ota.json.sig',run..'/ota.json.sig.part')
+        assert(fs.rename(run..'/ota.json.part',run..'/ota.json'))
+        assert(fs.rename(run..'/ota.json.sig.part',run..'/ota.json.sig'))
+        local m=manifest()
+        -- Compatibility state for the existing LuCI status renderer.
+        fs.mkdirr('/var/run/ota')
+        assert(fs.writefile('/var/run/ota/ota.latest','[24.10.8-'..m.version..']('..m.version..'-TF-squashfs.img.gz)\nSHA256: '..m.sha256..'\n'))
+        persist({phase='checked',version=m.version,size=m.size})
+    elseif phase=='download' then
+        local m=manifest()
+        persist({phase='downloading',version=m.version})
+        fs.remove('/tmp/firmware.img.sha256sum')
+        fetch(m.url,image..'.part')
+        assert(fs.stat(image..'.part','size')==m.size,'truncated or oversized image')
+        local digest=sys.exec('sha256sum '..image..'.part'):match('^(%x+)')
+        assert(digest==m.sha256,'SHA256 mismatch')
+        assert(fs.rename(image..'.part',image))
+        assert(fs.writefile('/tmp/firmware.img.sha256sum',digest..'\n'))
+        persist({phase='downloaded',version=m.version})
+    elseif phase=='verify' or phase=='install' then
+        local m=manifest()
+        local current=read('/etc/openwrt_release'):match("DISTRIB_REVISION='([^']+)'")
+        assert(revision(current or '') and revision(m.version)>revision(current),'same/older version rejected')
+        assert(fs.stat(image,'size')==m.size,'image size changed')
+        assert(sys.exec('sha256sum '..image):match('^(%x+)')==m.sha256,'SHA256 mismatch')
+        assert(call('fwtool -q -i '..run..'/image.meta '..image),'metadata extraction failed')
+        local meta=json.parse(read(run..'/image.meta'))
+        assert(type(meta)=='table' and type(meta.version)=='table','invalid image metadata')
+        assert(meta.version.revision==m.version and meta.version.target==m.target and meta.version.version==m.openwrt_version,'metadata differs from manifest')
+        local supported=false
+        for _,d in ipairs(meta.supported_devices or {}) do if d=='friendlyarm,nanopi-r76s' then supported=true end end
+        assert(supported,'image device mismatch')
+        assert(call('/sbin/sysupgrade -T '..image),'sysupgrade compatibility check failed')
+        persist({phase='verified',version=m.version})
+        if phase=='install' then
+            -- Validate boot disk against the resolved root partition; never construct a dd target.
+            local boot=read('/tmp/.bootdisk'):match('DEVNAME=([^\r\n]+)')
+            assert(boot=='mmcblk0' or boot=='mmcblk2','unknown boot disk')
+            local uuid=read('/proc/cmdline'):match('root=PARTUUID=([%w%-]+)')
+            local root=read('/proc/mounts'):match('([^%s]+)%s+/rom%s+') or ''
+            if uuid then root=sys.exec('blkid -t '..q('PARTUUID='..uuid)..' -o device'):match('([^\r\n]+)') or '' end
+            assert(root:match('^/dev/'..boot..'p%d+$'),'boot/root device disagreement')
+            assert(call('/usr/libexec/r76s/r76s-service-manager reconcile'),'service conflict')
+            assert(call('/usr/libexec/r76s/r76s-ota-preserve-state'),'state preservation failed')
+            assert(call('/sbin/sysupgrade -b '..run..'/configuration.tar.gz'),'configuration backup failed')
+            assert(call('tar -tzf '..run..'/configuration.tar.gz'),'invalid configuration backup')
+            local uci=require('uci').cursor()
+            uci:set('r76s_ota_state','state','target_version',m.version)
+            uci:set('r76s_ota_state','state','transaction',tostring(os.time()))
+            uci:set('r76s_ota_state','state','phase','prepared')
+            assert(uci:commit('r76s_ota_state'))
+            persist({phase='flashing',version=m.version})
+            assert(call('(sleep 2; /sbin/sysupgrade '..image..' >/tmp/r76s-sysupgrade.log 2>&1) &'),'cannot launch sysupgrade')
+        end
+    else error('usage: status|check|download|verify|install') end
+end)
+if not ok then persist({phase='failed',operation=phase,message=tostring(err)}) end
+if not (ok and phase=='install') then fs.rmdir(run..'/lock') end
+if not ok then io.stderr:write(tostring(err)..'\n'); os.exit(1) end

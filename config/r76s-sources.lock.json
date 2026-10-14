@@ -1,0 +1,9 @@
+{
+  "istoreos": "fb971407ffd9a094e6f16d9c029f1f580ed5c2ad",
+  "passwall": "701d982a26ee0b960d248754b8f8868f6f18fb59",
+  "passwall2": "2de5aee7a4c704a5b689fdab47b97a18ad11c1a2",
+  "passwall_packages": "9178f2e627a1a104b0b35d1c47a7672dff42c970",
+  "golang": "dba928c4f25b3290090d5937fcc6271f01a2ec91",
+  "smartdns_release": "Release48.4",
+  "smartdns_asset_sha256": "d769cff42af9b8e76823aca130ddfd174cf24cbe56f702bc95f1ef20eb5fcf02"
+}

@@ -21,10 +21,10 @@ function index()
     comp.dependent = false
 
     entry({"admin", "system", "r76s_updater", "api", "status"}, call("api_status")).leaf = true
-    entry({"admin", "system", "r76s_updater", "api", "check"}, call("api_check")).leaf = true
-    entry({"admin", "system", "r76s_updater", "api", "download"}, call("api_download")).leaf = true
-    entry({"admin", "system", "r76s_updater", "api", "verify"}, call("api_verify")).leaf = true
-    entry({"admin", "system", "r76s_updater", "api", "install"}, call("api_install")).leaf = true
+    entry({"admin", "system", "r76s_updater", "api", "check"}, post("api_check")).leaf = true
+    entry({"admin", "system", "r76s_updater", "api", "download"}, post("api_download")).leaf = true
+    entry({"admin", "system", "r76s_updater", "api", "verify"}, post("api_verify")).leaf = true
+    entry({"admin", "system", "r76s_updater", "api", "install"}, post("api_install")).leaf = true
 
     -- Keep the old component-updater URL usable after moving the UI under System.
     local legacy = entry({"admin", "services", "r76s_updater"}, alias("admin", "system", "r76s_updater", "components"), nil)

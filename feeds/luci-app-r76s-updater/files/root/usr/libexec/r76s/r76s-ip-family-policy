@@ -38,6 +38,11 @@ render() {
     printf 'domain-rules /domain-set:r76s-v13-cn/ -nameserver %s -address -6 -dualstack-ip-selection no%s\n' "$CN_GROUP" "$suffix"
     printf 'domain-rules /domain-set:r76s-v13-tencent/ -nameserver %s -address -6 -dualstack-ip-selection no%s\n' "$CN_GROUP" "$suffix"
     if [ "$nftset" = 1 ]; then printf 'nftset-timeout yes\n'; fi
+    # Explicit infrastructure hostnames may resolve AAAA without opening general IPv6 egress.
+    for domain in $(uci -q get r76s_ip_policy.main.endpoint_domains 2>/dev/null || true); do
+        case "$domain" in ''|*[!A-Za-z0-9.-]*) fail 'Invalid endpoint domain';; esac
+        printf 'domain-rules /%s/ -nameserver %s -address -6 -dualstack-ip-selection no\n' "$domain" "$CN_GROUP"
+    done
     # Local names keep existing resolver selection and IPv6 availability.
     for domain in lan home.arpa localhost; do
         printf 'domain-rules /%s/ -nameserver - -address -6 -dualstack-ip-selection no\n' "$domain"

@@ -1,0 +1,15 @@
+<%+header%>
+<h2>R76S 服务与 DNS</h2>
+<p>出厂由 dnsmasq 使用 WAN DNS。高级链路须显式启用；请先在 SmartDNS 配置 cn/foreign 上游组，或完成 AdGuard Home 初始化。两套透明代理须先关闭当前服务，再启用另一套。</p>
+<form method="post" action="<%=luci.dispatcher.build_url('admin','services','r76s_control','apply')%>">
+<input type="hidden" name="token" value="<%=luci.dispatcher.context.authtoken%>" />
+<label>操作对象 <select name="kind"><option value="dns">DNS 模式</option><option value="passwall">PassWall</option><option value="passwall2">PassWall2</option><option value="smartdns">SmartDNS 服务</option></select></label>
+<label>设置 <select name="value"><option value="system">恢复原 DNS</option><option value="smartdns">dnsmasq → SmartDNS</option><option value="adguard">dnsmasq → AGH</option><option value="combined">dnsmasq → AGH → SmartDNS</option><option value="1">持久启用服务</option><option value="0">持久禁用服务</option></select></label>
+<button class="cbi-button cbi-button-apply" type="submit">应用</button>
+</form>
+<p>当前 DNS 配置：<%=luci.util.pcdata(mode)%>。恢复原 DNS 仅撤销 DNS 接入，不删除节点、上游或 AGH 数据。高级解析失败时不会静默使用 WAN DNS；本地域名与 DHCP 保持由 dnsmasq 提供。</p>
+<p>纯 AGH 模式使用用户配置的上游；国内双栈/国外 IPv4 策略需使用 SmartDNS 或组合模式。国外解析是否经过代理由 foreign 上游及代理配置决定，启用后须检查实际出口。</p>
+<h3>WireGuard / DDNS</h3>
+<p><a href="<%=luci.dispatcher.build_url('admin','network','network')%>">原生接口与服务端 Peer 管理</a> · <a href="<%=luci.dispatcher.build_url('admin','network','r76s_wireguard')%>">WireGuard 状态与客户端导出</a> · <a href="<%=luci.dispatcher.build_url('admin','services','ddns')%>">DDNS</a></p>
+<p>服务端为每个客户端分配独立 /32、/128 AllowedIPs，并单独配置 UDP 入站、防火墙区域和转发权限。IPv6 Endpoint 优先恢复默认关闭；确认 DDNS 和防火墙后，可通过 r76s.main.endpoint_recovery=1 启用。私钥不显示在状态接口。</p>
+<%+footer%>

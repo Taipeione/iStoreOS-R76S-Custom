@@ -1,5 +1,10 @@
 #!/bin/sh
 
+# Firmware and proxy/DNS components are one tested compatibility set.
+if [ "${1:-}" = update ]; then
+    echo 'V1.4.0: use the signed firmware updater to update the tested component set.' >&2
+    exit 1
+fi
 PATH='/usr/sbin:/usr/bin:/sbin:/bin'
 TMPROOT='/tmp/r76s-component-updater'
 LOCKDIR='/tmp/r76s-component-updater.lock'
@@ -340,7 +345,6 @@ update_smartdns() {
     cp -a /etc/smartdns "$backup/etc-smartdns" 2>/dev/null || true
     /etc/init.d/smartdns stop >/dev/null 2>&1 || true
     put_exec "$candidate" /usr/libexec/r76s/smartdns.bin || return 1
-    /usr/libexec/r76s/r76s-smartdns-policy || true
     /etc/init.d/smartdns restart >/dev/null 2>&1 || true; sleep 3
     if ! netstat -ln 2>/dev/null | grep -q ':6053'; then
         [ -f "$backup/smartdns.bin" ] && put_exec "$backup/smartdns.bin" /usr/libexec/r76s/smartdns.bin
@@ -349,7 +353,6 @@ update_smartdns() {
         /etc/init.d/smartdns restart >/dev/null 2>&1 || true
         echo "SmartDNS validation failed; rolled back. Backup: $backup"; return 1
     fi
-    /usr/libexec/r76s/r76s-smartdns-policy || true
     /etc/init.d/dnsmasq restart >/dev/null 2>&1 || true
     echo "SmartDNS update complete: $tag. Backup: $backup"
 }

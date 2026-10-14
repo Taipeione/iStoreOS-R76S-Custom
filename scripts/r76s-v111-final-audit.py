@@ -19,6 +19,8 @@ import sys
 import tempfile
 
 EXECUTABLES = (
+    *(f'usr/libexec/r76s/{name}' for name in ('r76s-service-manager','r76s-ota','r76s-dns-manager','r76s-config-migrate','r76s-healthcheck','r76s-watchdog','r76s-wireguard-endpoint')),
+    'etc/init.d/r76s-reconcile',
     'usr/libexec/r76s/r76s-ip-family-policy',
     'usr/libexec/r76s/r76s-ip6-guard',
     'etc/init.d/r76s-ip6-guard',
@@ -32,7 +34,19 @@ EXECUTABLES = (
     'usr/libexec/r76s/v111-dns-runtime/r76s-v111-dns-runtime-manager.sh',
     'etc/init.d/r76s-v111-dns-manager',
 )
-REQUIRED = (*EXECUTABLES,
+REQUIRED = (
+    'etc/config/r76s',
+    'etc/init.d/r76s-reconcile',
+    'usr/libexec/r76s/r76s-service-manager',
+    'usr/libexec/r76s/r76s-ota',
+    'usr/libexec/r76s/r76s-dns-manager',
+    'usr/libexec/r76s/r76s-config-migrate',
+    'usr/libexec/r76s/r76s-healthcheck',
+    'usr/share/r76s/ota-public.pem',
+    'usr/share/r76s/release.json',
+    'usr/share/r76s/sources.lock.json',
+    'lib/upgrade/keep.d/r76s',
+*EXECUTABLES,
     'www/luci-static/resources/ui.js',
     'www/luci-static/resources/view/system/flash.js',
     'etc/config/r76s_v111_dns',
@@ -64,6 +78,8 @@ BANNED = (
     'usr/libexec/r76s/v111-dns-readonly/r76s-v111-dns-transaction.sh',
     'usr/libexec/r76s/v111-dns-readonly/r76s-v111-dns-topology.py',
     'etc/uci-defaults/99-r76s-v2-defaults',
+    'etc/uci-defaults/98-r76s-passwall-autostart',
+    'etc/init.d/r76s-fix3-boot',
 )
 CONTENT = {
     'usr/libexec/r76s/r76s-ota-preserve-state': 'r76s_ota_state.state.pending',
@@ -73,7 +89,7 @@ CONTENT = {
     'etc/init.d/smartdns': 'START=18',
     'etc/init.d/r76s-ota-restore': 'R76S_V12_OTA_HARDENING',
     'etc/uci-defaults/99-r76s-v110-ota-restore': 'R76S_V12_OTA_HARDENING',
-    'usr/lib/lua/luci/controller/r76s_updater.lua': 'local preserve_rc = sys.call(',
+    'usr/lib/lua/luci/controller/r76s_updater.lua': 'R76S_V14_OTA_BACKEND',
 }
 LMO = (
     'usr/lib/lua/luci/i18n/passwall2.zh-cn.lmo',
@@ -105,6 +121,9 @@ def check_root_shadow(root):
             return ['PUBLIC_SERIAL_FIRSTBOOT_UNRECOGNIZED']
         if not (root / 'usr/bin/openssl').is_file():
             return ['PUBLIC_OPENSSL_RUNTIME_MISSING']
+        provision=firstboot.read_text()
+        if 'secret="password"' in provision or '/dev/urandom' not in provision or '> /dev/ttyS0' not in provision:
+            return ['PUBLIC_FIRSTBOOT_CREDENTIAL_POLICY_INVALID']
         return []
     if not re.fullmatch(r'\$6\$[A-Za-z0-9./]{8,16}\$[A-Za-z0-9./]{86}', value):
         return ['ROOT_PASSWORD_NOT_STRONG_SHA512_CRYPT_FORMAT']

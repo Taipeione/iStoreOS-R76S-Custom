@@ -4,7 +4,7 @@ from pathlib import Path
 import argparse
 import re
 
-VERSION = 'R76S-V1.3.2'
+VERSION = 'R76S-V1.4.0'
 RULES = '''ChatGPTLogin OpenAI GitHub GoogleWork GoogleAI YouTube Netflix Disney
 MaxHBO PrimeVideo Twitter Telegram Google TikTok PlayStation Nintendo Instagram
 Xbox Signal Spotify Slack DirectGame ProxyGame AIGC Streaming Proxy Direct LINE
@@ -63,7 +63,7 @@ def audit(root):
             issues.append(f'{app}: WeChat DIRECT mapping absent')
         wechat = re.search(r"(?ms)^config shunt_rules 'WeChatDirect'\n(.*?)(?=^config |\Z)", text)
         for domain in ('wechat.com', 'weixin.com', 'weixin.qq.com', 'servicewechat.com',
-                       'wx.qq.com', 'wxapp.tc.qq.com', 'gtimg.com', 'vweixinthumb.tc.qq.com'):
+                       'wx.qq.com', 'wxapp.tc.qq.com', 'vweixinthumb.tc.qq.com'):
             if not wechat or f'domain:{domain}' not in wechat.group(1):
                 issues.append(f'{app}: WeChat domain missing: {domain}')
     for name in ('usr/lib/lua/luci/controller/r76s_adguardhome.lua',

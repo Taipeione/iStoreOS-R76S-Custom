@@ -1,0 +1,352 @@
+{
+  "schema_version": 1,
+  "rules": [
+    {
+      "name": "WeChatDirect",
+      "options": {
+        "remarks": "微信专属域名直连",
+        "network": "tcp,udp",
+        "domain_list": "domain:weixin.qq.com\ndomain:wx.qq.com\ndomain:weixin110.qq.com\ndomain:wechat.com\ndomain:weixin.com\ndomain:servicewechat.com\ndomain:weixinbridge.com\ndomain:weixinsxy.com\ndomain:wechatos.net\ndomain:wechatlegal.net\ndomain:wxs.qq.com\ndomain:wxapp.tc.qq.com\ndomain:wx.gtimg.com\ndomain:vweixinthumb.tc.qq.com\ndomain:wxgateway.com"
+      }
+    },
+    {
+      "name": "ChatGPTLogin",
+      "options": {
+        "remarks": "ChatGPT 登录完整链路",
+        "network": "tcp,udp",
+        "domain_list": "domain:auth.openai.com\ndomain:auth0.openai.com\ndomain:chatgpt.com\ndomain:openai.com\ndomain:oaistatic.com\ndomain:oaiusercontent.com\ndomain:cdn.oaistatic.com\ndomain:files.oaiusercontent.com"
+      }
+    },
+    {
+      "name": "OpenAI",
+      "options": {
+        "remarks": "OpenAI / ChatGPT",
+        "network": "tcp,udp",
+        "domain_list": "domain:openai.com\ndomain:chatgpt.com\ndomain:oaistatic.com\ndomain:oaiusercontent.com"
+      }
+    },
+    {
+      "name": "GitHub",
+      "options": {
+        "remarks": "GitHub",
+        "network": "tcp,udp",
+        "domain_list": "geosite:github"
+      }
+    },
+    {
+      "name": "GoogleWork",
+      "options": {
+        "remarks": "Gmail / Google Drive",
+        "network": "tcp,udp",
+        "domain_list": "domain:gmail.com\ndomain:mail.google.com\ndomain:drive.google.com\ndomain:docs.google.com\ndomain:googleusercontent.com\ndomain:googleapis.com"
+      }
+    },
+    {
+      "name": "GoogleAI",
+      "options": {
+        "remarks": "Google AI / Gemini",
+        "network": "tcp,udp",
+        "domain_list": "domain:gemini.google.com\ndomain:ai.google.dev\ndomain:aistudio.google.com\ndomain:generativelanguage.googleapis.com\ndomain:deepmind.google"
+      }
+    },
+    {
+      "name": "YouTube",
+      "options": {
+        "remarks": "YouTube",
+        "network": "tcp,udp",
+        "domain_list": "geosite:youtube"
+      }
+    },
+    {
+      "name": "Netflix",
+      "options": {
+        "remarks": "Netflix",
+        "network": "tcp,udp",
+        "domain_list": "geosite:netflix"
+      }
+    },
+    {
+      "name": "Disney",
+      "options": {
+        "remarks": "Disney+",
+        "network": "tcp,udp",
+        "domain_list": "geosite:disney"
+      }
+    },
+    {
+      "name": "MaxHBO",
+      "options": {
+        "remarks": "Max / HBO",
+        "network": "tcp,udp",
+        "domain_list": "domain:max.com\ndomain:hbomax.com\ndomain:hbo.com"
+      }
+    },
+    {
+      "name": "PrimeVideo",
+      "options": {
+        "remarks": "Amazon Prime Video",
+        "network": "tcp,udp",
+        "domain_list": "domain:primevideo.com\ndomain:amazonvideo.com\ndomain:media-amazon.com"
+      }
+    },
+    {
+      "name": "Twitter",
+      "options": {
+        "remarks": "X / Twitter",
+        "network": "tcp,udp",
+        "domain_list": "geosite:twitter"
+      }
+    },
+    {
+      "name": "Telegram",
+      "options": {
+        "remarks": "Telegram",
+        "network": "tcp,udp",
+        "domain_list": "geosite:telegram"
+      }
+    },
+    {
+      "name": "Google",
+      "options": {
+        "remarks": "Google",
+        "network": "tcp,udp",
+        "domain_list": "geosite:google"
+      }
+    },
+    {
+      "name": "TikTok",
+      "options": {
+        "remarks": "TikTok",
+        "network": "tcp,udp",
+        "domain_list": "geosite:tiktok"
+      }
+    },
+    {
+      "name": "PlayStation",
+      "options": {
+        "remarks": "PlayStation",
+        "network": "tcp,udp",
+        "domain_list": "domain:playstation.com\ndomain:playstation.net\ndomain:sonyentertainmentnetwork.com"
+      }
+    },
+    {
+      "name": "Nintendo",
+      "options": {
+        "remarks": "Nintendo",
+        "network": "tcp,udp",
+        "domain_list": "domain:nintendo.com\ndomain:nintendo.net\ndomain:nintendo.co.jp"
+      }
+    },
+    {
+      "name": "Instagram",
+      "options": {
+        "remarks": "Instagram",
+        "network": "tcp,udp",
+        "domain_list": "domain:instagram.com\ndomain:cdninstagram.com"
+      }
+    },
+    {
+      "name": "Xbox",
+      "options": {
+        "remarks": "Xbox",
+        "network": "tcp,udp",
+        "domain_list": "domain:xbox.com\ndomain:xboxlive.com\ndomain:xboxservices.com"
+      }
+    },
+    {
+      "name": "Signal",
+      "options": {
+        "remarks": "Signal",
+        "network": "tcp,udp",
+        "domain_list": "domain:signal.org\ndomain:signal.art"
+      }
+    },
+    {
+      "name": "Spotify",
+      "options": {
+        "remarks": "Spotify",
+        "network": "tcp,udp",
+        "domain_list": "domain:spotify.com\ndomain:scdn.co\ndomain:spotifycdn.com"
+      }
+    },
+    {
+      "name": "Slack",
+      "options": {
+        "remarks": "Slack",
+        "network": "tcp,udp",
+        "domain_list": "domain:slack.com\ndomain:slack-edge.com\ndomain:slack-files.com"
+      }
+    },
+    {
+      "name": "DirectGame",
+      "options": {
+        "remarks": "DirectGame",
+        "network": "tcp,udp",
+        "domain_list": "# 国内游戏geosite域名\ngeosite:category-games@cn",
+        "ip_list": "# steam直连IP\n45.121.184.0/24\n103.10.124.0/23\n103.28.54.0/24\n146.66.152.0/24\n146.66.155.0/24\n153.254.86.0/24\n155.133.224.0/22\n155.133.230.0/24\n155.133.232.0/23\n155.133.234.0/24\n155.133.236.0/22\n155.133.240.0/23\n155.133.244.0/23\n155.133.246.0/24\n155.133.248.0/21\n162.254.192.0/21\n185.25.182.0/23\n190.217.32.0/22\n192.69.96.0/22\n205.196.6.0/24\n208.64.200.0/22\n208.78.164.0/22\n205.185.194.0/24"
+      }
+    },
+    {
+      "name": "ProxyGame",
+      "options": {
+        "remarks": "ProxyGame",
+        "network": "tcp,udp",
+        "domain_list": "# steam 商店/客服/聊天/网页布局/API/二维码/Google云同步 代理URL\nsteamcommunity.com\nwww.steamcommunity.com\nstore.steampowered.com\ncheckout.steampowered.com\napi.steampowered.com\nhelp.steampowered.com\nlogin.steampowered.com\nstore.akamai.steamstatic.com\nsteambroadcast.akamaized.net\nsteamvideo-a.akamaihd.net\nsteamusercontent-a.akamaihd.net\nsteamstore-a.akamaihd.net\nsteamcommunity-a.akamaihd.net\nsteamcdn-a.akamaihd.net\nsteamuserimages-a.akamaihd.net\ncommunity.akamai.steamstatic.com\navatars.akamai.steamstatic.com\ncommunity.steamstatic.com\ncdn.akamai.steamstatic.com\navatars.steamstatic.com\nshared.akamai.steamstatic.com\nclan.akamai.steamstatic.com\ncdn.cloudflare.steamstatic.com\ncommunity.cloudflare.steamstatic.com\nstore.cloudflare.steamstatic.com\navatars.cloudflare.steamstatic.com\nclan.cloudflare.steamstatic.com\nshared.cloudflare.steamstatic.com\nsteam-chat.com\nsteamcloud-ugc.storage.googleapis.com\nsteamcloud-eu-ams.storage.googleapis.com\nsteamcloud-eu-fra.storage.googleapis.com\nsteamcloud-finland.storage.googleapis.com\nsteamcloud-saopaulo.storage.googleapis.com\nsteamcloud-singapore.storage.googleapis.com\nsteamcloud-sydney.storage.googleapis.com\nsteamcloud-taiwan.storage.googleapis.com\nsteamcloud-eu.storage.googleapis.com\ndomain:blizzard.com\n#Steam支付\ndomain:checkout.steampowered.com\ndomain:globalapi.smart2pay.com\ngeosite:category-games"
+      }
+    },
+    {
+      "name": "AIGC",
+      "options": {
+        "remarks": "AIGC",
+        "network": "tcp,udp",
+        "domain_list": "geosite:category-ai-!cn\ngeosite:apple-intelligence"
+      }
+    },
+    {
+      "name": "Streaming",
+      "options": {
+        "remarks": "Streaming",
+        "network": "tcp,udp",
+        "domain_list": "geosite:netflix\ngeosite:disney"
+      }
+    },
+    {
+      "name": "Proxy",
+      "options": {
+        "remarks": "Proxy",
+        "network": "tcp,udp",
+        "domain_list": "geosite:geolocation-!cn",
+        "ip_list": "149.154.160.0/20\n91.108.4.0/22\n91.108.56.0/24\n109.239.140.0/24\n67.198.55.0/24\n8.8.4.4\n8.8.8.8\n208.67.222.222\n208.67.220.220\n1.1.1.1\n1.1.1.2\n1.0.0.1\n9.9.9.9\n149.112.112.112\n2001:67c:4e8::/48\n2001:b28:f23c::/48\n2001:b28:f23d::/48\n2001:b28:f23f::/48\n2001:b28:f242::/48\n2001:4860:4860::8888\n2001:4860:4860::8844\n2606:4700:4700::1111\n2606:4700:4700::1001"
+      }
+    },
+    {
+      "name": "Direct",
+      "options": {
+        "remarks": "Direct",
+        "network": "tcp,udp",
+        "domain_list": "geosite:cn\ndomain:api.example.com\ndomain:speedtest.net",
+        "ip_list": "223.5.5.5/32\n223.6.6.6/32\n119.29.29.29/32\n180.76.76.76/32\n114.114.114.114/32\n114.114.115.115/32\n1.12.12.12/32\n120.53.53.53/32\ngeoip:cn\ngeoip:private"
+      }
+    },
+    {
+      "name": "LINE",
+      "options": {
+        "remarks": "LINE",
+        "network": "tcp,udp",
+        "domain_list": "domain:line.me\ndomain:line-apps.com\ndomain:line-scdn.net\ndomain:naver.jp"
+      }
+    },
+    {
+      "name": "WhatsApp",
+      "options": {
+        "remarks": "WhatsApp",
+        "network": "tcp,udp",
+        "domain_list": "domain:whatsapp.com\ndomain:whatsapp.net\ndomain:wa.me"
+      }
+    },
+    {
+      "name": "Discord",
+      "options": {
+        "remarks": "Discord",
+        "network": "tcp,udp",
+        "domain_list": "domain:discord.com\ndomain:discord.gg\ndomain:discordapp.com\ndomain:discordapp.net"
+      }
+    },
+    {
+      "name": "Facebook",
+      "options": {
+        "remarks": "Facebook / Messenger",
+        "network": "tcp,udp",
+        "domain_list": "geosite:facebook"
+      }
+    },
+    {
+      "name": "Reddit",
+      "options": {
+        "remarks": "Reddit",
+        "network": "tcp,udp",
+        "domain_list": "geosite:reddit"
+      }
+    },
+    {
+      "name": "Claude",
+      "options": {
+        "remarks": "Claude / Anthropic",
+        "network": "tcp,udp",
+        "domain_list": "domain:anthropic.com\ndomain:claude.ai"
+      }
+    },
+    {
+      "name": "Perplexity",
+      "options": {
+        "remarks": "Perplexity",
+        "network": "tcp,udp",
+        "domain_list": "domain:perplexity.ai"
+      }
+    },
+    {
+      "name": "Copilot",
+      "options": {
+        "remarks": "Microsoft Copilot",
+        "network": "tcp,udp",
+        "domain_list": "domain:copilot.microsoft.com\ndomain:copilot.cloud.microsoft\ndomain:bing.com"
+      }
+    },
+    {
+      "name": "Grok",
+      "options": {
+        "remarks": "Grok / xAI",
+        "network": "tcp,udp",
+        "domain_list": "domain:x.ai\ndomain:grok.com"
+      }
+    },
+    {
+      "name": "Apple",
+      "options": {
+        "remarks": "Apple / iCloud / App Store",
+        "network": "tcp,udp",
+        "domain_list": "geosite:apple"
+      }
+    },
+    {
+      "name": "Microsoft",
+      "options": {
+        "remarks": "Microsoft / Office / OneDrive",
+        "network": "tcp,udp",
+        "domain_list": "geosite:microsoft"
+      }
+    },
+    {
+      "name": "Zoom",
+      "options": {
+        "remarks": "Zoom",
+        "network": "tcp,udp",
+        "domain_list": "domain:zoom.us\ndomain:zoom.com"
+      }
+    },
+    {
+      "name": "Notion",
+      "options": {
+        "remarks": "Notion",
+        "network": "tcp,udp",
+        "domain_list": "domain:notion.so\ndomain:notion.site\ndomain:notion-static.com"
+      }
+    },
+    {
+      "name": "Dropbox",
+      "options": {
+        "remarks": "Dropbox",
+        "network": "tcp,udp",
+        "domain_list": "domain:dropbox.com\ndomain:dropboxapi.com\ndomain:dropboxstatic.com"
+      }
+    },
+    {
+      "name": "TencentMediaDirect",
+      "options": {
+        "remarks": "腾讯QQ媒体旧直连保留",
+        "network": "tcp,udp",
+        "domain_list": "domain:qq.com\ndomain:qpic.cn\ndomain:qlogo.cn\ndomain:gtimg.cn\ndomain:myqcloud.com\ndomain:tencent.com\ndomain:tencent-cloud.net\ndomain:gtimg.com\ndomain:lbs.gtimg.com"
+      }
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-r76s-updater
-PKG_VERSION:=2.2.4
+PKG_VERSION:=1.4.0
 PKG_RELEASE:=6
 PKGARCH:=all
 
@@ -14,7 +14,7 @@ define Package/luci-app-r76s-updater
   CATEGORY:=LuCI
   SUBMENU:=3. Applications
   TITLE:=R76S Firmware and Component Online Updater
-  DEPENDS:=+luci-base +luci-lib-jsonc +lua +curl +ca-bundle +ca-certificates +opkg
+  DEPENDS:=+luci-base +luci-lib-jsonc +lua +curl +ca-bundle +ca-certificates +opkg +r76s-core
 endef
 
 define Package/luci-app-r76s-updater/description
@@ -47,7 +47,6 @@ define Package/luci-app-r76s-updater/install
 	$(CP) $(PKG_BUILD_DIR)/view/r76s_updater/* $(1)/usr/lib/lua/luci/view/r76s_updater/
 
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/libexec/r76s/r76s-component-updater $(1)/usr/libexec/r76s/r76s-component-updater
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/libexec/r76s/r76s-smartdns-policy $(1)/usr/libexec/r76s/r76s-smartdns-policy
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/libexec/r76s/r76s-ip-family-policy $(1)/usr/libexec/r76s/r76s-ip-family-policy
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/libexec/r76s/r76s-ip6-guard $(1)/usr/libexec/r76s/r76s-ip6-guard
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/root/usr/share/r76s/tencent-direct.list $(1)/usr/share/r76s/tencent-direct.list
@@ -61,9 +60,7 @@ define Package/luci-app-r76s-updater/install
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/bin/r76s-update-smartdns $(1)/usr/bin/r76s-update-smartdns
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/bin/r76s-update-adguardhome $(1)/usr/bin/r76s-update-adguardhome
 
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/etc/init.d/r76s-fix3-boot $(1)/etc/init.d/r76s-fix3-boot
 
-	$(LN) ../init.d/r76s-fix3-boot $(1)/etc/rc.d/S98r76s-fix3-boot
 endef
 
 $(eval $(call BuildPackage,luci-app-r76s-updater))
