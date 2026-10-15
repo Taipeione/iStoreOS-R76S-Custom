@@ -150,8 +150,10 @@ def check_root_shadow(root):
         if '/dev/urandom' in auth_text or '/dev/ttyS0' in auth_text:
             return ['RANDOM_PASSWORD_MECHANISM_PRESENT']
         boot_link = root / 'etc/rc.d/S99r76s-root-password'
-        if not boot_link.is_symlink():
-            return ['V143_ROOT_PASSWORD_BOOT_LINK_MISSING']
+        if not boot_link.is_file() or not (boot_link.stat().st_mode & stat.S_IXUSR):
+            return ['V143_ROOT_PASSWORD_BOOT_WRAPPER_MISSING_OR_NOT_EXECUTABLE']
+        if '/etc/init.d/r76s-root-password' not in boot_link.read_text(encoding='utf-8'):
+            return ['V143_ROOT_PASSWORD_BOOT_WRAPPER_INVALID']
         dropbear = root / 'etc/config/dropbear'
         if not dropbear.is_file():
             return ['DROPBEAR_CONFIG_MISSING']

@@ -52,7 +52,11 @@ R76S_V143_PASSWORD
 }
 R76S_V143_PASSWORD_INIT
 chmod 0755 openwrt/files/etc/init.d/r76s-root-password
-ln -sf ../init.d/r76s-root-password openwrt/files/etc/rc.d/S99r76s-root-password
+cat > openwrt/files/etc/rc.d/S99r76s-root-password <<'R76S_V143_RC_WRAPPER'
+#!/bin/sh
+exec /etc/init.d/r76s-root-password "$@"
+R76S_V143_RC_WRAPPER
+chmod 0755 openwrt/files/etc/rc.d/S99r76s-root-password
 
 # Authentication policy is separate from password setting and only enables
 # LAN-side password authentication in the generated Dropbear config.

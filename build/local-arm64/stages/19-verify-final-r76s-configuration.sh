@@ -130,7 +130,8 @@ if [ "${R76S_PUBLIC_RELEASE:-0}" = 1 ]; then
     grep -qF 'R76S_V143_ROOT_PASSWORD_POLICY' files/etc/init.d/r76s-root-password
     grep -qF 'R76S-V1.4.3' files/etc/init.d/r76s-root-password
     grep -qF 'password' files/etc/init.d/r76s-root-password
-    test -L files/etc/rc.d/S99r76s-root-password
+    test -x files/etc/rc.d/S99r76s-root-password
+    grep -qF '/etc/init.d/r76s-root-password' files/etc/rc.d/S99r76s-root-password
     test -x files/etc/uci-defaults/99-r76s-root-auth
     sh -n files/etc/uci-defaults/99-r76s-root-auth
     grep -qF 'R76S_V143_ROOT_PASSWORD_AUTH' files/etc/uci-defaults/99-r76s-root-auth
