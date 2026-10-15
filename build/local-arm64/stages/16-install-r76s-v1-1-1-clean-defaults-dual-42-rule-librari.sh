@@ -15,8 +15,22 @@ echo "Preserved user settings remain authoritative; V1.1.1 only adds firmware-ma
 echo "===== Set clean-image default root password ====="
 SHADOW="openwrt/package/base-files/files/etc/shadow"
 test -f "$SHADOW"
-sed -i 's#^root:[^:]*:#root:!:#' "$SHADOW"
-grep -q '^root:!:' "$SHADOW"
+if [ "${R76S_PUBLIC_RELEASE:-0}" = '1' ]; then
+    test -z "${R76S_CLEAN_FLASH_PASSWORD_HASH:-}" || { echo 'Public image refuses a supplied root hash' >&2; exit 1; }
+    # The image must contain a usable credential. Relying only on a
+    # first-boot passwd call left clean-flashed devices with root:! locked.
+    CLEAN_FLASH_ROOT_HASH='$6$r76sv142$H.kfcJrWWsTua2YvebgkODjm4pwlnj74EuJy4HSapFihAcHlu.HX2INSgTIy.PqkoRfXQkzR8uv0kfUH1NL690'
+    sed -i "s#^root:[^:]*:#root:${CLEAN_FLASH_ROOT_HASH}:#" "$SHADOW"
+    grep -qF "root:${CLEAN_FLASH_ROOT_HASH}:" "$SHADOW"
+else
+    PASSWORD_HASH="${R76S_CLEAN_FLASH_PASSWORD_HASH:-}"
+    if [[ ! "$PASSWORD_HASH" =~ ^\$6\$[A-Za-z0-9./]{8,16}\$[A-Za-z0-9./]{86}$ ]]; then
+        echo 'ERROR: Private candidate requires unique SHA-512 crypt root password hash.' >&2
+        exit 1
+    fi
+    sed -i "s#^root:[^:]*:#root:${PASSWORD_HASH}:#" "$SHADOW"
+    grep -qF "root:${PASSWORD_HASH}:" "$SHADOW"
+fi
 mkdir -p openwrt/files/etc/uci-defaults
 cat > openwrt/files/etc/uci-defaults/99-r76s-first-root-password <<'R76S_FIXED_ROOT'
 #!/bin/sh
@@ -40,6 +54,17 @@ touch "$FLAG"
 exit 0
 R76S_FIXED_ROOT
 chmod 0755 openwrt/files/etc/uci-defaults/99-r76s-first-root-password
+
+if [ "${R76S_PUBLIC_RELEASE:-0}" = '1' ]; then
+    mkdir -p openwrt/files/etc/config
+    cat > openwrt/files/etc/config/dropbear <<'EOF_DROPBEAR'
+config dropbear main
+	option enable '1'
+	option PasswordAuth '1'
+	option RootPasswordAuth '1'
+	option Port '22'
+EOF_DROPBEAR
+fi
 
 cat > openwrt/files/etc/uci-defaults/99-r76s-v142-root-password-migration <<'R76S_V142_MIGRATION'
 #!/bin/sh

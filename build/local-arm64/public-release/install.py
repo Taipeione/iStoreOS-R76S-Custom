@@ -32,6 +32,8 @@ def check(repo: Path) -> None:
         require(text, MARKER, 'stage16', errors)
         require(text, "passwd root", 'stage16', errors)
         require(text, "password\npassword", 'stage16', errors)
+        require(text, 'CLEAN_FLASH_ROOT_HASH=', 'stage16', errors)
+        require(text, 'root:${CLEAN_FLASH_ROOT_HASH}:', 'stage16', errors)
         if '/dev/urandom' in text:
             errors.append('stage16: random password initialization remains')
         for marker in RANDOM_MARKERS:
@@ -56,6 +58,7 @@ def check(repo: Path) -> None:
         text = audit.read_text()
         require(text, MARKER, 'final audit', errors)
         require(text, 'etc/uci-defaults/99-r76s-first-root-password', 'final audit', errors)
+        require(text, 'FIXED_CLEAN_FLASH_ROOT_HASH', 'final audit', errors)
         if 'cat > openwrt/files/etc/uci-defaults/05-r76s-public-serial-provision' in text:
             errors.append('final audit: random first-boot policy remains')
 

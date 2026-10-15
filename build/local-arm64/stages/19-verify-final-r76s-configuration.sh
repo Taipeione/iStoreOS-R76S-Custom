@@ -136,6 +136,9 @@ if [ "${R76S_PUBLIC_RELEASE:-0}" = 1 ]; then
     grep -qF 'R76S_V142_ROOT_PASSWORD_MIGRATION' files/etc/uci-defaults/99-r76s-v142-root-password-migration
     grep -qF 'R76S-V1.4.2' files/etc/uci-defaults/99-r76s-v142-root-password-migration
     ! grep -qF '/dev/urandom' files/etc/uci-defaults/99-r76s-v142-root-password-migration
+    grep -qF 'CLEAN_FLASH_ROOT_HASH=' ../build/local-arm64/stages/16-install-r76s-v1-1-1-clean-defaults-dual-42-rule-librari.sh
+    grep -qF "option PasswordAuth '1'" files/etc/config/dropbear
+    grep -qF "option RootPasswordAuth '1'" files/etc/config/dropbear
 fi
 
 echo "R76S v1.1.1 configuration verified successfully."

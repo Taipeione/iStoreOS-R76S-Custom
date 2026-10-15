@@ -99,6 +99,7 @@ LMO = (
     'usr/lib/lua/luci/i18n/passwall2.zh-cn.lmo',
     'usr/share/luci/i18n/passwall2.zh-cn.lmo',
 )
+FIXED_CLEAN_FLASH_ROOT_HASH = '$6$r76sv142$H.kfcJrWWsTua2YvebgkODjm4pwlnj74EuJy4HSapFihAcHlu.HX2INSgTIy.PqkoRfXQkzR8uv0kfUH1NL690'
 
 
 def check_root_shadow(root):
@@ -116,8 +117,14 @@ def check_root_shadow(root):
     value = roots[0]
     # R76S_V142_FIXED_CLEAN_FLASH_PASSWORD
     if os.environ.get('R76S_PUBLIC_RELEASE') == '1':
-        if value != '!':
-            return ['CLEAN_IMAGE_ROOT_FIELD_NOT_LOCKED']
+        if value != FIXED_CLEAN_FLASH_ROOT_HASH:
+            return ['CLEAN_IMAGE_ROOT_HASH_MISMATCH']
+        try:
+            import crypt
+            if not hmac.compare_digest(crypt.crypt('password', value), value):
+                return ['CLEAN_IMAGE_ROOT_PASSWORD_HASH_MISMATCH']
+        except (ImportError, TypeError):
+            return ['CLEAN_IMAGE_ROOT_PASSWORD_CHECK_UNAVAILABLE']
         firstboot = root / 'etc/uci-defaults/99-r76s-first-root-password'
         if not firstboot.is_file() or not (firstboot.stat().st_mode & stat.S_IXUSR):
             return ['FIXED_PASSWORD_FIRSTBOOT_MISSING_OR_NOT_EXECUTABLE']
@@ -136,6 +143,14 @@ def check_root_shadow(root):
             return ['V142_ROOT_PASSWORD_MIGRATION_INVALID']
         if '/dev/urandom' in migration_text or '/dev/ttyS0' in migration_text:
             return ['V142_ROOT_PASSWORD_MIGRATION_RANDOM_SOURCE']
+        dropbear = root / 'etc/config/dropbear'
+        if not dropbear.is_file():
+            return ['DROPBEAR_CONFIG_MISSING']
+        cfg = dropbear.read_text(encoding='utf-8')
+        if not re.search(r"option\s+PasswordAuth\s+'(?:1|on)'", cfg):
+            return ['DROPBEAR_PASSWORD_AUTH_DISABLED']
+        if not re.search(r"option\s+RootPasswordAuth\s+'(?:1|on)'", cfg):
+            return ['DROPBEAR_ROOT_PASSWORD_AUTH_DISABLED']
         return []
     if not re.fullmatch(r'\$6\$[A-Za-z0-9./]{8,16}\$[A-Za-z0-9./]{86}', value):
         return ['ROOT_PASSWORD_NOT_STRONG_SHA512_CRYPT_FORMAT']

@@ -56,7 +56,8 @@ class V142Features(unittest.TestCase):
         firstboot = (ROOT / 'files/etc/uci-defaults/99-r76s-first-root-password').read_text()
         adapter = (ROOT / 'build/local-arm64/public-release/install.py').read_text()
         self.assertIn('R76S_V142_FIXED_CLEAN_FLASH_PASSWORD', stage)
-        self.assertIn("sed -i 's#^root:[^:]*:#root:!:#'", stage)
+        self.assertIn('CLEAN_FLASH_ROOT_HASH=', stage)
+        self.assertIn('root:${CLEAN_FLASH_ROOT_HASH}:', stage)
         self.assertIn('password\npassword', firstboot)
         self.assertIn("if [ \"$ROOT_FIELD\" != '!' ]", firstboot)
         self.assertNotIn('/dev/urandom', stage)
@@ -64,6 +65,12 @@ class V142Features(unittest.TestCase):
         self.assertNotIn('R76S_V12_PUBLIC_CREDENTIALS_20261010', stage + firstboot)
         self.assertIn('R76S_FIXED_CLEAN_FLASH_PASSWORD=password', adapter)
         self.assertIn('R76S_V142_PRESERVE_UPGRADE_ROOT_PASSWORD=password', adapter)
+
+    def test_artifact_gate_verifies_password_hash_and_dropbear_auth(self):
+        audit = (ROOT / 'scripts/r76s-v111-final-audit.py').read_text()
+        self.assertIn('FIXED_CLEAN_FLASH_ROOT_HASH', audit)
+        self.assertIn("crypt.crypt('password', value)", audit)
+        self.assertIn('DROPBEAR_ROOT_PASSWORD_AUTH_DISABLED', audit)
 
     def test_v142_migration_resets_preserved_password_once(self):
         source = (ROOT / 'files/etc/uci-defaults/99-r76s-v142-root-password-migration').read_text()
