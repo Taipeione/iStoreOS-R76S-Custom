@@ -6,6 +6,17 @@ local json=require 'luci.jsonc'
 local run='/tmp/r76s-ota'
 local repository='https://github.com/Taipeione/iStoreOS-R76S-Custom/releases/download/'
 local image='/tmp/firmware.img'
+local function selected_channel()
+    local uci=require 'uci'.cursor()
+    local value=uci:get('r76s','main','channel') or 'stable'
+    return value=='beta' and 'beta' or 'stable'
+end
+local function release_tag(channel)
+    return channel=='beta' and 'R76S-V1.4.1' or 'R76S-V1.4.0'
+end
+local function channel_url(channel,name)
+    return repository..release_tag(channel)..'/'..name
+end
 local function q(s) return "'"..s:gsub("'","'\\''").."'" end
 local function call(s) return sys.call(s..' >/dev/null 2>&1')==0 end
 local function read(p) return fs.readfile(p) or '' end
@@ -40,16 +51,29 @@ if arg[1]=='status' then io.write(read(run..'/state.json')); os.exit(0) end
 if not fs.mkdir(run..'/lock') then io.stderr:write('OTA busy\n'); os.exit(1) end
 local phase=arg[1] or 'check'
 local ok,err=pcall(function()
-    if phase=='check' then
-        fetch(repository..'R76S-stable/ota.json',run..'/ota.json.part')
-        fetch(repository..'R76S-stable/ota.json.sig',run..'/ota.json.sig.part')
+    if phase=='channel' then
+        local wanted=arg[2] or 'stable'
+        assert(wanted=='stable' or wanted=='beta','invalid OTA channel')
+        local uci=require 'uci'.cursor()
+        uci:set('r76s','main','channel',wanted)
+        assert(uci:commit('r76s'),'cannot save OTA channel')
+        fs.remove(run..'/ota.json'); fs.remove(run..'/ota.json.sig'); fs.remove(run..'/state.json')
+        fs.remove('/var/run/ota/ota.latest'); fs.remove('/tmp/firmware.img'); fs.remove('/tmp/firmware.img.part')
+        fs.remove('/tmp/firmware.img.sha256sum'); fs.remove('/tmp/firmware.img.progress')
+        fs.remove('/tmp/r76s-ota-verify.state'); fs.remove('/tmp/r76s-ota.meta')
+        persist({phase='channel_changed',channel=wanted,release=release_tag(wanted)})
+    elseif phase=='check' then
+        local channel=selected_channel()
+        fetch(channel_url(channel,'ota.json'),run..'/ota.json.part')
+        fetch(channel_url(channel,'ota.json.sig'),run..'/ota.json.sig.part')
         assert(fs.rename(run..'/ota.json.part',run..'/ota.json'))
         assert(fs.rename(run..'/ota.json.sig.part',run..'/ota.json.sig'))
         local m=manifest()
+        assert(m.version==release_tag(channel),'OTA manifest does not match selected channel')
         -- Compatibility state for the existing LuCI status renderer.
         fs.mkdirr('/var/run/ota')
         assert(fs.writefile('/var/run/ota/ota.latest','[24.10.8-'..m.version..']('..m.version..'-TF-squashfs.img.gz)\nSHA256: '..m.sha256..'\n'))
-        persist({phase='checked',version=m.version,size=m.size})
+        persist({phase='checked',channel=channel,release=release_tag(channel),version=m.version,size=m.size})
     elseif phase=='download' then
         local m=manifest()
         local free=tonumber(sys.exec("df -Pk /tmp | awk 'END {print $4}'")) or 0

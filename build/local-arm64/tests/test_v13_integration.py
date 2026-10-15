@@ -58,13 +58,13 @@ class V13Integration(unittest.TestCase):
         self.assertIn('r76s-metadata', current)
         baseline_ids = re.findall(r'id="([^"]+)"', baseline)
         current_ids = re.findall(r'id="([^"]+)"', current)
-        # V1.4.1 adds explicit OTA-signature status and a real restore form;
+        # V1.4.1 adds channel selection, explicit OTA-signature status and a real restore form;
         # all existing DOM IDs remain in their original order.
         self.assertEqual([x for x in current_ids if x not in
-                          ('r76s-ota-signature', 'r76s-restore-file')], baseline_ids)
+                          ('r76s-channel', 'r76s-channel-note', 'r76s-ota-signature', 'r76s-restore-file')], baseline_ids)
         self.assertIn('r76s-ota-signature', current_ids)
         self.assertIn('r76s-restore-file', current_ids)
-        self.assertIn('R76S-V1.4.1 · 在线升级', current)
+        self.assertIn('R76S · 在线升级', current)
 
     def test_generated_rules_match_stable_baseline(self):
         stage = next((ROOT / 'build/local-arm64/stages').glob('16-*.sh'))

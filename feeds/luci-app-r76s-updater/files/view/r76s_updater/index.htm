@@ -204,8 +204,8 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
 
 <div class="r76s-wrap">
 
-  <h2 class="r76s-title">R76S-V1.4.1 · 在线升级</h2>
-  <p class="r76s-subtitle">检查更新、核对镜像，保留配置完成升级。</p>
+  <h2 class="r76s-title">R76S · 在线升级</h2>
+  <p class="r76s-subtitle">选择更新通道，核对镜像，保留配置完成升级。</p>
   <ol class="r76s-steps" aria-label="升级流程">
     <li><strong>1 · 检查更新</strong><span>核对当前与远端版本</span></li>
     <li><strong>2 · 下载与校验</strong><span>SHA256、Metadata、OTA 签名、Sysupgrade</span></li>
@@ -221,6 +221,17 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
         <tr class="tr">
           <th scope="row" class="td">当前版本</th>
           <td class="td" id="r76s-current">读取中...</td>
+        </tr>
+
+        <tr class="tr">
+          <th scope="row" class="td">OTA 通道</th>
+          <td class="td">
+            <select id="r76s-channel" aria-label="OTA 更新通道">
+              <option value="stable">稳定版</option>
+              <option value="beta">测试版 / 预发布版</option>
+            </select>
+            <span class="r76s-muted" id="r76s-channel-note">默认使用稳定版；切换后请重新检查更新。</span>
+          </td>
         </tr>
 
         <tr class="tr">
@@ -394,7 +405,7 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
     return document.getElementById(id);
   }
 
-  function request(action, method, done) {
+  function request(action, method, done, body) {
     var xhr = new XMLHttpRequest();
     if (action !== 'status') method = 'POST';
 
@@ -432,7 +443,7 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
 
     if (method === 'POST') {
       xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-      xhr.send('token=' + encodeURIComponent('<%=luci.dispatcher.context.authtoken%>'));
+      xhr.send(body || 'token=' + encodeURIComponent('<%=luci.dispatcher.context.authtoken%>'));
     } else xhr.send(null);
   }
 
@@ -474,6 +485,13 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
 
     byId('r76s-current').textContent =
       (s.current && s.current.revision) || '未知';
+
+    var channel = s.channel || 'stable';
+    var channelSelect = byId('r76s-channel');
+    channelSelect.value = channel;
+    byId('r76s-channel-note').textContent =
+      '当前使用：' + (s.channel_label || (channel === 'beta' ? '测试版 / 预发布版' : '稳定版')) +
+      '；切换后请重新检查更新。';
 
     byId('r76s-latest').textContent =
       s.checked
@@ -732,6 +750,29 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
           );
         }
       }
+    );
+  };
+
+  byId('r76s-channel').onchange = function() {
+    var select = this;
+    var channel = select.value;
+    select.disabled = true;
+    showMessage('正在切换 OTA 通道...');
+    request(
+      'channel',
+      'POST',
+      function(data) {
+        select.disabled = false;
+        if (data && data.status)
+          render(data.status);
+        if (!data || !data.ok) {
+          showMessage((data && (data.output || data.message)) || 'OTA 通道切换失败');
+          return;
+        }
+        showMessage('已切换到' + (channel === 'beta' ? '测试版 / 预发布版' : '稳定版') + '通道，请点击“检查更新”。');
+      },
+      'channel=' + encodeURIComponent(channel) +
+      '&token=' + encodeURIComponent('<%=luci.dispatcher.context.authtoken%>')
     );
   };
 

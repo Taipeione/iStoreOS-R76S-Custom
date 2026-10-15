@@ -43,6 +43,24 @@ class V141Features(unittest.TestCase):
         self.assertIn('ota_signature', controller)
         self.assertIn('R76S_V14_OTA_BACKEND', controller)
 
+    def test_ota_has_stable_and_prerelease_channels(self):
+        controller = (ROOT / 'feeds/luci-app-r76s-updater/files/controller/r76s_updater.lua').read_text()
+        backend = (ROOT / 'feeds/r76s-core/files/usr/libexec/r76s/r76s-ota').read_text()
+        page = (ROOT / 'feeds/luci-app-r76s-updater/files/view/r76s_updater/index.htm').read_text()
+        config = (ROOT / 'feeds/r76s-core/files/etc/config/r76s').read_text()
+        self.assertIn("option channel 'stable'", config)
+        self.assertIn('api_channel', controller)
+        self.assertIn('selected_channel', controller)
+        self.assertIn("channel == \"beta\"", controller)
+        self.assertIn("R76S-V1.4.0", backend)
+        self.assertIn("R76S-V1.4.1", backend)
+        self.assertIn("phase=='channel'", backend)
+        self.assertIn("m.version==release_tag(channel)", backend)
+        for label in ('稳定版', '测试版 / 预发布版'):
+            self.assertIn(label, page)
+        for check in ('sysupgrade -T', 'firmware.img.sha256sum', 'configuration.tar.gz'):
+            self.assertIn(check, backend + controller + page)
+
     def test_stage_adapter_is_idempotent_and_preserves_controller_tail(self):
         adapter = (ROOT / 'scripts/r76s-v14-stage.py').read_text()
         self.assertIn("text.find('\\nfunction api_backup()', start)", adapter)

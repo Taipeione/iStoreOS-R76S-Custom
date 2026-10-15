@@ -37,8 +37,8 @@ class Diagnostics(unittest.TestCase):
     def test_final_ota_labels_and_links(self):
         page=(ROOT/'feeds/luci-app-r76s-updater/files/view/r76s_updater/index.htm').read_text()
         parser=TableLabels();parser.feed(page.split('<script type="text/javascript">')[0])
-        self.assertEqual(parser.headers,11)
+        self.assertEqual(parser.headers,12)
         self.assertIn('r76s_dns_diagnostics',page)
         self.assertIn('r76s_router_security',page)
-        self.assertIn('R76S-V1.4.1 · 在线升级',page)
+        self.assertIn('R76S · 在线升级',page)
         self.assertIn('aria-hidden="true"',page)

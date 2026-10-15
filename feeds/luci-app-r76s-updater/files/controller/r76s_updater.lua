@@ -25,6 +25,7 @@ function index()
     entry({"admin", "system", "r76s_updater", "api", "download"}, post("api_download")).leaf = true
     entry({"admin", "system", "r76s_updater", "api", "verify"}, post("api_verify")).leaf = true
     entry({"admin", "system", "r76s_updater", "api", "install"}, post("api_install")).leaf = true
+    entry({"admin", "system", "r76s_updater", "api", "channel"}, post("api_channel")).leaf = true
     entry({"admin", "system", "r76s_updater", "api", "backup"}, post("api_backup")).leaf = true
     entry({"admin", "system", "r76s_updater", "api", "restore"}, post("api_restore")).leaf = true
 
@@ -60,6 +61,15 @@ local function release_info()
         target = target,
         key = release .. "-" .. revision
     }
+end
+
+local function selected_channel()
+    local value = trim(sys.exec("uci -q get r76s.main.channel 2>/dev/null"))
+    return value == "beta" and "beta" or "stable"
+end
+
+local function channel_label(channel)
+    return channel == "beta" and "测试版 / 预发布版" or "稳定版"
 end
 
 local function latest_info()
@@ -180,6 +190,7 @@ end
 
 local function build_status()
     local current = release_info()
+    local channel = selected_channel()
     local latest = latest_info()
     local boot = boot_info()
     local download = download_info(latest)
@@ -214,6 +225,8 @@ local function build_status()
 
     return {
         current = current,
+        channel = channel,
+        channel_label = channel_label(channel),
         latest = latest,
         boot = boot,
         download = download,
@@ -341,6 +354,27 @@ end
 
 function api_status()
     json_reply({ ok=true, status=build_status() })
+end
+
+function api_channel()
+    local channel = http.formvalue("channel") or ""
+    if channel ~= "stable" and channel ~= "beta" then
+        json_reply({ok=false, message="无效的 OTA 通道。请选择稳定版或测试版。", status=build_status()})
+        return
+    end
+
+    local rc, out = run_with_rc("/usr/libexec/r76s/r76s-ota channel " .. channel .. " 2>&1")
+    if rc == 0 then
+        fs.remove(VERIFY_STATE)
+        fs.remove(META_FILE)
+    end
+    json_reply({
+        ok = rc == 0,
+        rc = rc,
+        channel = selected_channel(),
+        output = out,
+        status = build_status()
+    })
 end
 
 function api_check()
