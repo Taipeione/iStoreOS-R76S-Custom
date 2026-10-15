@@ -139,6 +139,8 @@ grep -qF 'R76S_V12_OTA_HARDENING' files/usr/libexec/r76s/r76s-ota-preserve-state
 grep -qF 'R76S_V12_OTA_HARDENING' files/etc/init.d/r76s-ota-restore
 grep -qF 'R76S_V12_OTA_HARDENING' files/etc/uci-defaults/99-r76s-v110-ota-restore
 grep -qF 'R76S_V14_OTA_BACKEND' package/custom/luci-app-r76s-updater/files/controller/r76s_updater.lua
+grep -qF 'R76S_V12_OTA_HARDENING' package/custom/luci-app-r76s-updater/files/controller/r76s_updater.lua
+grep -qF '/usr/libexec/r76s/r76s-ota install' package/custom/luci-app-r76s-updater/files/controller/r76s_updater.lua
 ! grep -qF 'r76s-ota-preserve-state && /sbin/sysupgrade' package/custom/luci-app-r76s-updater/files/controller/r76s_updater.lua
 
 # R76S-V1.4.1 phase 1: native WireGuard UI and read-only AGH service entry.

@@ -376,6 +376,7 @@ function api_verify()
     json_reply({ ok=result.ok, verify=result, status=build_status() })
 end
 
+-- R76S_V14_OTA_BACKEND: all install checks are serialized by the signed backend.
 function api_install()
     local current = release_info()
     local latest = latest_info()
@@ -397,7 +398,8 @@ function api_install()
         return
     end
 
-    -- The signed backend repeats manifest, device, state-preservation and boot-disk checks.
+    -- R76S_V12_OTA_HARDENING: signed backend repeats manifest, device,
+    -- state-preservation and boot-disk checks before any flash operation.
     local launch_rc, launch_out = run_with_rc("/usr/libexec/r76s/r76s-ota install 2>&1")
     json_reply({
         ok = launch_rc == 0,

@@ -15,7 +15,8 @@ if '/usr/libexec/r76s/r76s-ota install' not in text:
     start=text.index('function api_install()')
     end=text.find('\nfunction api_backup()', start)
     if end < 0: end=len(text)
-    text=text[:start]+'''function api_install()
+    text=text[:start]+'''-- R76S_V14_OTA_BACKEND: all install checks are serialized by the signed backend.
+function api_install()
     local preserve_rc, out = run_with_rc("/usr/libexec/r76s/r76s-ota install 2>&1")
     json_reply({ok=preserve_rc==0, message=preserve_rc==0 and
         "升级已启动，请勿断电。" or out, status=build_status()})

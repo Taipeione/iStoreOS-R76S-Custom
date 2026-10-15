@@ -41,6 +41,7 @@ class V141Features(unittest.TestCase):
         self.assertIn('name="backup"', page)
         self.assertIn('<%=api_base%>/restore', page)
         self.assertIn('ota_signature', controller)
+        self.assertIn('R76S_V14_OTA_BACKEND', controller)
 
     def test_stage_adapter_is_idempotent_and_preserves_controller_tail(self):
         adapter = (ROOT / 'scripts/r76s-v14-stage.py').read_text()
