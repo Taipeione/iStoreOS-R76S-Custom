@@ -3,6 +3,21 @@
 from pathlib import Path
 import argparse,hashlib,json,subprocess,zlib
 
+PUBLISHED_METADATA = {
+    'ota.json', 'ota.json.sig', 'ota-public.pem', 'version.latest',
+    'version.index', 'ota.footer.html', 'BOOTLOADER_INFO.txt',
+    'RELEASE-NOTES.md', 'TEST-REPORT.txt', 'r76s-ota-preserve-state',
+    'BUILD-VALIDATION.txt', 'sources.lock.json', 'release.json',
+}
+
+def published_files(root):
+    """Return only files uploaded by the workflow, excluding internal build state."""
+    return sorted(
+        p for p in root.iterdir()
+        if p.is_file() and p.name not in ('sha256', 'sha256sums')
+        and (p.suffix in ('.img', '.bin', '.gz') or p.name in PUBLISHED_METADATA)
+    )
+
 def sha(path):
     h=hashlib.sha256()
     with path.open('rb') as source:
@@ -48,6 +63,8 @@ if __name__=='__main__':
     args=parser.parse_args()
     audit(args.root)
     if args.finalize:
-        files=sorted(p for p in args.root.iterdir() if p.is_file() and p.name not in ('sha256','sha256sums'))
+        files=published_files(args.root)
+        if not files:
+            raise SystemExit('no published release assets found')
         sums=''.join(f'{sha(p)}  {p.name}\n' for p in files)
         for name in ('sha256','sha256sums'): (args.root/name).write_text(sums)

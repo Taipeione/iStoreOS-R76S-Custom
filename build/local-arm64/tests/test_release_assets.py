@@ -22,6 +22,8 @@ class ReleaseAssetsTests(unittest.TestCase):
                          'R76S-V1.4.1-TF-squashfs.img.gz', 'version.latest',
                          'version.index', 'ota.footer.html', 'BOOTLOADER_INFO.txt'):
                 (release / name).write_bytes(name.encode())
+            # Internal build metadata is not uploaded by the Release workflow.
+            (release / 'config.buildinfo').write_text('internal\n')
             binary = target / 'friendlyarm_nanopi-r76s-test.bin'
             binary.write_bytes(b'real bin')
             assets.generate(release, target, 'owner/repo', 'abc123')
@@ -36,6 +38,7 @@ class ReleaseAssetsTests(unittest.TestCase):
             for line in checksums.splitlines():
                 expected, name = line.split('  ', 1)
                 self.assertEqual(expected, hashlib.sha256((release / name).read_bytes()).hexdigest())
+            self.assertNotIn('config.buildinfo', checksums)
             (release / manifest['image']).write_bytes(b'tampered')
             self.assertNotEqual(manifest['sha256'], assets.digest(release / manifest['image']))
 
