@@ -462,6 +462,7 @@ function api_verify()
 end
 
 -- R76S_V14_OTA_BACKEND: all install checks are serialized by the signed backend.
+-- R76S_V12_OTA_HARDENING: preserve/flash sequencing is owned by r76s-ota.
 function api_install()
     if not acquire_ui_install_lock() then
         json_reply({ok=false, message="升级请求正在处理中，请勿重复点击；请稍候查看状态。", status=build_status()})

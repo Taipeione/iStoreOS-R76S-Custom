@@ -44,6 +44,7 @@ class V141Features(unittest.TestCase):
         self.assertIn('<%=api_base%>/restore', page)
         self.assertIn('ota_signature', controller)
         self.assertIn('R76S_V14_OTA_BACKEND', controller)
+        self.assertIn('R76S_V12_OTA_HARDENING', controller)
 
     def test_ota_is_formal_stable_and_transactional(self):
         controller = (ROOT / 'feeds/luci-app-r76s-updater/files/controller/r76s_updater.lua').read_text()
