@@ -86,14 +86,14 @@ local function reject_flashing_state()
 end
 
 local function selected_channel()
-    -- V1.4.1 is the formal stable release. Retain the config key for
+    -- V1.4.2 is the formal stable release. Retain the config key for
     -- upgrade compatibility, but never route production devices to a beta.
     return 'stable'
 end
 
 local function release_tag(channel)
-    assert(channel=='stable','V1.4.1 只支持正式稳定 OTA 通道')
-    return 'R76S-V1.4.1'
+    assert(channel=='stable','V1.4.2 只支持正式稳定 OTA 通道')
+    return 'R76S-V1.4.2'
 end
 
 local function channel_url(channel,name)
@@ -173,7 +173,7 @@ local function transaction_body()
     reject_flashing_state()
     acquire_lock(phase)
     if phase=='channel' then
-        assert((arg[2] or 'stable')=='stable','V1.4.1 不支持测试 OTA 通道')
+        assert((arg[2] or 'stable')=='stable','V1.4.2 不支持测试 OTA 通道')
         local uci=require 'uci'.cursor()
         assert(uci:set('r76s','main','channel','stable'))
         assert(uci:commit('r76s'))
@@ -181,7 +181,7 @@ local function transaction_body()
         fs.remove('/var/run/ota/ota.latest'); fs.remove(image); fs.remove(image..'.part')
         fs.remove('/tmp/firmware.img.sha256sum'); fs.remove(progress)
         fs.remove('/tmp/r76s-ota-verify.state'); fs.remove('/tmp/r76s-ota.meta')
-        persist({phase='channel_changed',channel='stable',release='R76S-V1.4.1'})
+        persist({phase='channel_changed',channel='stable',release='R76S-V1.4.2'})
     elseif phase=='check' then
         local channel=selected_channel()
         fetch(channel_url(channel,'ota.json'),run..'/ota.json.part')
@@ -189,7 +189,7 @@ local function transaction_body()
         assert(fs.rename(run..'/ota.json.part',run..'/ota.json'))
         assert(fs.rename(run..'/ota.json.sig.part',run..'/ota.json.sig'))
         local m=manifest()
-        assert(m.version==release_tag(channel),'OTA 版本不是正式 V1.4.1')
+        assert(m.version==release_tag(channel),'OTA 版本不是正式 V1.4.2')
         fs.mkdirr('/var/run/ota')
         assert(fs.writefile('/var/run/ota/ota.latest','[24.10.8-'..m.version..']('..m.version..'-TF-squashfs.img.gz)\nSHA256: '..m.sha256..'\n'))
         persist({phase='checked',channel='stable',release=m.version,version=m.version,size=m.size})

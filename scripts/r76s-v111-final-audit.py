@@ -56,6 +56,7 @@ REQUIRED = (
     'etc/shadow',
     'etc/init.d/r76s-ota-restore',
     'etc/uci-defaults/99-r76s-first-root-password',
+    'etc/uci-defaults/99-r76s-v142-root-password-migration',
     'lib/upgrade/keep.d/r76s-v110',
     'etc/config/r76s_ip_policy',
     'usr/share/r76s/tencent-direct.list',
@@ -113,20 +114,28 @@ def check_root_shadow(root):
     if len(roots) != 1:
         return ['ROOT_ACCOUNT_COUNT_INVALID']
     value = roots[0]
-    # R76S_V141_FIXED_CLEAN_FLASH_PASSWORD
+    # R76S_V142_FIXED_CLEAN_FLASH_PASSWORD
     if os.environ.get('R76S_PUBLIC_RELEASE') == '1':
         if value != '!':
             return ['CLEAN_IMAGE_ROOT_FIELD_NOT_LOCKED']
         firstboot = root / 'etc/uci-defaults/99-r76s-first-root-password'
         if not firstboot.is_file() or not (firstboot.stat().st_mode & stat.S_IXUSR):
             return ['FIXED_PASSWORD_FIRSTBOOT_MISSING_OR_NOT_EXECUTABLE']
-        if b'R76S_V141_FIXED_CLEAN_FLASH_PASSWORD' not in firstboot.read_bytes():
+        if b'R76S_V142_FIXED_CLEAN_FLASH_PASSWORD' not in firstboot.read_bytes():
             return ['FIXED_PASSWORD_FIRSTBOOT_UNRECOGNIZED']
         provision=firstboot.read_text()
         if 'password\npassword' not in provision or '/dev/urandom' in provision or '/dev/ttyS0' in provision:
             return ['FIXED_PASSWORD_FIRSTBOOT_POLICY_INVALID']
         if (root / 'etc/uci-defaults/05-r76s-public-serial-provision').exists():
             return ['RANDOM_PUBLIC_FIRSTBOOT_SCRIPT_PRESENT']
+        migration = root / 'etc/uci-defaults/99-r76s-v142-root-password-migration'
+        if not migration.is_file() or not (migration.stat().st_mode & stat.S_IXUSR):
+            return ['V142_ROOT_PASSWORD_MIGRATION_MISSING']
+        migration_text = migration.read_text()
+        if 'R76S_V142_ROOT_PASSWORD_MIGRATION' not in migration_text or 'R76S-V1.4.2' not in migration_text:
+            return ['V142_ROOT_PASSWORD_MIGRATION_INVALID']
+        if '/dev/urandom' in migration_text or '/dev/ttyS0' in migration_text:
+            return ['V142_ROOT_PASSWORD_MIGRATION_RANDOM_SOURCE']
         return []
     if not re.fullmatch(r'\$6\$[A-Za-z0-9./]{8,16}\$[A-Za-z0-9./]{86}', value):
         return ['ROOT_PASSWORD_NOT_STRONG_SHA512_CRYPT_FORMAT']

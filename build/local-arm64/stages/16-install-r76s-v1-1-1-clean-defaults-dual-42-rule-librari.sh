@@ -20,7 +20,7 @@ grep -q '^root:!:' "$SHADOW"
 mkdir -p openwrt/files/etc/uci-defaults
 cat > openwrt/files/etc/uci-defaults/99-r76s-first-root-password <<'R76S_FIXED_ROOT'
 #!/bin/sh
-# R76S_V141_FIXED_CLEAN_FLASH_PASSWORD
+# R76S_V142_FIXED_CLEAN_FLASH_PASSWORD
 # Clean flash uses the documented default password. Preserve any existing
 # non-locked root credential during a configuration-preserving upgrade.
 set -eu
@@ -40,6 +40,28 @@ touch "$FLAG"
 exit 0
 R76S_FIXED_ROOT
 chmod 0755 openwrt/files/etc/uci-defaults/99-r76s-first-root-password
+
+cat > openwrt/files/etc/uci-defaults/99-r76s-v142-root-password-migration <<'R76S_V142_MIGRATION'
+#!/bin/sh
+# R76S_V142_ROOT_PASSWORD_MIGRATION
+# Reset root exactly once on the first V1.4.2 boot, including preserved
+# configuration upgrades where /etc/shadow came from the previous release.
+set -eu
+MARKER="/etc/config/r76s_v142_root_password_migrated"
+[ -f "$MARKER" ] && exit 0
+REVISION=""
+[ -r /etc/openwrt_release ] && REVISION="$(sed -n "s/^DISTRIB_REVISION=['\"]\([^'\"]*\)['\"].*/\1/p" /etc/openwrt_release)"
+[ "$REVISION" = 'R76S-V1.4.2' ] || exit 0
+passwd root <<'R76S_V142_PASSWORD'
+password
+password
+R76S_V142_PASSWORD
+chmod 0600 /etc/shadow
+touch "$MARKER"
+exit 0
+R76S_V142_MIGRATION
+chmod 0755 openwrt/files/etc/uci-defaults/99-r76s-v142-root-password-migration
+test -x openwrt/files/etc/uci-defaults/99-r76s-v142-root-password-migration
 
 echo "===== Solidify clean-image LAN default at generator source ====="
 CFGGEN="openwrt/package/base-files/files/bin/config_generate"

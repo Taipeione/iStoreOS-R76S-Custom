@@ -166,7 +166,7 @@ assert(calls[2]:find('delete element',1,true) and calls[2]:find('add element',1,
     def test_fixed_clean_flash_password_preserves_existing_root(self):
         stage=next((ROOT/'build/local-arm64/stages').glob('16-*.sh')).read_text()
         firstboot=(ROOT/'files/etc/uci-defaults/99-r76s-first-root-password').read_text()
-        self.assertIn('R76S_V141_FIXED_CLEAN_FLASH_PASSWORD',stage)
+        self.assertIn('R76S_V142_FIXED_CLEAN_FLASH_PASSWORD',stage)
         self.assertIn('password',stage)
         self.assertNotIn('/dev/urandom',stage)
         self.assertIn('ROOT_FIELD',firstboot)

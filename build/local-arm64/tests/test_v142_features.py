@@ -10,7 +10,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 
 
-class V141Features(unittest.TestCase):
+class V142Features(unittest.TestCase):
     def test_firstboot_password_sets_clean_default_and_preserves_existing_hash(self):
         source = (ROOT / 'files/etc/uci-defaults/99-r76s-first-root-password').read_text()
         with tempfile.TemporaryDirectory() as directory:
@@ -55,7 +55,7 @@ class V141Features(unittest.TestCase):
         stage = next((ROOT / 'build/local-arm64/stages').glob('16-*.sh')).read_text()
         firstboot = (ROOT / 'files/etc/uci-defaults/99-r76s-first-root-password').read_text()
         adapter = (ROOT / 'build/local-arm64/public-release/install.py').read_text()
-        self.assertIn('R76S_V141_FIXED_CLEAN_FLASH_PASSWORD', stage)
+        self.assertIn('R76S_V142_FIXED_CLEAN_FLASH_PASSWORD', stage)
         self.assertIn("sed -i 's#^root:[^:]*:#root:!:#'", stage)
         self.assertIn('password\npassword', firstboot)
         self.assertIn("if [ \"$ROOT_FIELD\" != '!' ]", firstboot)
@@ -63,7 +63,57 @@ class V141Features(unittest.TestCase):
         self.assertNotIn('/dev/ttyS0', firstboot)
         self.assertNotIn('R76S_V12_PUBLIC_CREDENTIALS_20261010', stage + firstboot)
         self.assertIn('R76S_FIXED_CLEAN_FLASH_PASSWORD=password', adapter)
-        self.assertIn('R76S_PRESERVE_EXISTING_ROOT_PASSWORD=YES', adapter)
+        self.assertIn('R76S_V142_PRESERVE_UPGRADE_ROOT_PASSWORD=password', adapter)
+
+    def test_v142_migration_resets_preserved_password_once(self):
+        source = (ROOT / 'files/etc/uci-defaults/99-r76s-v142-root-password-migration').read_text()
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            etc = root / 'etc'
+            (etc / 'config').mkdir(parents=True)
+            shadow = etc / 'shadow'
+            release = etc / 'openwrt_release'
+            marker = etc / 'config/r76s_v142_root_password_migrated'
+            fakebin = root / 'bin'
+            fakebin.mkdir()
+            passwd = fakebin / 'passwd'
+            passwd.write_text(
+                '#!/bin/sh\n'
+                'cat > "$R76S_TEST_PASSWD_INPUT"\n'
+                "printf '%s\\n' 'root:$6$new$password:0:0:root:/root:/bin/ash' > \"$R76S_TEST_SHADOW\"\n"
+            )
+            passwd.chmod(0o755)
+            script = root / 'migration'
+            script.write_text(source.replace('/etc/config/r76s_v142_root_password_migrated', str(marker))
+                              .replace('/etc/openwrt_release', str(release))
+                              .replace('/etc/shadow', str(shadow)))
+            script.chmod(0o755)
+            env = dict(os.environ)
+            env['PATH'] = str(fakebin) + ':' + env['PATH']
+            env['R76S_TEST_SHADOW'] = str(shadow)
+            env['R76S_TEST_PASSWD_INPUT'] = str(root / 'passwd-input')
+            release.write_text("DISTRIB_REVISION='R76S-V1.4.2'\n")
+            shadow.write_text('root:$6$old$hash:0:0:root:/root:/bin/ash\n')
+            result = subprocess.run([str(script)], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertIn('root:$6$new$password:', shadow.read_text())
+            self.assertEqual((root / 'passwd-input').read_text(), 'password\npassword\n')
+
+            # The administrator changes the password after migration; later boots
+            # must not invoke passwd again or overwrite that chosen credential.
+            shadow.write_text('root:$6$user$changed:0:0:root:/root:/bin/ash\n')
+            (root / 'passwd-input').unlink()
+            result = subprocess.run([str(script)], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('root:$6$user$changed:', shadow.read_text())
+            self.assertFalse((root / 'passwd-input').exists())
+
+    def test_clean_flash_lan_default_is_fixed(self):
+        stage = next((ROOT / 'build/local-arm64/stages').glob('16-*.sh')).read_text()
+        self.assertIn('lan) ipad=${ipaddr:-"192.168.50.1"} ;;', stage)
+        self.assertIn('LAN: 192.168.50.1/24', stage)
+        self.assertIn('WAN: upstream R76S default DHCP client', stage)
 
     def test_health_command_is_safe_and_prefers_wan_6(self):
         path = ROOT / 'feeds/r76s-core/files/usr/bin/r76s-health'
@@ -110,7 +160,7 @@ class V141Features(unittest.TestCase):
         self.assertIn('api_channel', controller)
         self.assertIn('selected_channel', backend)
         self.assertNotIn('测试版 / 预发布版', page)
-        self.assertIn("R76S-V1.4.1", backend)
+        self.assertIn("R76S-V1.4.2", backend)
         self.assertIn("phase=='channel'", backend)
         self.assertIn("m.version==release_tag(channel)", backend)
         for check in ('sysupgrade -T', 'firmware.img.sha256sum', 'configuration.tar.gz',
@@ -189,12 +239,12 @@ dofile(%s)
 
     def test_formal_metadata_and_release_assets(self):
         release = json.loads((ROOT / 'config/r76s-release.json').read_text())
-        self.assertEqual(release['version'], 'R76S-V1.4.1')
+        self.assertEqual(release['version'], 'R76S-V1.4.2')
         self.assertEqual(release['channel'], 'stable')
         workflow = (ROOT / '.github/workflows/r76s-v1.4-build.yml').read_text()
         self.assertIn('--prerelease=false --draft=false --latest', workflow)
         self.assertIn('R76S-stable', workflow)
-        self.assertIn('gh release upload R76S-V1.4.1', workflow)
+        self.assertIn('gh release upload R76S-V1.4.2', workflow)
         self.assertIn('--clobber', workflow)
 
 

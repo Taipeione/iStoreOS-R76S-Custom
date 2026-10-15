@@ -23,7 +23,7 @@ fi
 if [ "$MODE" = status ]; then
   docker run --rm --platform linux/arm64 --user 1000:1000 \
     --mount type=volume,src=r76s-v12-work,dst=/home/builder/work,readonly \
-    "$IMAGE" bash -c 'find /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.4.1 -maxdepth 1 -type f -printf "%f %s bytes\n" 2>/dev/null || true'
+    "$IMAGE" bash -c 'find /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.4.2 -maxdepth 1 -type f -printf "%f %s bytes\n" 2>/dev/null || true'
   exit 0
 fi
 # No assumptions about GitHub account ownership: derive from the actual repository origin.
@@ -40,7 +40,7 @@ fi
 if [[ ! "$GITHUB_REPOSITORY" =~ ^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$ ]]; then
   echo 'Invalid R76S_GITHUB_REPOSITORY; expected owner/repo' >&2; exit 2
 fi
-# R76S_V141_FIXED_CLEAN_FLASH_PASSWORD
+# R76S_V142_FIXED_CLEAN_FLASH_PASSWORD
 R76S_PUBLIC_RELEASE="${R76S_PUBLIC_RELEASE:-0}"
 case "$R76S_PUBLIC_RELEASE" in 0|1) ;; *) echo 'R76S_PUBLIC_RELEASE must be 0 or 1' >&2; exit 2;; esac
 export R76S_PUBLIC_RELEASE

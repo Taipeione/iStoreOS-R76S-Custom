@@ -123,14 +123,19 @@ test -s files/www/luci-static/resources/view/system/flash.js
 grep -qF 'R76S_V110_FLASH_UPLOAD_PATCH' files/www/luci-static/resources/view/system/flash.js
 echo "Final rootfs overlay assertions: PASS"
 
-# R76S_V141_FIXED_CLEAN_FLASH_PASSWORD
+# R76S_V142_FIXED_CLEAN_FLASH_PASSWORD
 if [ "${R76S_PUBLIC_RELEASE:-0}" = 1 ]; then
     test -x files/etc/uci-defaults/99-r76s-first-root-password
     sh -n files/etc/uci-defaults/99-r76s-first-root-password
-    grep -qF 'R76S_V141_FIXED_CLEAN_FLASH_PASSWORD' files/etc/uci-defaults/99-r76s-first-root-password
+    grep -qF 'R76S_V142_FIXED_CLEAN_FLASH_PASSWORD' files/etc/uci-defaults/99-r76s-first-root-password
     grep -qF 'password' files/etc/uci-defaults/99-r76s-first-root-password
     ! test -e files/etc/uci-defaults/05-r76s-public-serial-provision
     ! grep -qF '/dev/urandom' files/etc/uci-defaults/99-r76s-first-root-password
+    test -x files/etc/uci-defaults/99-r76s-v142-root-password-migration
+    sh -n files/etc/uci-defaults/99-r76s-v142-root-password-migration
+    grep -qF 'R76S_V142_ROOT_PASSWORD_MIGRATION' files/etc/uci-defaults/99-r76s-v142-root-password-migration
+    grep -qF 'R76S-V1.4.2' files/etc/uci-defaults/99-r76s-v142-root-password-migration
+    ! grep -qF '/dev/urandom' files/etc/uci-defaults/99-r76s-v142-root-password-migration
 fi
 
 echo "R76S v1.1.1 configuration verified successfully."
@@ -144,7 +149,7 @@ grep -qF 'R76S_V12_OTA_HARDENING' package/custom/luci-app-r76s-updater/files/con
 grep -qF '/usr/libexec/r76s/r76s-ota install' package/custom/luci-app-r76s-updater/files/controller/r76s_updater.lua
 ! grep -qF 'r76s-ota-preserve-state && /sbin/sysupgrade' package/custom/luci-app-r76s-updater/files/controller/r76s_updater.lua
 
-# R76S-V1.4.1 phase 1: native WireGuard UI and read-only AGH service entry.
+# R76S-V1.4.2 phase 1: native WireGuard UI and read-only AGH service entry.
 for required in wireguard-tools kmod-wireguard luci-proto-wireguard luci-lib-uqr ucode; do
     grep -qxF "CONFIG_PACKAGE_${required}=y" .config || {
         echo "ERROR: WireGuard integration missing: $required" >&2; exit 1;

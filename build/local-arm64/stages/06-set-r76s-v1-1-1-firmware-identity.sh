@@ -11,10 +11,10 @@ test -f "$RELEASE_FILE"
 # Keep the 24.10.8 release number and give the custom firmware a
 # stable revision identity that our GitHub Release metadata can match.
 sed -i \
-  "s/^DISTRIB_REVISION=.*/DISTRIB_REVISION='R76S-V1.4.1'/" \
+  "s/^DISTRIB_REVISION=.*/DISTRIB_REVISION='R76S-V1.4.2'/" \
   "$RELEASE_FILE"
 
-grep -q "^DISTRIB_REVISION='R76S-V1.4.1'$" "$RELEASE_FILE"
+grep -q "^DISTRIB_REVISION='R76S-V1.4.2'$" "$RELEASE_FILE"
 
 echo "===== Custom release identity ====="
 grep -E '^DISTRIB_(RELEASE|REVISION)=' "$RELEASE_FILE" || true
