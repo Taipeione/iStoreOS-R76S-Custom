@@ -253,8 +253,9 @@ dofile(%s)
         workflow = (ROOT / '.github/workflows/r76s-v1.4-build.yml').read_text()
         self.assertIn('--prerelease=false --draft=false --latest', workflow)
         self.assertIn('R76S-stable', workflow)
-        self.assertIn('gh release upload R76S-V1.4.2', workflow)
-        self.assertIn('--clobber', workflow)
+        self.assertIn('RELEASE_ASSET_REPLACEMENT_REQUIRES_USER_CONFIRMATION=YES', workflow)
+        self.assertIn('gh release edit R76S-V1.4.2', workflow)
+        self.assertIn('gh release upload R76S-stable', workflow)
 
 
 if __name__ == '__main__':
