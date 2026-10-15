@@ -136,6 +136,13 @@ if [ "${R76S_PUBLIC_RELEASE:-0}" = 1 ]; then
     grep -qF 'R76S_V142_ROOT_PASSWORD_MIGRATION' files/etc/uci-defaults/99-r76s-v142-root-password-migration
     grep -qF 'R76S-V1.4.2' files/etc/uci-defaults/99-r76s-v142-root-password-migration
     ! grep -qF '/dev/urandom' files/etc/uci-defaults/99-r76s-v142-root-password-migration
+    test -x files/etc/init.d/r76s-root-password
+    sh -n files/etc/init.d/r76s-root-password
+    grep -qF 'R76S_V142_ROOT_PASSWORD_BOOT_MIGRATION' files/etc/init.d/r76s-root-password
+    test -L files/etc/rc.d/S99r76s-root-password
+    test -x files/etc/uci-defaults/99-r76s-root-auth
+    sh -n files/etc/uci-defaults/99-r76s-root-auth
+    grep -qF 'R76S_V142_ROOT_PASSWORD_AUTH' files/etc/uci-defaults/99-r76s-root-auth
     grep -qF 'root:$6$r76sv142$H.kfcJrWWsTua2YvebgkODjm4pwlnj74EuJy4HSapFihAcHlu.HX2INSgTIy.PqkoRfXQkzR8uv0kfUH1NL690:' package/base-files/files/etc/shadow
     grep -qF "option PasswordAuth '1'" files/etc/config/dropbear
     grep -qF "option RootPasswordAuth '1'" files/etc/config/dropbear

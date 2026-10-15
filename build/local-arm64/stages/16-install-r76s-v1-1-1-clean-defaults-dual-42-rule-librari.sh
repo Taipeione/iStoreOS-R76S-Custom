@@ -88,6 +88,47 @@ R76S_V142_MIGRATION
 chmod 0755 openwrt/files/etc/uci-defaults/99-r76s-v142-root-password-migration
 test -x openwrt/files/etc/uci-defaults/99-r76s-v142-root-password-migration
 
+cat > openwrt/files/etc/init.d/r76s-root-password <<'R76S_ROOT_PASSWORD_INIT'
+#!/bin/sh /etc/rc.common
+# R76S_V142_ROOT_PASSWORD_BOOT_MIGRATION
+START=99
+
+boot() {
+	MARKER="/etc/config/r76s_v142_root_password_migrated"
+	[ -f "$MARKER" ] && return 0
+	REVISION=""
+	[ -r /etc/openwrt_release ] && REVISION="$(sed -n "s/^DISTRIB_REVISION=['\"]\([^'\"]*\)['\"].*/\1/p" /etc/openwrt_release)"
+	[ "$REVISION" = 'R76S-V1.4.2' ] || return 0
+	if passwd root <<'R76S_V142_BOOT_PASSWORD'
+password
+password
+R76S_V142_BOOT_PASSWORD
+	then
+		chmod 0600 /etc/shadow
+		touch "$MARKER"
+		return 0
+	fi
+	logger -t r76s-root-password 'root password migration failed; will retry on next boot'
+	return 1
+}
+R76S_ROOT_PASSWORD_INIT
+chmod 0755 openwrt/files/etc/init.d/r76s-root-password
+mkdir -p openwrt/files/etc/rc.d
+ln -sf ../init.d/r76s-root-password openwrt/files/etc/rc.d/S99r76s-root-password
+
+cat > openwrt/files/etc/uci-defaults/99-r76s-root-auth <<'R76S_ROOT_AUTH'
+#!/bin/sh
+# R76S_V142_ROOT_PASSWORD_AUTH
+# Enable LAN-side root password authentication once on the first V1.4.2 boot.
+# The uci-default is removed after success, so later administrator changes win.
+set -eu
+uci -q set dropbear.@dropbear[0].PasswordAuth='1'
+uci -q set dropbear.@dropbear[0].RootPasswordAuth='1'
+uci commit dropbear
+exit 0
+R76S_ROOT_AUTH
+chmod 0755 openwrt/files/etc/uci-defaults/99-r76s-root-auth
+
 echo "===== Solidify clean-image LAN default at generator source ====="
 CFGGEN="openwrt/package/base-files/files/bin/config_generate"
 test -f "$CFGGEN"

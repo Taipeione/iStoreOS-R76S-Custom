@@ -59,6 +59,8 @@ def check(repo: Path) -> None:
         require(text, MARKER, 'final audit', errors)
         require(text, 'etc/uci-defaults/99-r76s-first-root-password', 'final audit', errors)
         require(text, 'FIXED_CLEAN_FLASH_ROOT_HASH', 'final audit', errors)
+        require(text, 'V142_ROOT_PASSWORD_BOOT_MIGRATION', 'final audit', errors)
+        require(text, 'V142_ROOT_PASSWORD_AUTH_DEFAULT', 'final audit', errors)
         if 'cat > openwrt/files/etc/uci-defaults/05-r76s-public-serial-provision' in text:
             errors.append('final audit: random first-boot policy remains')
 
@@ -77,7 +79,7 @@ def check(repo: Path) -> None:
         errors.append('stage24: missing')
     else:
         text = stage24.read_text()
-        require(text, 'clean flash default root password: password', 'stage24', errors)
+        require(text, 'clean flash default root credential policy: fixed', 'stage24', errors)
         if 'random UART password' in text:
             errors.append('stage24: obsolete random-password release text remains')
 
@@ -107,8 +109,8 @@ def check(repo: Path) -> None:
 
     if errors:
         raise SystemExit('ERROR: ' + '; '.join(errors))
-    print('R76S_FIXED_CLEAN_FLASH_PASSWORD=password')
-    print('R76S_V142_PRESERVE_UPGRADE_ROOT_PASSWORD=password')
+    print('R76S_FIXED_CLEAN_FLASH_PASSWORD_POLICY=PASS')
+    print('R76S_V142_PRESERVE_UPGRADE_PASSWORD_MIGRATION=PASS')
     print('R76S_RANDOM_FIRSTBOOT_REMOVED=YES')
     print('PUBLIC_RELEASE_CREDENTIAL_CHECK=PASS')
 

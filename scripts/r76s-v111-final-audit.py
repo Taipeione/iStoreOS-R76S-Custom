@@ -56,6 +56,8 @@ REQUIRED = (
     'etc/shadow',
     'etc/init.d/r76s-ota-restore',
     'etc/uci-defaults/99-r76s-first-root-password',
+    'etc/uci-defaults/99-r76s-root-auth',
+    'etc/init.d/r76s-root-password',
     'etc/uci-defaults/99-r76s-v142-root-password-migration',
     'lib/upgrade/keep.d/r76s-v110',
     'etc/config/r76s_ip_policy',
@@ -143,6 +145,25 @@ def check_root_shadow(root):
             return ['V142_ROOT_PASSWORD_MIGRATION_INVALID']
         if '/dev/urandom' in migration_text or '/dev/ttyS0' in migration_text:
             return ['V142_ROOT_PASSWORD_MIGRATION_RANDOM_SOURCE']
+        boot_migration = root / 'etc/init.d/r76s-root-password'
+        if not boot_migration.is_file() or not (boot_migration.stat().st_mode & stat.S_IXUSR):
+            return ['V142_ROOT_PASSWORD_BOOT_MIGRATION_MISSING_OR_NOT_EXECUTABLE']
+        boot_text = boot_migration.read_text(encoding='utf-8')
+        if 'R76S_V142_ROOT_PASSWORD_BOOT_MIGRATION' not in boot_text or 'R76S-V1.4.2' not in boot_text:
+            return ['V142_ROOT_PASSWORD_BOOT_MIGRATION_INVALID']
+        if '/dev/urandom' in boot_text or '/dev/ttyS0' in boot_text:
+            return ['V142_ROOT_PASSWORD_BOOT_MIGRATION_RANDOM_SOURCE']
+        auth_defaults = root / 'etc/uci-defaults/99-r76s-root-auth'
+        if not auth_defaults.is_file() or not (auth_defaults.stat().st_mode & stat.S_IXUSR):
+            return ['V142_ROOT_PASSWORD_AUTH_DEFAULT_MISSING_OR_NOT_EXECUTABLE']
+        auth_text = auth_defaults.read_text(encoding='utf-8')
+        if 'R76S_V142_ROOT_PASSWORD_AUTH' not in auth_text or "RootPasswordAuth='1'" not in auth_text:
+            return ['V142_ROOT_PASSWORD_AUTH_DEFAULT_INVALID']
+        if '/dev/urandom' in auth_text or '/dev/ttyS0' in auth_text:
+            return ['V142_ROOT_PASSWORD_AUTH_DEFAULT_RANDOM_SOURCE']
+        boot_link = root / 'etc/rc.d/S99r76s-root-password'
+        if not boot_link.is_symlink():
+            return ['V142_ROOT_PASSWORD_BOOT_LINK_MISSING']
         dropbear = root / 'etc/config/dropbear'
         if not dropbear.is_file():
             return ['DROPBEAR_CONFIG_MISSING']
