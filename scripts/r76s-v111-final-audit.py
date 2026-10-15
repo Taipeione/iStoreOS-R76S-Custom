@@ -100,7 +100,7 @@ LMO = (
     'usr/lib/lua/luci/i18n/passwall2.zh-cn.lmo',
     'usr/share/luci/i18n/passwall2.zh-cn.lmo',
 )
-FIXED_CLEAN_FLASH_ROOT_HASH = '$6$r76sv143$H.kfcJrWWsTua2YvebgkODjm4pwlnj74EuJy4HSapFihAcHlu.HX2INSgTIy.PqkoRfXQkzR8uv0kfUH1NL690'
+FIXED_CLEAN_FLASH_ROOT_HASH = '$6$r76sv143$j/yuToJ35nP6zluEW5qQzsYySWhM0mx8xaNVL.ZK2/J00HuN1d1Qr1h6PP2yWHgXmRlkRnA/Ymtqj60ETzJoi.'
 
 
 def check_root_shadow(root):
