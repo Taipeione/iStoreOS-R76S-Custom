@@ -19,6 +19,7 @@ RESTORE_INIT = (Path(__file__).resolve().parents[3] / 'files/etc/init.d/r76s-ota
 RESTORE_DEFAULTS = (Path(__file__).resolve().parents[3] / 'files/etc/uci-defaults/99-r76s-v110-ota-restore').read_text()
 
 OLD_CONTROLLER = '    sys.call("(sleep 2; /usr/libexec/r76s/r76s-ota-preserve-state && /sbin/sysupgrade " .. FIRMWARE .. " >/tmp/r76s-sysupgrade.log 2>&1) >/dev/null 2>&1 &")'
+SIGNED_CONTROLLER = '/usr/libexec/r76s/r76s-ota install'
 NEW_CONTROLLER = '''    -- R76S_V12_OTA_HARDENING: save state synchronously; only then schedule flashing.
     local preserve_rc = sys.call("/usr/libexec/r76s/r76s-ota-preserve-state >/tmp/r76s-ota-preserve.log 2>&1")
     if preserve_rc ~= 0 then
@@ -60,16 +61,21 @@ def apply():
         raise RuntimeError('keep.d list does not retain /etc/config/r76s_ota_state')
 
     original = controller.read_text()
+    signed_backend = SIGNED_CONTROLLER in original
     if OLD_CONTROLLER in original:
         controller_new = original.replace(OLD_CONTROLLER, NEW_CONTROLLER, 1)
-    elif NEW_CONTROLLER in original:
+    elif NEW_CONTROLLER in original or signed_backend:
         controller_new = original
     else:
         raise RuntimeError('Controller install anchor changed; refusing unsafe partial patch')
-    if controller_new.count('local preserve_rc = sys.call(') != 1:
-        raise RuntimeError('Unexpected number of OTA preflight calls')
-    if controller_new.count('/sbin/sysupgrade " .. FIRMWARE') != 1:
-        raise RuntimeError('Unexpected number of sysupgrade launch calls')
+    if signed_backend:
+        if controller_new.count(SIGNED_CONTROLLER) < 1:
+            raise RuntimeError('Signed OTA backend marker disappeared')
+    else:
+        if controller_new.count('local preserve_rc = sys.call(') != 1:
+            raise RuntimeError('Unexpected number of OTA preflight calls')
+        if controller_new.count('/sbin/sysupgrade " .. FIRMWARE') != 1:
+            raise RuntimeError('Unexpected number of sysupgrade launch calls')
 
     replacements = {controller: controller_new, restore_init: RESTORE_INIT, restore_defaults: RESTORE_DEFAULTS}
     for h in helpers:
@@ -92,7 +98,7 @@ def apply():
     for p, content in optional_files.items():
         if p.is_file():
             # Controller installed might be from a different build; refuse ambiguity.
-            if p.name == 'r76s_updater.lua' and OLD_CONTROLLER not in p.read_text() and NEW_CONTROLLER not in p.read_text():
+            if p.name == 'r76s_updater.lua' and OLD_CONTROLLER not in p.read_text() and NEW_CONTROLLER not in p.read_text() and SIGNED_CONTROLLER not in p.read_text():
                 raise RuntimeError('Installed controller diverged, refusing to patch')
             replacements[p] = content
 
