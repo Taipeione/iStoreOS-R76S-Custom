@@ -214,10 +214,28 @@ jobs:
           sha256sum -c sha256
           shopt -s nullglob
           assets=( *.img *.bin *.gz ota.json sha256 sha256sums version.latest version.index ota.footer.html BOOTLOADER_INFO.txt ota.json.sig ota-public.pem RELEASE-NOTES.md TEST-REPORT.txt r76s-ota-preserve-state BUILD-VALIDATION.txt sources.lock.json release.json )
-          # Publish the repaired build as the formal Latest release. Historical
-          # releases remain untouched; the stable pointer carries metadata only.
+          # Never silently replace an existing same-tag asset. A V1.4.2
+          # rebuild stops with an explicit digest diff; publication requires
+          # user approval after that diff is reviewed.
           if gh release view R76S-V1.4.2 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload R76S-V1.4.2 "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+            release_id="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/R76S-V1.4.2" --jq .id)"
+            remote_assets="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets?per_page=100")"
+            asset_diff=0
+            for asset in "${assets[@]}"; do
+              [ -f "$asset" ] || continue
+              local_sha="$(sha256sum "$asset" | awk '{print $1}')"
+              remote_digest="$(jq -r --arg name "$asset" '.[] | select(.name==$name) | (.digest // "")' <<<"$remote_assets")"
+              if [ "$remote_digest" = "sha256:$local_sha" ]; then
+                echo "RELEASE_ASSET_MATCH $asset sha256=$local_sha"
+              else
+                echo "RELEASE_ASSET_DIFF $asset local_sha256=$local_sha remote_digest=${remote_digest:-MISSING}"
+                asset_diff=1
+              fi
+            done
+            if [ "$asset_diff" -ne 0 ]; then
+              echo 'RELEASE_ASSET_REPLACEMENT_REQUIRES_USER_CONFIRMATION=YES'
+              exit 42
+            fi
             gh release edit R76S-V1.4.2 --repo "$GITHUB_REPOSITORY" \
               --title R76S-V1.4.2 --notes-file RELEASE-NOTES.md \
               --prerelease=false --draft=false --latest
