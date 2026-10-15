@@ -61,7 +61,7 @@ class V13Integration(unittest.TestCase):
         # V1.4.1 adds channel selection, explicit OTA-signature status and a real restore form;
         # all existing DOM IDs remain in their original order.
         self.assertEqual([x for x in current_ids if x not in
-                          ('r76s-channel', 'r76s-channel-note', 'r76s-ota-signature', 'r76s-restore-file')], baseline_ids)
+                          ('r76s-channel', 'r76s-channel-note', 'r76s-ota-signature', 'r76s-restore-file', 'r76s-title')], baseline_ids)
         self.assertIn('r76s-ota-signature', current_ids)
         self.assertIn('r76s-restore-file', current_ids)
         self.assertIn('R76S · 在线升级', current)

@@ -1,14 +1,16 @@
 module("luci.controller.r76s_updater", package.seeall)
--- R76S_UPDATER_UI_PATCH=3
+-- R76S_UPDATER_UI_PATCH=4
 
 local http = require "luci.http"
 local sys = require "luci.sys"
 local fs = require "nixio.fs"
+local nixio = require "nixio"
 local jsonc = require "luci.jsonc"
 
 local VERIFY_STATE = "/tmp/r76s-ota-verify.state"
 local META_FILE = "/tmp/r76s-ota.meta"
 local FIRMWARE = "/tmp/firmware.img"
+local INSTALL_UI_LOCK = "/tmp/r76s-ota-install-ui.lock"
 
 function index()
     local root = entry({"admin", "system", "r76s_updater"}, firstchild(), _("R76S 在线升级"), 91)
@@ -50,6 +52,28 @@ local function run_with_rc(cmd)
     return rc, trim(out)
 end
 
+local function release_ui_install_lock()
+    fs.remove(INSTALL_UI_LOCK .. "/pid")
+    fs.rmdir(INSTALL_UI_LOCK)
+end
+
+local function acquire_ui_install_lock()
+    if fs.mkdir(INSTALL_UI_LOCK) then
+        local ok, pid = pcall(function() return nixio.getpid() end)
+        fs.writefile(INSTALL_UI_LOCK .. "/pid", tostring(ok and pid or 0) .. "\n")
+        return true
+    end
+    local pid = trim(readfile(INSTALL_UI_LOCK .. "/pid")):match("^(%d+)$")
+    if pid and fs.access("/proc/" .. pid .. "/cmdline") then
+        return false
+    end
+    release_ui_install_lock()
+    if not fs.mkdir(INSTALL_UI_LOCK) then return false end
+    local ok, newpid = pcall(function() return nixio.getpid() end)
+    fs.writefile(INSTALL_UI_LOCK .. "/pid", tostring(ok and newpid or 0) .. "\n")
+    return true
+end
+
 local function release_info()
     local text = readfile("/etc/openwrt_release")
     local release = text:match("DISTRIB_RELEASE='([^']*)'") or "unknown"
@@ -64,12 +88,11 @@ local function release_info()
 end
 
 local function selected_channel()
-    local value = trim(sys.exec("uci -q get r76s.main.channel 2>/dev/null"))
-    return value == "beta" and "beta" or "stable"
+    return "stable"
 end
 
 local function channel_label(channel)
-    return channel == "beta" and "测试版 / 预发布版" or "稳定版"
+    return "稳定版"
 end
 
 local function latest_info()
@@ -158,6 +181,22 @@ local function download_info(latest)
     local progress_exists = fs.access("/tmp/firmware.img.progress") and true or false
     local sum_file = trim(readfile("/tmp/firmware.img.sha256sum"))
     local progress_text = readfile("/tmp/firmware.img.progress")
+    local transaction = jsonc.parse(readfile("/tmp/r76s-ota/state.json")) or {}
+    local partial_stat = part_exists and fs.stat("/tmp/firmware.img.part") or nil
+    local downloaded_bytes = partial_stat and partial_stat.size or 0
+    local total_bytes = tonumber(transaction.size) or 0
+    local elapsed = 0
+    if tonumber(transaction.started_at) then
+        elapsed = math.max(0, os.time() - tonumber(transaction.started_at))
+    end
+    local speed = elapsed > 0 and downloaded_bytes / elapsed or 0
+    local eta = speed > 0 and math.max(0, total_bytes - downloaded_bytes) / speed or 0
+    local function mb(value) return string.format("%.1f", (value or 0) / 1024 / 1024) end
+    local function duration(value)
+        value = math.floor(value or 0)
+        if value < 60 then return tostring(value) .. " 秒" end
+        return tostring(math.floor(value / 60)) .. " 分 " .. tostring(value % 60) .. " 秒"
+    end
     local percent = last_percent(progress_text) or 0
     local state = "idle"
     local message = "尚未下载"
@@ -168,7 +207,13 @@ local function download_info(latest)
         message = "下载完成"
     elseif part_exists then
         state = "downloading"
-        message = "正在下载"
+        if total_bytes > 0 then
+            percent = math.min(99.9, downloaded_bytes * 100 / total_bytes)
+            message = "已下载 " .. mb(downloaded_bytes) .. " / " .. mb(total_bytes) .. " MB；速度 " ..
+                mb(speed) .. " MB/s；预计剩余 " .. duration(eta) .. "；正在续传"
+        else
+            message = "正在下载或续传"
+        end
     elseif progress_exists then
         state = "failed"
         message = trim(progress_text:match("([^\r\n]+)%s*$") or "下载失败")
@@ -184,7 +229,11 @@ local function download_info(latest)
         message = message,
         percent = percent,
         firmware_exists = firmware_exists,
-        size = st and st.size or 0
+        size = st and st.size or downloaded_bytes,
+        total = total_bytes,
+        speed = speed,
+        elapsed = elapsed,
+        eta = eta
     }
 end
 
@@ -358,8 +407,8 @@ end
 
 function api_channel()
     local channel = http.formvalue("channel") or ""
-    if channel ~= "stable" and channel ~= "beta" then
-        json_reply({ok=false, message="无效的 OTA 通道。请选择稳定版或测试版。", status=build_status()})
+    if channel ~= "stable" then
+        json_reply({ok=false, message="R76S-V1.4.1 只支持正式稳定 OTA 通道。", status=build_status()})
         return
     end
 
@@ -379,7 +428,7 @@ end
 
 function api_check()
     local rc, out = run_with_rc("/usr/libexec/r76s/r76s-ota check 2>&1")
-    local success = (rc == 0 or rc == 1)
+    local success = (rc == 0)
     json_reply({
         ok = success,
         rc = rc,
@@ -396,7 +445,9 @@ function api_download()
     fs.remove(VERIFY_STATE)
     fs.remove(META_FILE)
 
-    local rc, out = run_with_rc("/usr/libexec/r76s/r76s-ota download 2>&1")
+    -- The large transfer runs in the backend transaction.  Return immediately
+    -- so LuCI can poll the .part file and render progress/resume information.
+    local rc, out = run_with_rc("( /usr/libexec/r76s/r76s-ota download >/tmp/r76s-ota-download.log 2>&1 ) </dev/null >/dev/null 2>&1 &")
     json_reply({
         ok = rc == 0,
         rc = rc,
@@ -412,35 +463,45 @@ end
 
 -- R76S_V14_OTA_BACKEND: all install checks are serialized by the signed backend.
 function api_install()
-    local current = release_info()
-    local latest = latest_info()
-    local boot = boot_info()
-
-    if not latest.checked or current.key == latest.key then
-        json_reply({ ok=false, message="当前已经是最新版，不执行重复刷写。" })
+    if not acquire_ui_install_lock() then
+        json_reply({ok=false, message="升级请求正在处理中，请勿重复点击；请稍候查看状态。", status=build_status()})
         return
     end
 
-    if not boot.safe then
-        json_reply({ ok=false, message="当前启动盘识别异常，已阻止升级。" })
-        return
-    end
+    local ok, response = pcall(function()
+        local current = release_info()
+        local latest = latest_info()
+        local boot = boot_info()
 
-    local verified = verify_image()
-    if not verified.ok then
-        json_reply({ ok=false, message=verified.message, status=build_status() })
-        return
-    end
+        if not latest.checked or current.key == latest.key then
+            return {ok=false, message="当前已经是最新版，不执行重复刷写。"}
+        end
 
-    -- R76S_V12_OTA_HARDENING: signed backend repeats manifest, device,
-    -- state-preservation and boot-disk checks before any flash operation.
-    local launch_rc, launch_out = run_with_rc("/usr/libexec/r76s/r76s-ota install 2>&1")
-    json_reply({
-        ok = launch_rc == 0,
-        message = launch_rc == 0 and
-            ("升级已启动，目标为当前启动盘 " .. boot.medium .. " (" .. boot.path .. ")。设备将自动重启。") or
-            (launch_out ~= "" and launch_out or "升级未启动，已保留当前配置。")
-    })
+        if not boot.safe then
+            return {ok=false, message="当前启动盘识别异常，已阻止升级。"}
+        end
+
+        local verified = verify_image()
+        if not verified.ok then
+            return {ok=false, message=verified.message, status=build_status()}
+        end
+
+        -- The signed backend repeats manifest, device, state-preservation and
+        -- boot-disk checks before any flash operation.
+        local launch_rc, launch_out = run_with_rc("/usr/libexec/r76s/r76s-ota install 2>&1")
+        return {
+            ok = launch_rc == 0,
+            message = launch_rc == 0 and
+                ("升级已启动，目标为当前启动盘 " .. boot.medium .. " (" .. boot.path .. ")。设备将自动重启。") or
+                (launch_out ~= "" and launch_out or "升级未启动，已保留当前配置。")
+        }
+    end)
+    release_ui_install_lock()
+    if not ok then
+        json_reply({ok=false, message="升级事务异常，已释放锁并保留诊断日志。"})
+    else
+        json_reply(response)
+    end
 end
 
 function api_backup()

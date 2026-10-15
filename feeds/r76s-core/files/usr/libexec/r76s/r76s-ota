@@ -1,67 +1,187 @@
 #!/usr/bin/lua
--- Serialized OTA operations with signed manifests and immutable version URLs.
+-- Deterministic, signed OTA transaction for R76S.
+-- Every mutating phase is serialized; a failed phase never reaches sysupgrade.
 local fs=require 'nixio.fs'
+local nixio=require 'nixio'
 local sys=require 'luci.sys'
 local json=require 'luci.jsonc'
+
 local run='/tmp/r76s-ota'
 local repository='https://github.com/Taipeione/iStoreOS-R76S-Custom/releases/download/'
 local image='/tmp/firmware.img'
+local progress='/tmp/firmware.img.progress'
+local transaction=nil
+local lock_acquired=false
+local preserve_started=false
+local flash_launched=false
+
+local function q(s) return "'"..s:gsub("'","'\\''").."'" end
+local function read(p) return fs.readfile(p) or '' end
+local function call(s) return sys.call(s..' >/dev/null 2>&1')==0 end
+
+local function current_pid()
+    local ok,pid=pcall(function() return nixio.getpid() end)
+    if ok and pid then return tostring(pid) end
+    return tostring(tonumber(sys.exec("printf '%s' $$")) or 0)
+end
+
+local function pid_alive(pid)
+    return pid and pid~='' and fs.access('/proc/'..pid..'/cmdline') and
+        read('/proc/'..pid..'/cmdline'):find('r76s%-ota',1,false)~=nil
+end
+
+local function remove_lock_files()
+    for _,name in ipairs({'pid','operation','transaction'}) do
+        fs.remove(run..'/lock/'..name)
+    end
+    fs.rmdir(run..'/lock')
+end
+
+local function acquire_lock(operation)
+    if fs.mkdir(run..'/lock') then
+        local pid=current_pid()
+        transaction=os.date('!%Y%m%dT%H%M%SZ')..'-'..pid..'-'..operation
+        assert(fs.writefile(run..'/lock/pid',pid..'\n'))
+        assert(fs.writefile(run..'/lock/operation',operation..'\n'))
+        assert(fs.writefile(run..'/lock/transaction',transaction..'\n'))
+        lock_acquired=true
+        return
+    end
+
+    local owner=read(run..'/lock/pid'):match('(%d+)') or ''
+    local tx=read(run..'/lock/transaction'):gsub('%s+$','')
+    if pid_alive(owner) then
+        error('OTA 正在执行：'..(tx~='' and tx or '当前事务'))
+    end
+    -- The owner is gone. A stale lock is safe to reclaim; the state file
+    -- remains as the durable diagnostic record for the interrupted operation.
+    remove_lock_files()
+    assert(fs.mkdir(run..'/lock'),'无法取得 OTA 事务锁')
+    local pid=current_pid()
+    transaction=os.date('!%Y%m%dT%H%M%SZ')..'-'..pid..'-'..operation
+    assert(fs.writefile(run..'/lock/pid',pid..'\n'))
+    assert(fs.writefile(run..'/lock/operation',operation..'\n'))
+    assert(fs.writefile(run..'/lock/transaction',transaction..'\n'))
+    lock_acquired=true
+end
+
+local function release_lock()
+    if lock_acquired then
+        remove_lock_files()
+        lock_acquired=false
+    end
+end
+
+local function persist(state)
+    state.transaction=state.transaction or transaction
+    assert(fs.writefile(run..'/state.tmp',json.stringify(state)))
+    assert(fs.rename(run..'/state.tmp',run..'/state.json'))
+end
+
+local function reject_flashing_state()
+    local state=json.parse(read(run..'/state.json'))
+    if type(state)=='table' and state.phase=='flashing' then
+        error('OTA 已进入刷写阶段，请等待设备重启')
+    end
+end
+
 local function selected_channel()
-    local uci=require 'uci'.cursor()
-    local value=uci:get('r76s','main','channel') or 'stable'
-    return value=='beta' and 'beta' or 'stable'
+    -- V1.4.1 is the formal stable release. Retain the config key for
+    -- upgrade compatibility, but never route production devices to a beta.
+    return 'stable'
 end
+
 local function release_tag(channel)
-    return channel=='beta' and 'R76S-V1.4.1' or 'R76S-V1.4.0'
+    assert(channel=='stable','V1.4.1 只支持正式稳定 OTA 通道')
+    return 'R76S-V1.4.1'
 end
+
 local function channel_url(channel,name)
     return repository..release_tag(channel)..'/'..name
 end
-local function q(s) return "'"..s:gsub("'","'\\''").."'" end
-local function call(s) return sys.call(s..' >/dev/null 2>&1')==0 end
-local function read(p) return fs.readfile(p) or '' end
+
 local function revision(s)
     local a,b,c=s:match('^R76S%-V(%d+)%.(%d+)%.(%d+)$')
     if not a then return nil end
     return tonumber(a)*100000000+tonumber(b)*10000+tonumber(c)
 end
-local function persist(state)
-    assert(fs.writefile(run..'/state.tmp',json.stringify(state)))
-    assert(fs.rename(run..'/state.tmp',run..'/state.json'))
-end
+
 local function fetch(url,dst)
-    assert(call('curl --fail --location --proto =https --proto-redir =https --connect-timeout 10 --max-time 600 --retry 2 '..q(url)..' -o '..q(dst)),'download failed')
+    local options='curl --continue-at - --fail --location --proto =https --proto-redir =https '..
+        '--connect-timeout 15 --max-time 3600 --retry 5 --retry-delay 3 --retry-connrefused '
+    local is_image=(dst==image..'.part')
+    local redirect=is_image and (' --progress-bar 2>'..q(progress)) or ' >/dev/null 2>&1'
+    local rc=sys.call(options..q(url)..' -o '..q(dst)..redirect)
+    assert(rc==0,'下载失败；已保留 .part 文件，可继续下载 (RC='..tostring(rc)..')')
 end
+
 local function manifest()
-    assert(call('openssl pkeyutl -verify -pubin -inkey /usr/share/r76s/ota-public.pem -rawin -in '..run..'/ota.json -sigfile '..run..'/ota.json.sig'),'manifest signature invalid')
+    assert(call('openssl pkeyutl -verify -pubin -inkey /usr/share/r76s/ota-public.pem -rawin -in '..q(run..'/ota.json')..' -sigfile '..q(run..'/ota.json.sig')),'OTA 元数据签名无效')
     local m=json.parse(read(run..'/ota.json'))
-    assert(type(m)=='table' and m.schema_version==1 and revision(m.version or ''),'invalid OTA manifest')
-    assert(m.target=='rockchip/armv8' and m.openwrt_version=='24.10.8','unsupported target/base')
+    assert(type(m)=='table' and m.schema_version==1 and revision(m.version or ''),'OTA 元数据格式无效')
+    assert(m.target=='rockchip/armv8' and m.openwrt_version=='24.10.8','OTA 目标平台不兼容')
     local supported=false
     for _,d in ipairs(m.supported_devices or {}) do if d=='friendlyarm,nanopi-r76s' then supported=true end end
-    assert(supported,'wrong device')
-    assert(m.url==repository..m.version..'/'..m.version..'-TF-squashfs.img.gz','noncanonical image URL')
-    assert(type(m.sha256)=='string' and #m.sha256==64 and m.sha256:match('^%x+$'),'invalid digest')
-    assert(type(m.size)=='number' and m.size>0 and m.size<1024*1024*1024,'invalid image size')
+    assert(supported,'OTA 固件不支持 friendlyarm,nanopi-r76s')
+    assert(m.url==repository..m.version..'/'..m.version..'-TF-squashfs.img.gz','OTA 镜像地址不规范')
+    assert(type(m.sha256)=='string' and #m.sha256==64 and m.sha256:match('^%x+$'),'OTA SHA256 无效')
+    assert(type(m.size)=='number' and m.size>0 and m.size<1024*1024*1024,'OTA 镜像大小无效')
     return m
 end
+
+local function set_pending_target(m)
+    local uci=require('uci').cursor()
+    assert(uci:set('r76s_ota_state','state','target_version',m.version))
+    assert(uci:set('r76s_ota_state','state','transaction',transaction))
+    assert(uci:set('r76s_ota_state','state','phase','prepared'))
+    assert(uci:commit('r76s_ota_state'))
+end
+
+local function clear_pending_target()
+    sys.call("uci -q set r76s_ota_state.state.pending='0' >/dev/null 2>&1")
+    sys.call("uci -q commit r76s_ota_state >/dev/null 2>&1")
+end
+
+local function preserve_state()
+    local log=run..'/preserve-state.log'
+    local rc=sys.call('/usr/libexec/r76s/r76s-ota-preserve-state >'..q(log)..' 2>&1')
+    assert(rc==0,'配置状态保存失败；详情见 '..log)
+end
+
+local function backup_configuration()
+    local part=run..'/configuration.tar.gz.part'
+    local final=run..'/configuration.tar.gz'
+    local log=run..'/configuration-backup.log'
+    fs.remove(part)
+    local rc=sys.call('/sbin/sysupgrade -b '..q(part)..' >'..q(log)..' 2>&1')
+    assert(rc==0,'配置备份命令失败；详情见 '..log)
+    local stat=fs.stat(part)
+    assert(stat and stat.size and stat.size>0,'配置备份为空；详情见 '..log)
+    assert(call('tar -tzf '..q(part)),'配置备份归档校验失败；详情见 '..log)
+    fs.remove(final)
+    assert(fs.rename(part,final),'配置备份原子替换失败')
+    return final
+end
+
 fs.mkdirr(run)
-fs.chmod(run,448)
+fs.chmod(run,'0700')
 if arg[1]=='status' then io.write(read(run..'/state.json')); os.exit(0) end
-if not fs.mkdir(run..'/lock') then io.stderr:write('OTA busy\n'); os.exit(1) end
+
 local phase=arg[1] or 'check'
-local ok,err=pcall(function()
+local ok,err=false,nil
+local function transaction_body()
+    reject_flashing_state()
+    acquire_lock(phase)
     if phase=='channel' then
-        local wanted=arg[2] or 'stable'
-        assert(wanted=='stable' or wanted=='beta','invalid OTA channel')
+        assert((arg[2] or 'stable')=='stable','V1.4.1 不支持测试 OTA 通道')
         local uci=require 'uci'.cursor()
-        uci:set('r76s','main','channel',wanted)
-        assert(uci:commit('r76s'),'cannot save OTA channel')
+        assert(uci:set('r76s','main','channel','stable'))
+        assert(uci:commit('r76s'))
         fs.remove(run..'/ota.json'); fs.remove(run..'/ota.json.sig'); fs.remove(run..'/state.json')
-        fs.remove('/var/run/ota/ota.latest'); fs.remove('/tmp/firmware.img'); fs.remove('/tmp/firmware.img.part')
-        fs.remove('/tmp/firmware.img.sha256sum'); fs.remove('/tmp/firmware.img.progress')
+        fs.remove('/var/run/ota/ota.latest'); fs.remove(image); fs.remove(image..'.part')
+        fs.remove('/tmp/firmware.img.sha256sum'); fs.remove(progress)
         fs.remove('/tmp/r76s-ota-verify.state'); fs.remove('/tmp/r76s-ota.meta')
-        persist({phase='channel_changed',channel=wanted,release=release_tag(wanted)})
+        persist({phase='channel_changed',channel='stable',release='R76S-V1.4.1'})
     elseif phase=='check' then
         local channel=selected_channel()
         fetch(channel_url(channel,'ota.json'),run..'/ota.json.part')
@@ -69,61 +189,76 @@ local ok,err=pcall(function()
         assert(fs.rename(run..'/ota.json.part',run..'/ota.json'))
         assert(fs.rename(run..'/ota.json.sig.part',run..'/ota.json.sig'))
         local m=manifest()
-        assert(m.version==release_tag(channel),'OTA manifest does not match selected channel')
-        -- Compatibility state for the existing LuCI status renderer.
+        assert(m.version==release_tag(channel),'OTA 版本不是正式 V1.4.1')
         fs.mkdirr('/var/run/ota')
         assert(fs.writefile('/var/run/ota/ota.latest','[24.10.8-'..m.version..']('..m.version..'-TF-squashfs.img.gz)\nSHA256: '..m.sha256..'\n'))
-        persist({phase='checked',channel=channel,release=release_tag(channel),version=m.version,size=m.size})
+        persist({phase='checked',channel='stable',release=m.version,version=m.version,size=m.size})
     elseif phase=='download' then
         local m=manifest()
         local free=tonumber(sys.exec("df -Pk /tmp | awk 'END {print $4}'")) or 0
-        assert(free*1024>m.size*2+16*1024*1024,'insufficient temporary space')
-        persist({phase='downloading',version=m.version})
+        assert(free*1024>m.size*2+16*1024*1024,'/tmp 空间不足，至少需要镜像两倍空间')
+        persist({phase='downloading',version=m.version,size=m.size,started_at=os.time()})
         fs.remove('/tmp/firmware.img.sha256sum')
         fetch(m.url,image..'.part')
-        assert(fs.stat(image..'.part','size')==m.size,'truncated or oversized image')
-        local digest=sys.exec('sha256sum '..image..'.part'):match('^(%x+)')
-        assert(digest==m.sha256,'SHA256 mismatch')
+        local stat=fs.stat(image..'.part')
+        assert(stat and stat.size==m.size,'下载文件大小不匹配；已保留 .part 文件')
+        local digest=sys.exec('sha256sum '..q(image..'.part')..' 2>/dev/null'):match('^(%x+)')
+        assert(digest==m.sha256,'SHA256 校验失败；已保留 .part 文件')
         assert(fs.rename(image..'.part',image))
+        fs.remove(progress)
         assert(fs.writefile('/tmp/firmware.img.sha256sum',digest..'\n'))
-        persist({phase='downloaded',version=m.version})
+        persist({phase='downloaded',version=m.version,size=m.size})
     elseif phase=='verify' or phase=='install' then
         local m=manifest()
         local current=read('/etc/openwrt_release'):match("DISTRIB_REVISION='([^']+)'")
-        assert(revision(current or '') and revision(m.version)>revision(current),'same/older version rejected')
-        assert(fs.stat(image,'size')==m.size,'image size changed')
-        assert(sys.exec('sha256sum '..image):match('^(%x+)')==m.sha256,'SHA256 mismatch')
-        assert(call('fwtool -q -i '..run..'/image.meta '..image),'metadata extraction failed')
+        assert(revision(current or '') and revision(m.version)>revision(current),'当前版本相同或更新，已阻止重复升级')
+        local stat=fs.stat(image)
+        assert(stat and stat.size==m.size,'本地镜像大小不匹配')
+        assert(sys.exec('sha256sum '..q(image)..' 2>/dev/null'):match('^(%x+)')==m.sha256,'本地镜像 SHA256 不匹配')
+        assert(call('fwtool -q -i '..q(run..'/image.meta')..' '..q(image)),'固件 metadata 校验失败')
         local meta=json.parse(read(run..'/image.meta'))
-        assert(type(meta)=='table' and type(meta.version)=='table','invalid image metadata')
-        assert(meta.version.revision==m.version and meta.version.target==m.target and meta.version.version==m.openwrt_version,'metadata differs from manifest')
+        assert(type(meta)=='table' and type(meta.version)=='table','固件 metadata 格式无效')
+        assert(meta.version.revision==m.version and meta.version.target==m.target and meta.version.version==m.openwrt_version,'固件 metadata 与 OTA 不一致')
         local supported=false
         for _,d in ipairs(meta.supported_devices or {}) do if d=='friendlyarm,nanopi-r76s' then supported=true end end
-        assert(supported,'image device mismatch')
-        assert(call('/sbin/sysupgrade -T '..image),'sysupgrade compatibility check failed')
-        persist({phase='verified',version=m.version})
+        assert(supported,'固件 metadata 设备不匹配')
+        assert(call('/sbin/sysupgrade -T '..q(image)),'sysupgrade -T 校验失败')
+        persist({phase='verified',version=m.version,size=m.size})
         if phase=='install' then
-            -- Validate boot disk against the resolved root partition; never construct a dd target.
             local boot=read('/tmp/.bootdisk'):match('DEVNAME=([^\r\n]+)')
-            assert(boot=='mmcblk0' or boot=='mmcblk2','unknown boot disk')
+            assert(boot=='mmcblk0' or boot=='mmcblk2','启动盘识别失败')
             local uuid=read('/proc/cmdline'):match('root=PARTUUID=([%w%-]+)')
             local root=read('/proc/mounts'):match('([^%s]+)%s+/rom%s+') or ''
             if uuid then root=sys.exec('blkid -t '..q('PARTUUID='..uuid)..' -o device'):match('([^\r\n]+)') or '' end
-            assert(root:match('^/dev/'..boot..'p%d+$'),'boot/root device disagreement')
-            assert(call('/usr/libexec/r76s/r76s-service-manager reconcile'),'service conflict')
-            assert(call('/usr/libexec/r76s/r76s-ota-preserve-state'),'state preservation failed')
-            assert(call('/sbin/sysupgrade -b '..run..'/configuration.tar.gz'),'configuration backup failed')
-            assert(call('tar -tzf '..run..'/configuration.tar.gz'),'invalid configuration backup')
-            local uci=require('uci').cursor()
-            uci:set('r76s_ota_state','state','target_version',m.version)
-            uci:set('r76s_ota_state','state','transaction',tostring(os.time()))
-            uci:set('r76s_ota_state','state','phase','prepared')
-            assert(uci:commit('r76s_ota_state'))
-            persist({phase='flashing',version=m.version})
-            assert(call('(sleep 2; /sbin/sysupgrade '..image..' >/tmp/r76s-sysupgrade.log 2>&1) &'),'cannot launch sysupgrade')
+            assert(root:match('^/dev/'..boot..'p%d+$'),'启动盘与根分区不一致')
+            assert(call('/usr/libexec/r76s/r76s-service-manager reconcile'),'服务状态冲突，已停止升级')
+            preserve_started=true
+            persist({phase='preserving',version=m.version,size=m.size})
+            preserve_state()
+            persist({phase='backing_up',version=m.version,size=m.size})
+            local backup=backup_configuration()
+            local backup_stat=fs.stat(backup)
+            assert(backup_stat and backup_stat.size and backup_stat.size>0,'配置备份为空')
+            persist({phase='backup_verified',version=m.version,size=m.size,backup_size=backup_stat.size})
+            set_pending_target(m)
+            persist({phase='prepared',version=m.version,size=m.size,backup_size=backup_stat.size})
+            persist({phase='launching',version=m.version,size=m.size})
+            local launch_rc=call('(sleep 2; /sbin/sysupgrade '..q(image)..' >/tmp/r76s-sysupgrade.log 2>&1) &')
+            assert(launch_rc,'sysupgrade 启动失败，未刷写设备')
+            flash_launched=true
+            persist({phase='flashing',version=m.version,size=m.size})
         end
-    else error('usage: status|check|download|verify|install') end
-end)
-if not ok then persist({phase='failed',operation=phase,message=tostring(err)}) end
-if not (ok and phase=='install') then fs.rmdir(run..'/lock') end
+    else
+        error('用法：status|channel stable|check|download|verify|install')
+    end
+end
+
+ok,err=pcall(transaction_body)
+if not ok then
+    if lock_acquired then
+        if preserve_started and not flash_launched then clear_pending_target() end
+        persist({phase='failed',operation=phase,message=tostring(err)})
+    end
+end
+release_lock()
 if not ok then io.stderr:write(tostring(err)..'\n'); os.exit(1) end

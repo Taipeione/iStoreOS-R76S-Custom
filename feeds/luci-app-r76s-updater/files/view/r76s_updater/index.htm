@@ -204,7 +204,7 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
 
 <div class="r76s-wrap">
 
-  <h2 class="r76s-title">R76S · 在线升级</h2>
+  <h2 class="r76s-title" id="r76s-title">R76S · 在线升级</h2>
   <p class="r76s-subtitle">选择更新通道，核对镜像，保留配置完成升级。</p>
   <ol class="r76s-steps" aria-label="升级流程">
     <li><strong>1 · 检查更新</strong><span>核对当前与远端版本</span></li>
@@ -228,7 +228,6 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
           <td class="td">
             <select id="r76s-channel" aria-label="OTA 更新通道">
               <option value="stable">稳定版</option>
-              <option value="beta">测试版 / 预发布版</option>
             </select>
             <span class="r76s-muted" id="r76s-channel-note">默认使用稳定版；切换后请重新检查更新。</span>
           </td>
@@ -486,11 +485,14 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
     byId('r76s-current').textContent =
       (s.current && s.current.revision) || '未知';
 
+    byId('r76s-title').textContent =
+      ((s.current && s.current.revision) || 'R76S') + ' · 在线升级';
+
     var channel = s.channel || 'stable';
     var channelSelect = byId('r76s-channel');
     channelSelect.value = channel;
     byId('r76s-channel-note').textContent =
-      '当前使用：' + (s.channel_label || (channel === 'beta' ? '测试版 / 预发布版' : '稳定版')) +
+      '当前使用：' + (s.channel_label || '稳定版') +
       '；切换后请重新检查更新。';
 
     byId('r76s-latest').textContent =
@@ -692,7 +694,7 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
 
     request(
       'verify',
-      'GET',
+      'POST',
       function(data) {
         verifying = false;
 
@@ -732,7 +734,7 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
 
     request(
       'check',
-      'GET',
+      'POST',
       function(data) {
         setBusy(
           btn,
@@ -769,7 +771,7 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
           showMessage((data && (data.output || data.message)) || 'OTA 通道切换失败');
           return;
         }
-        showMessage('已切换到' + (channel === 'beta' ? '测试版 / 预发布版' : '稳定版') + '通道，请点击“检查更新”。');
+        showMessage('已切换到稳定版通道，请点击“检查更新”。');
       },
       'channel=' + encodeURIComponent(channel) +
       '&token=' + encodeURIComponent('<%=luci.dispatcher.context.authtoken%>')
@@ -792,7 +794,7 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
 
     request(
       'download',
-      'GET',
+      'POST',
       function(data) {
         if (data && data.status)
           render(data.status);
