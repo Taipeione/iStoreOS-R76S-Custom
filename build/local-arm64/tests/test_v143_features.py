@@ -79,6 +79,8 @@ class V143Features(unittest.TestCase):
         self.assertIn('RANDOM_PASSWORD_MECHANISM_PRESENT', audit)
         self.assertIn('DROPBEAR_ROOT_PASSWORD_AUTH_DISABLED', audit)
         self.assertIn('R76S_V143_ROOT_PASSWORD_POLICY', audit)
+        self.assertIn("boot_link.resolve(strict=True) != policy.resolve(strict=True)", audit)
+        self.assertIn("boot_link.is_symlink()", audit)
 
     def test_clean_flash_lan_default_is_fixed(self):
         stage = next((ROOT / 'build/local-arm64/stages').glob('16-*.sh')).read_text()

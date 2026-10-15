@@ -152,7 +152,17 @@ def check_root_shadow(root):
         boot_link = root / 'etc/rc.d/S99r76s-root-password'
         if not boot_link.is_file() or not (boot_link.stat().st_mode & stat.S_IXUSR):
             return ['V143_ROOT_PASSWORD_BOOT_WRAPPER_MISSING_OR_NOT_EXECUTABLE']
-        if '/etc/init.d/r76s-root-password' not in boot_link.read_text(encoding='utf-8'):
+        # OpenWrt's init system may replace the overlay wrapper with its
+        # canonical rc.d symlink while assembling the final rootfs. Accept
+        # only that exact, in-tree target; a regular overlay wrapper remains
+        # valid as well. Never accept a link escaping the extracted rootfs.
+        if boot_link.is_symlink():
+            try:
+                if boot_link.resolve(strict=True) != policy.resolve(strict=True):
+                    return ['V143_ROOT_PASSWORD_BOOT_WRAPPER_INVALID']
+            except OSError:
+                return ['V143_ROOT_PASSWORD_BOOT_WRAPPER_INVALID']
+        elif '/etc/init.d/r76s-root-password' not in boot_link.read_text(encoding='utf-8'):
             return ['V143_ROOT_PASSWORD_BOOT_WRAPPER_INVALID']
         dropbear = root / 'etc/config/dropbear'
         if not dropbear.is_file():
