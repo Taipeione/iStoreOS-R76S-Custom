@@ -35,10 +35,10 @@ b3c996f54bc50bedd6b7582a77768df2bfbfdd97bed38a4f19e042e0662873fe  build/local-ar
 84a2ab748d26b72600d70144b3d6ea8513bc3bbd2b906b7153f804219651d5d1  build/local-arm64/stages/13-stage-official-istoreos-quickstart-ui.sh
 97f1de9004c15b68978668d3175f4160a7b18f1a224f920a559ddf3fd0e0be9d  build/local-arm64/stages/14-copy-and-fix-r76s-status-package.sh
 f90e34976a9ad01c898b5267c658e24a50edb60982b241c48d6cf7f173495c74  build/local-arm64/stages/15-stage-v1-1-1-component-updater-and-smartdns-release48-4.sh
-3d1b29ed59f2037a64f31a81468246067b17a45455cdcf81499d1e99e39302fe  build/local-arm64/stages/16-install-r76s-v1-1-1-clean-defaults-dual-42-rule-librari.sh
+45aadecb469377458dc41a6b484210af48c2770afb92aa00eb1e6e97818fdeef  build/local-arm64/stages/16-install-r76s-v1-1-1-clean-defaults-dual-42-rule-librari.sh
 45a9edc1a1085cae25b171a5176e0f989c9518a163ae07ccb660eb7619c337ed  build/local-arm64/stages/17-verify-r76s-status-package.sh
 5a6b02ace29b6490b7240f7e16f57c3eca14b692f1341899661772263b88148b  build/local-arm64/stages/18-apply-r76s-config-and-verify-v1-1-1-selections.sh
-8ed001695fd6ad2a21dff823c94ed0582a681fe055f8735b981330745951d062  build/local-arm64/stages/19-verify-final-r76s-configuration.sh
+19104224ef37240b510fe251a25c7a8da6257f5748e1357f6e0662af0daacb36  build/local-arm64/stages/19-verify-final-r76s-configuration.sh
 a50440a8bddf1c5d8c87067dfb3e99627a1f87e039bf02224285a4e8e917ccd5  build/local-arm64/stages/20-build-firmware.sh
 e0ef2f075f74f41e27b9e0ec260e1d4f5a4ba028956b206b0afdfbb4022cc9a7  build/local-arm64/stages/21-verify-built-passwall2-chinese-package-and-rule-default.sh
 14bb3d3eef616f53899ac3612bb10fd051f6bc06c05413c4f1a51e01567d1a54  build/local-arm64/stages/22-locate-r76s-firmware.sh
@@ -153,6 +153,7 @@ a86206085b928ef102b5770ff4d1ef862c26b0c366cb39e8a9812c5ab5802c65  feeds/r76s-cor
 0b1f41731b880214f082f8162e79dbc3c44d7572492b1db9f30d43df59113749  files/etc/config/r76s_ota_state
 037e299dcfaddef85e018cd03d18d3d9de8dc17e0f2f77719349725e297a937b  files/etc/init.d/r76s-ota-restore
 e91ee58b71c8c2335a123349ff629942d7e71521f4995664579957f13bebbc2d  files/etc/init.d/r76s-root-password
+611de0d52aeffc589b71a965d9514b6a42b177092c818104339105ba8a48df4e  files/etc/rc.d/S99r76s-root-password
 32217efa32e32dec168c91cdc478556503e2b652234d26d161454ff2d3a9df98  files/etc/uci-defaults/99-r76s-root-auth
 33f06bb0b3aac5a7e0cc684cc5e4743dea91efc7f6fc6f8c95cede1b2d44aaf0  files/etc/uci-defaults/99-r76s-v110-ota-restore
 fe7313167088f25ae883795033fb3cf63e463dd43e39e50caa03198672f092fd  files/usr/libexec/r76s/r76s-ota-preserve-state
@@ -174,7 +175,7 @@ f947f9ee8dbf949fbd4e9b26d2a4d7c8771847ba93c28ed9f7d87a01b41acc55  scripts/r76s-v
 8cfcf5a53cabec1810dc59c35db0601cd12360d71e22afea41cf61fc773d9826  scripts/r76s-v111-dns-topology.py
 24a73121393b755b64cf6e8856d3ed64028b9a62b7908d8937affa0c550bbfc0  scripts/r76s-v111-dns-transaction.sh
 a10d32135a8766a60ff18ba9e245397f4314333db27ba03fba35c348fb3772dd  scripts/r76s-v111-dns-transition-plan.py
-fca8efa011e76cf091098215866526a2c3bb4c9e65bd0b6174532c7d9284a181  scripts/r76s-v111-final-audit.py
+3192e901a72c43c597ca36729deef38116043015d540fb11ec1ff3b5a1f98368  scripts/r76s-v111-final-audit.py
 46fcfef09a57f9fabdef6fb35f8a7d3ef44986ee73b51d92e97aca63207aef7d  scripts/r76s-v111-image-boot-policy.py
 170664a709024d462bf3ccdc6e3482eca8d80f6729bd97701502eec842415d0f  scripts/r76s-v111-overlay-dns-scan.py
 1c75b833753dbf647dc73e3364241794c0f0730d4adf06b01782ca93680b5ca6  scripts/r76s-v111-passwall-dns-generator.py
