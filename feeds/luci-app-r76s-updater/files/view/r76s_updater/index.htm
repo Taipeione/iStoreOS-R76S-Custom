@@ -208,7 +208,7 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
   <p class="r76s-subtitle">检查更新、核对镜像，保留配置完成升级。</p>
   <ol class="r76s-steps" aria-label="升级流程">
     <li><strong>1 · 检查更新</strong><span>核对当前与远端版本</span></li>
-    <li><strong>2 · 下载与校验</strong><span>SHA256、Metadata、Sysupgrade</span></li>
+    <li><strong>2 · 下载与校验</strong><span>SHA256、Metadata、OTA 签名、Sysupgrade</span></li>
     <li><strong>3 · 保留配置升级</strong><span>保存服务状态，再安装固件</span></li>
   </ol>
 
@@ -300,6 +300,13 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
         </tr>
 
         <tr class="tr">
+          <th scope="row" class="td">OTA 签名</th>
+          <td class="td" id="r76s-ota-signature">
+            — 未校验
+          </td>
+        </tr>
+
+        <tr class="tr">
           <th scope="row" class="td">Sysupgrade</th>
           <td class="td" id="r76s-sysupgrade">
             — 未校验
@@ -357,8 +364,14 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
       </form>
 
       <h3 class="r76s-section-heading">恢复配置与固件升级说明</h3>
+      <form method="post" enctype="multipart/form-data" action="<%=api_base%>/restore">
+        <input type="hidden" name="token" value="<%=luci.dispatcher.context.authtoken%>" />
+        <label for="r76s-restore-file">配置备份文件（.tar.gz）</label>
+        <input id="r76s-restore-file" type="file" name="backup" accept=".gz,.tgz,application/gzip" required />
+        <input class="cbi-button cbi-button-apply" type="submit" value="恢复配置" />
+      </form>
       <ul class="r76s-notice">
-        <li>只建议恢复同一台 R76S、同一系列固件生成的备份；恢复后可能需要重启。</li>
+        <li>只建议恢复同一台 R76S、同一系列固件生成的备份；恢复前会先生成保护性备份，恢复后可能需要重启。</li>
         <li>固件升级用于升级 R76S 系统版本，推荐使用命名为 R76S-Vx.x.x 的 squashfs 镜像。</li>
         <li>默认保留配置，不会清空 PPPoE、PassWall、DNS 或分流规则，除非用户明确选择不保留配置。</li>
         <li>升级前会检查设备型号、镜像完整性、SHA256、sysupgrade -T、/tmp 可用空间、配置保留选项和是否已生成备份。</li>
@@ -523,6 +536,13 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
         '失败'
       );
 
+    byId('r76s-ota-signature').innerHTML =
+      verifyText(
+        verify.ota_signature,
+        '通过',
+        '失败'
+      );
+
     byId('r76s-sysupgrade').innerHTML =
       verifyText(
         verify.sysupgrade,
@@ -599,6 +619,8 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
       verify.sha256 !== 'fail' &&
       verify.metadata !== 'pass' &&
       verify.metadata !== 'fail' &&
+      verify.ota_signature !== 'pass' &&
+      verify.ota_signature !== 'fail' &&
       verify.sysupgrade !== 'pass' &&
       verify.sysupgrade !== 'fail';
 
@@ -644,6 +666,9 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
     byId('r76s-metadata').textContent =
       '正在检查...';
 
+    byId('r76s-ota-signature').textContent =
+      '正在验证...';
+
     byId('r76s-sysupgrade').textContent =
       '正在检查...';
 
@@ -668,7 +693,7 @@ local api_base = dsp.build_url("admin", "system", "r76s_updater", "api")
         else {
           showMessage(
             '固件安全校验完成：' +
-            'SHA256、Metadata、Sysupgrade ' +
+            'SHA256、Metadata、OTA 签名、Sysupgrade ' +
             '和启动盘安全检查全部通过。'
           );
         }

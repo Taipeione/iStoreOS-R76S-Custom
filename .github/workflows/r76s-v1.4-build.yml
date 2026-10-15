@@ -214,10 +214,18 @@ jobs:
           sha256sum -c sha256
           shopt -s nullglob
           assets=( *.img *.bin *.gz ota.json sha256 sha256sums version.latest version.index ota.footer.html BOOTLOADER_INFO.txt ota.json.sig ota-public.pem RELEASE-NOTES.md TEST-REPORT.txt r76s-ota-preserve-state BUILD-VALIDATION.txt sources.lock.json release.json )
-          # Never overwrite a published version or its OTA assets.
-          gh release create R76S-V1.4.1 "${assets[@]}" \
-            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title R76S-V1.4.1 --notes-file RELEASE-NOTES.md \
-            --prerelease --latest=false
+          # Keep the existing prerelease and refresh its assets after a repair;
+          # never delete a historical release and never promote it to Latest.
+          if gh release view R76S-V1.4.1 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload R76S-V1.4.1 "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit R76S-V1.4.1 --repo "$GITHUB_REPOSITORY" \
+              --title R76S-V1.4.1 --notes-file RELEASE-NOTES.md \
+              --prerelease --latest=false
+          else
+            gh release create R76S-V1.4.1 "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title R76S-V1.4.1 --notes-file RELEASE-NOTES.md \
+              --prerelease --latest=false
+          fi
           openssl pkeyutl -verify -pubin -inkey ota-public.pem -rawin \
             -in ota.json -sigfile ota.json.sig

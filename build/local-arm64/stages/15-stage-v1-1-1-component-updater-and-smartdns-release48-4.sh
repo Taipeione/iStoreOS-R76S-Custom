@@ -177,17 +177,17 @@ install_old = 'sys.call("(sleep 2; /sbin/sysupgrade " .. FIRMWARE .. " >/tmp/r76
 install_new = 'sys.call("(sleep 2; /usr/libexec/r76s/r76s-ota-preserve-state && /sbin/sysupgrade " .. FIRMWARE .. " >/tmp/r76s-sysupgrade.log 2>&1) >/dev/null 2>&1 &")'
 if install_old in t:
     t = t.replace(install_old, install_new, 1)
-elif 'local preserve_rc = sys.call(' not in t and '/usr/libexec/r76s/r76s-ota-preserve-state && /sbin/sysupgrade ' not in t:
+elif 'local preserve_rc = sys.call(' not in t and '/usr/libexec/r76s/r76s-ota-preserve-state && /sbin/sysupgrade ' not in t and '/usr/libexec/r76s/r76s-ota install' not in t:
     raise SystemExit('ERROR: online-upgrade install call anchor not found')
 
 if '/sbin/sysupgrade -n' in t or 'sysupgrade -n' in t:
     raise SystemExit('ERROR: updater would erase settings by default (sysupgrade -n found)')
-if 'local preserve_rc = sys.call(' not in t and '/usr/libexec/r76s/r76s-ota-preserve-state && /sbin/sysupgrade " .. FIRMWARE' not in t:
+if 'local preserve_rc = sys.call(' not in t and '/usr/libexec/r76s/r76s-ota-preserve-state && /sbin/sysupgrade " .. FIRMWARE' not in t and '/usr/libexec/r76s/r76s-ota install' not in t:
     raise SystemExit('ERROR: online-upgrade preserve-state helper is not chained before sysupgrade')
 
 verify_anchor = 'local verified = verify_image()'
 verify_fail_anchor = 'if not verified.ok then'
-install_anchor = 'local launch_rc = sys.call(' if 'local launch_rc = sys.call(' in t else '/usr/libexec/r76s/r76s-ota-preserve-state && /sbin/sysupgrade " .. FIRMWARE'
+install_anchor = 'local launch_rc = sys.call(' if 'local launch_rc = sys.call(' in t else ('/usr/libexec/r76s/r76s-ota install' if '/usr/libexec/r76s/r76s-ota install' in t else '/usr/libexec/r76s/r76s-ota-preserve-state && /sbin/sysupgrade " .. FIRMWARE')
 
 if verify_anchor not in t or verify_fail_anchor not in t:
     raise SystemExit('ERROR: online-upgrade install path does not re-run verify_image() before flashing')
@@ -215,7 +215,7 @@ grep -qF 'id="r76s-metadata"' "$VIEW"
 grep -qF 'id="r76s-boot-safe"' "$VIEW"
 grep -qF '在线升级并保留配置' "$VIEW"
 grep -qF "downloadBtn.disabled = true" "$VIEW"
-grep -qF 'r76s-ota-preserve-state' "$CTRL"
+grep -qF 'r76s-ota-preserve-state' "$CTRL" || grep -qF '/usr/libexec/r76s/r76s-ota install' "$CTRL"
 test -x "$PRESERVE_HELPER"
 grep -qF 'r76s_ota_state.state.pending' "$PRESERVE_HELPER"
 ! grep -qF 'sysupgrade -n' "$CTRL"

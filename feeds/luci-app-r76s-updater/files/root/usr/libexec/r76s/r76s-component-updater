@@ -15,25 +15,25 @@ CORE_PACKAGE() {
     esac
 }
 
-# id|Chinese name|opkg package|service|binary|category
+# id|Chinese name|opkg package|service|binary|category|channel
 COMPONENTS='\
-passwall|PassWall|luci-app-passwall|passwall|/usr/bin/xray|代理分流组件
-passwall2|PassWall2|luci-app-passwall2|passwall2|/usr/bin/xray|代理分流组件
-xray-core|Xray-core|xray-core|passwall|/usr/bin/xray|代理分流组件
-sing-box|Sing-box|sing-box|passwall|/usr/bin/sing-box|代理分流组件
-chinadns-ng|ChinaDNS-NG|chinadns-ng|passwall|/usr/bin/chinadns-ng|代理分流组件
-smartdns|SmartDNS|smartdns|smartdns|/usr/libexec/r76s/smartdns.bin|DNS 组件
-adguardhome|AdGuard Home|adguardhome|adguardhome|/usr/bin/AdGuardHome|DNS 组件
-dnsmasq-full|dnsmasq-full|dnsmasq-full|dnsmasq|/usr/sbin/dnsmasq|DNS 组件
-wireguard|WireGuard|wireguard-tools|network|/usr/bin/wg|网络组件
-ddns|DDNS|ddns-scripts|ddns|/usr/lib/ddns/dynamic_dns_functions.sh|网络组件
-upnp|UPnP|miniupnpd|miniupnpd|/usr/sbin/miniupnpd|网络组件
-docker|Docker|dockerd|docker|/usr/bin/dockerd|系统增强组件
-istore|iStore|luci-app-istore|istore|/usr/bin/istore|系统增强组件
-quickstart|QuickStart|luci-app-quickstart|quickstart|/etc/init.d/quickstart|系统增强组件
-r76s-status|R76S 状态页|luci-app-r76s-status|rpcd|/usr/share/luci/menu.d/r76s-wireguard-client.json|系统增强组件
-r76s-updater|R76S OTA 升级页|luci-app-r76s-updater|rpcd|/usr/share/luci/menu.d/r76s-updater.json|系统增强组件
-r76s-health|R76S 健康检查|r76s-core|r76s-reconcile|/usr/bin/r76s-health|系统增强组件'
+passwall|PassWall|luci-app-passwall|passwall|/usr/bin/xray|代理分流组件|opkg
+passwall2|PassWall2|luci-app-passwall2|passwall2|/usr/bin/xray|代理分流组件|opkg
+xray-core|Xray-core|xray-core|passwall|/usr/bin/xray|代理分流组件|opkg
+sing-box|Sing-box|sing-box|passwall|/usr/bin/sing-box|代理分流组件|opkg
+chinadns-ng|ChinaDNS-NG|chinadns-ng|passwall|/usr/bin/chinadns-ng|代理分流组件|opkg
+smartdns|SmartDNS|smartdns|smartdns|/usr/libexec/r76s/smartdns.bin|DNS 组件|opkg
+adguardhome|AdGuard Home|adguardhome|adguardhome|/usr/bin/AdGuardHome|DNS 组件|opkg
+dnsmasq-full|dnsmasq-full|dnsmasq-full|dnsmasq|/usr/sbin/dnsmasq|DNS 组件|opkg
+wireguard|WireGuard|wireguard-tools|network|/usr/bin/wg|网络组件|opkg
+ddns|DDNS|ddns-scripts|ddns|/usr/lib/ddns/dynamic_dns_functions.sh|网络组件|opkg
+upnp|UPnP|miniupnpd|miniupnpd|/usr/sbin/miniupnpd|网络组件|opkg
+docker|Docker|dockerd|docker|/usr/bin/dockerd|系统增强组件|opkg
+istore|iStore|luci-app-istore|istore|/usr/bin/istore|系统增强组件|opkg
+quickstart|QuickStart|luci-app-quickstart|quickstart|/etc/init.d/quickstart|系统增强组件|opkg
+r76s-status|R76S 状态页|luci-app-r76s-status|rpcd|/usr/share/luci/menu.d/r76s-wireguard-client.json|系统增强组件|firmware
+r76s-updater|R76S OTA 升级页|luci-app-r76s-updater|rpcd|/usr/share/luci/menu.d/r76s-updater.json|系统增强组件|firmware
+r76s-health|R76S 健康检查|r76s-core|r76s-reconcile|/usr/bin/r76s-health|系统增强组件|firmware'
 
 pkgver() { opkg status "$1" 2>/dev/null | sed -n 's/^Version: //p' | head -n1; }
 service_exists() { [ -x "/etc/init.d/$1" ]; }
@@ -55,60 +55,79 @@ friendly_current() {
     else printf '未安装'; fi
 }
 online_version() {
-    local pkg="$1" v
-    case "$pkg" in kernel|kmod-*|base-files|busybox|firewall4|netifd|procd|ubus|uci|opkg|libc) printf '仅随固件升级'; return;; esac
+    local pkg="$1" channel="$2" v
+    [ "$channel" = firmware ] && { printf '需要随固件升级'; return; }
+    case "$pkg" in kernel|kmod-*|base-files|busybox|firewall4|netifd|procd|ubus|uci|opkg|libc) printf '需要随固件升级'; return;; esac
     v="$(opkg list 2>/dev/null | awk -v p="$pkg" '$1==p {print $3; exit}')"
     [ -n "$v" ] && printf '%s' "$v" || printf '暂不可用'
 }
 backup_config() {
-    local id="$1" stamp="$2" dst="$BACKUP_ROOT/${id}-${stamp}"; mkdir -p "$dst"; printf '%s\n' "$id" > "$dst/component"
+    local id="$1" stamp="$2" dst="$BACKUP_ROOT/${id}-${stamp}" copied=0; mkdir -p "$dst" || return 1; printf '%s\n' "$id" > "$dst/component" || return 1
     for p in /etc/config/passwall /etc/config/passwall2 /etc/config/smartdns /etc/config/dhcp /etc/config/network /etc/config/firewall /etc/config/wireless /etc/config/ddns /etc/config/upnpd /etc/config/dockerd /etc/config/r76s /etc/config/adguardhome /etc/adguardhome.yaml /etc/smartdns /etc/wireguard; do
-        if [ -e "$p" ]; then mkdir -p "$dst$(dirname "$p")"; cp -a "$p" "$dst$p" 2>/dev/null || true; fi
+        if [ -e "$p" ]; then mkdir -p "$dst$(dirname "$p")" || return 1; cp -a "$p" "$dst$p" 2>/dev/null || return 1; copied=$((copied + 1)); fi
     done
+    printf '%s\n' "files_copied=$copied" > "$dst/manifest" || return 1
     printf '%s' "$dst"
 }
 last_backup() { find "$BACKUP_ROOT" -maxdepth 1 -type d -name "$1-*" 2>/dev/null | sort | tail -n1; }
 status_line() {
-    local id="$1" name="$2" pkg="$3" service="$4" bin="$5" category="$6" cur online installed running enabled backup update
-    is_installed "$pkg" "$bin" && installed='已安装' || installed='未安装'; cur="$(friendly_current "$pkg" "$bin")"; online="$(online_version "$pkg")"
+    local id="$1" name="$2" pkg="$3" service="$4" bin="$5" category="$6" channel="$7" cur online installed running enabled backup update
+    is_installed "$pkg" "$bin" && installed='已安装' || installed='未安装'; cur="$(friendly_current "$pkg" "$bin")"; online="$(online_version "$pkg" "$channel")"
     service_running "$service" "$bin" && running='运行中' || running='未运行'; service_enabled "$service" && enabled='是' || enabled='否'
     backup="$(last_backup "$id")"; [ -n "$backup" ] && backup='已备份' || backup='未备份'; update='无需更新'
     [ "$installed" = '未安装' ] && update='未安装'; [ "$online" = '暂不可用' ] && update='待检查'
-    [ "$installed" = '已安装' ] && [ "$online" != "$cur" ] && [ "$online" != '暂不可用' ] && [ "$online" != '仅随固件升级' ] && update='可更新'
+    [ "$installed" = '已安装' ] && [ "$online" != "$cur" ] && [ "$online" != '暂不可用' ] && [ "$online" != '需要随固件升级' ] && update='可更新'
+    [ "$channel" = firmware ] && update='需要随固件升级'
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$name" "$category" "$cur" "$online" "$installed" "$running" "$enabled" "$backup" "$update" '检查更新 / 更新组件 / 重启服务 / 查看日志'
 }
 find_component() { local id="$1" row; while IFS='|' read -r row; do [ "${row%%|*}" = "$id" ] && { printf '%s' "$row"; return 0; }; done <<EOF
 $(printf '%s\n' "$COMPONENTS")
 EOF
 return 1; }
-all_status() { printf '%s\n' "$COMPONENTS" | while IFS='|' read -r id name pkg service bin category; do status_line "$id" "$name" "$pkg" "$service" "$bin" "$category"; done; }
+all_status() { printf '%s\n' "$COMPONENTS" | while IFS='|' read -r id name pkg service bin category channel; do status_line "$id" "$name" "$pkg" "$service" "$bin" "$category" "$channel"; done; }
 restart_component() {
-    local row="$1" id name pkg service bin category; IFS='|' read -r id name pkg service bin category <<EOF
+    local row="$1" id name pkg service bin category channel; IFS='|' read -r id name pkg service bin category channel <<EOF
 $row
 EOF
     if [ "$service" = network ] || [ "$service" = rpcd ]; then printf '%s：系统服务由固件管理，未执行在线重启。\n' "$name"; return 0; fi
     if ! service_exists "$service"; then printf '%s：未安装或没有可重启的服务。\n' "$name"; return 0; fi
     if /etc/init.d/"$service" restart >/tmp/r76s-component-"$id".log 2>&1; then sleep 2; service_running "$service" "$bin" && printf '%s：已重启并恢复运行。\n' "$name" || printf '%s：已重启，但尚未确认恢复，请查看日志。\n' "$name"; else printf '%s：重启失败，日志已保留在 /tmp/r76s-component-%s.log。\n' "$name" "$id"; fi
 }
+has_core_dependency() {
+    printf '%s\n' "$1" | grep -Eiq '(^|[^[:alnum:]_.+-])(kernel|kmod-[[:alnum:]_.+-]+|base-files|busybox|firewall4|netifd|procd|ubus|uci|opkg|libc)([^[:alnum:]_.+-]|$)'
+}
+restore_service_state() {
+    local service="$1" bin="$2" was_running="$3" was_enabled="$4" name="$5"
+    [ "$service" = network ] || [ "$service" = rpcd ] && return 0
+    service_exists "$service" || return 0
+    if [ "$was_enabled" = 1 ]; then /etc/init.d/"$service" enable >/dev/null 2>&1 || true; else /etc/init.d/"$service" disable >/dev/null 2>&1 || true; fi
+    if [ "$was_running" = 1 ]; then /etc/init.d/"$service" restart >/dev/null 2>&1 || return 1; else /etc/init.d/"$service" stop >/dev/null 2>&1 || true; fi
+    if [ "$was_running" = 1 ]; then service_running "$service" "$bin"; else ! service_running "$service" "$bin"; fi
+}
 update_component() {
-    local row="$1" id name pkg service bin category backup log preflight; IFS='|' read -r id name pkg service bin category <<EOF
+    local row="$1" id name pkg service bin category channel backup log preflight was_running=0 was_enabled=0; IFS='|' read -r id name pkg service bin category channel <<EOF
 $row
 EOF
     case "$pkg" in kernel|kmod-*|base-files|busybox|firewall4|netifd|procd|ubus|uci|opkg|libc) printf '%s：核心系统包只能跟随完整固件升级。\n' "$name"; return 2;; esac
-    backup="$(backup_config "$id" "$(date +%Y%m%d-%H%M%S)")"; log="/tmp/r76s-component-$id-update.log"; : > "$log"
+    [ "$channel" = firmware ] && { printf '%s：没有安全的独立升级渠道，请随完整固件升级。\n' "$name"; return 2; }
+    backup="$(backup_config "$id" "$(date +%Y%m%d-%H%M%S)")" || { printf '%s：配置备份失败，已阻止升级。\n' "$name"; return 1; }; log="/tmp/r76s-component-$id-update.log"; : > "$log"
     if [ -z "$(pkgver "$pkg")" ]; then printf '%s：当前未安装，已保存检查结果；请先通过固件或软件源安装。\n' "$name" | tee -a "$log"; return 0; fi
+    service_running "$service" "$bin" && was_running=1 || true
+    service_enabled "$service" && was_enabled=1 || true
     preflight="$(opkg --noaction install "$pkg" 2>&1)"; printf '%s\n' "$preflight" >> "$log"
-    if printf '%s\n' "$preflight" | awk '{print $1}' | while read -r dep; do case "$dep" in kernel|kmod-*|base-files|busybox|firewall4|netifd|procd|ubus|uci|opkg|libc) exit 9;; esac; done; then :; else printf '%s：检测到核心系统依赖，已阻止升级；配置备份保留在 %s。\n' "$name" "$backup"; return 2; fi
+    if has_core_dependency "$preflight"; then printf '%s：检测到核心系统依赖，已阻止升级；配置备份保留在 %s。\n' "$name" "$backup"; return 2; fi
     if ! opkg install "$pkg" >>"$log" 2>&1; then printf '%s：升级失败，未覆盖用户配置；日志：%s，备份：%s\n' "$name" "$log" "$backup"; return 1; fi
-    restart_component "$row" >>"$log" 2>&1; service_running "$service" "$bin" && printf '%s：升级完成，服务已恢复。配置备份：%s\n' "$name" "$backup" || { printf '%s：升级后服务未恢复；日志：%s，配置备份：%s\n' "$name" "$log" "$backup"; return 1; }
+    if ! restore_service_state "$service" "$bin" "$was_running" "$was_enabled" "$name" >>"$log" 2>&1; then printf '%s：升级后服务状态未恢复；日志：%s，配置备份：%s\n' "$name" "$log" "$backup"; return 1; fi
+    printf '%s：升级完成，已恢复原服务状态。配置备份：%s\n' "$name" "$backup"
 }
 with_lock() { mkdir "$LOCKDIR" 2>/dev/null || { printf '已有组件升级任务正在运行，请稍后再试。\n'; return 1; }; trap 'rmdir "$LOCKDIR" 2>/dev/null || true' EXIT INT TERM; "$@"; local rc=$?; rmdir "$LOCKDIR" 2>/dev/null || true; trap - EXIT INT TERM; return $rc; }
+refresh_indexes() { command -v opkg >/dev/null 2>&1 || return 1; if command -v timeout >/dev/null 2>&1; then timeout 60 opkg update >/tmp/r76s-component-opkg-update.log 2>&1; else opkg update >/tmp/r76s-component-opkg-update.log 2>&1; fi; }
 cmd="${1:-status}"; id="${2:-all}"
 case "$cmd" in
-    status|check) if [ "$id" = all ]; then all_status; else row="$(find_component "$id")" || { printf '未识别的插件：%s\n' "$id"; exit 2; }; IFS='|' read -r rid rname rp rs rb rcat <<EOF
+    status|check) [ "$cmd" = check ] && refresh_indexes >/dev/null 2>&1 || true; if [ "$id" = all ]; then all_status; else row="$(find_component "$id")" || { printf '未识别的插件：%s\n' "$id"; exit 2; }; IFS='|' read -r rid rname rp rs rb rcat rchannel <<EOF
 $row
 EOF
-        status_line "$rid" "$rname" "$rp" "$rs" "$rb" "$rcat"; fi;;
+        status_line "$rid" "$rname" "$rp" "$rs" "$rb" "$rcat" "$rchannel"; fi;;
     restart|log|update) row="$(find_component "$id")" || { printf '未识别的插件：%s\n' "$id"; exit 2; }; case "$cmd" in restart) restart_component "$row";; log) if [ -s "/tmp/r76s-component-$id-update.log" ]; then tail -n 80 "/tmp/r76s-component-$id-update.log"; fi; if [ -s "/tmp/r76s-component-$id.log" ]; then tail -n 80 "/tmp/r76s-component-$id.log"; fi; [ -s "/tmp/r76s-component-$id-update.log" ] || [ -s "/tmp/r76s-component-$id.log" ] || printf '%s：暂无更新或重启日志。\n' "$id";; update) with_lock update_component "$row";; esac;;
     *) printf '用法：r76s-component-updater status|check|update|restart|log [all|插件 ID]\n'; exit 2;;
 esac

@@ -7,25 +7,29 @@ root=Path(sys.argv[1])
 repo=Path(__file__).resolve().parent.parent
 controller=root/'package/custom/luci-app-r76s-updater/files/controller/r76s_updater.lua'
 text=controller.read_text()
-assert 'local preserve_rc = sys.call(' in text
+assert 'local preserve_rc = sys.call(' in text or '/usr/libexec/r76s/r76s-ota install' in text
 text=text.replace('/bin/ota check','/usr/libexec/r76s/r76s-ota check')
 text=text.replace('run_with_rc("/bin/ota download 2>&1")',
     'run_with_rc("(/usr/libexec/r76s/r76s-ota download >/tmp/r76s-ota-download.log 2>&1) </dev/null >/dev/null 2>&1 &")')
-start=text.index('function api_install()')
-text=text[:start]+'''-- R76S_V14_OTA_BACKEND: all install checks are serialized by the backend.
-function api_install()
+if '/usr/libexec/r76s/r76s-ota install' not in text:
+    start=text.index('function api_install()')
+    end=text.find('\nfunction api_backup()', start)
+    if end < 0: end=len(text)
+    text=text[:start]+'''function api_install()
     local preserve_rc, out = run_with_rc("/usr/libexec/r76s/r76s-ota install 2>&1")
     json_reply({ok=preserve_rc==0, message=preserve_rc==0 and
         "升级已启动，请勿断电。" or out, status=build_status()})
 end
-'''
+'''+text[end:]
 # Verify the signed manifest as well as the existing UI verification fields.
-text=text.replace('    result.sysupgrade = "pass"', '''    local signed_rc, signed_out = run_with_rc("/usr/libexec/r76s/r76s-ota verify 2>&1")
+if 'result.ota_signature = "pass"' not in text:
+    text=text.replace('    result.sysupgrade = "pass"', '''    local signed_rc, signed_out = run_with_rc("/usr/libexec/r76s/r76s-ota verify 2>&1")
     if signed_rc ~= 0 then
         result.message = signed_out
         save_verify_state(result)
         return result
     end
+    result.ota_signature = "pass"
     result.sysupgrade = "pass"''')
 controller.write_text(text)
 for app in ('passwall','passwall2'):

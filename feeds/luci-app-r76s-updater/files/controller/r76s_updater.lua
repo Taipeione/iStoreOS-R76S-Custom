@@ -26,6 +26,7 @@ function index()
     entry({"admin", "system", "r76s_updater", "api", "verify"}, post("api_verify")).leaf = true
     entry({"admin", "system", "r76s_updater", "api", "install"}, post("api_install")).leaf = true
     entry({"admin", "system", "r76s_updater", "api", "backup"}, post("api_backup")).leaf = true
+    entry({"admin", "system", "r76s_updater", "api", "restore"}, post("api_restore")).leaf = true
 
     -- Keep the old component-updater URL usable after moving the UI under System.
     local legacy = entry({"admin", "services", "r76s_updater"}, alias("admin", "system", "r76s_updater", "components"), nil)
@@ -125,6 +126,7 @@ local function save_verify_state(state)
     local lines = {
         "sha256=" .. (state.sha256 or "not_checked"),
         "metadata=" .. (state.metadata or "not_checked"),
+        "ota_signature=" .. (state.ota_signature or "not_checked"),
         "sysupgrade=" .. (state.sysupgrade or "not_checked"),
         "actual_sha=" .. (state.actual_sha or "")
     }
@@ -200,7 +202,7 @@ local function build_status()
         status_text = "正在下载固件"
     elseif download.state == "done" and verify.sysupgrade ~= "pass" then
         status_text = "下载完成，正在等待安全校验"
-    elseif verify.sha256 == "pass" and verify.sysupgrade == "pass" then
+    elseif verify.sha256 == "pass" and verify.ota_signature == "pass" and verify.sysupgrade == "pass" then
         if update_available then
             status_text = "固件已通过安全校验，可以安装"
         elseif is_latest then
@@ -218,13 +220,14 @@ local function build_status()
         verify = {
             sha256 = verify.sha256 or "not_checked",
             metadata = verify.metadata or "not_checked",
+            ota_signature = verify.ota_signature or "not_checked",
             sysupgrade = verify.sysupgrade or "not_checked"
         },
         checked = checked,
         is_latest = is_latest,
         update_available = update_available,
         status_text = status_text,
-        can_install = update_available and boot.safe and download.state == "done" and verify.sha256 == "pass" and verify.metadata == "pass" and verify.sysupgrade == "pass"
+        can_install = update_available and boot.safe and download.state == "done" and verify.sha256 == "pass" and verify.metadata == "pass" and verify.ota_signature == "pass" and verify.sysupgrade == "pass"
     }
 end
 
@@ -239,6 +242,7 @@ local function verify_image()
         ok = false,
         sha256 = "fail",
         metadata = "fail",
+        ota_signature = "fail",
         sysupgrade = "fail",
         message = ""
     }
@@ -275,6 +279,14 @@ local function verify_image()
     end
     result.metadata = "pass"
 
+    local signature_rc, signature_out = run_with_rc("/usr/libexec/r76s/r76s-ota verify 2>&1")
+    if signature_rc ~= 0 then
+        result.message = "OTA 签名校验失败：" .. (signature_out ~= "" and signature_out or ("RC=" .. signature_rc))
+        save_verify_state(result)
+        return result
+    end
+    result.ota_signature = "pass"
+
     local test_rc, test_out = run_with_rc("/sbin/sysupgrade -T " .. FIRMWARE .. " 2>&1")
     if test_rc ~= 0 then
         result.message = "sysupgrade 镜像兼容性检查失败：" .. (test_out ~= "" and test_out or ("RC=" .. test_rc))
@@ -284,7 +296,7 @@ local function verify_image()
 
     result.sysupgrade = "pass"
     result.ok = true
-    result.message = "SHA256、metadata、sysupgrade -T 全部通过。"
+    result.message = "SHA256、metadata、OTA 签名、sysupgrade -T 全部通过。"
     save_verify_state(result)
     return result
 end
@@ -332,7 +344,7 @@ function api_status()
 end
 
 function api_check()
-    local rc, out = run_with_rc("/bin/ota check 2>&1")
+    local rc, out = run_with_rc("/usr/libexec/r76s/r76s-ota check 2>&1")
     local success = (rc == 0 or rc == 1)
     json_reply({
         ok = success,
@@ -344,13 +356,13 @@ end
 
 function api_download()
     if not latest_info().checked then
-        run_with_rc("/bin/ota check >/tmp/r76s-ota-check.log 2>&1")
+        run_with_rc("/usr/libexec/r76s/r76s-ota check >/tmp/r76s-ota-check.log 2>&1")
     end
 
     fs.remove(VERIFY_STATE)
     fs.remove(META_FILE)
 
-    local rc, out = run_with_rc("/bin/ota download 2>&1")
+    local rc, out = run_with_rc("/usr/libexec/r76s/r76s-ota download 2>&1")
     json_reply({
         ok = rc == 0,
         rc = rc,
@@ -385,13 +397,13 @@ function api_install()
         return
     end
 
-    -- No mmc device is hard-coded here. platform.sh/sysupgrade resolves and writes
-    -- only the current boot disk (TF when booted from TF, eMMC when booted from eMMC).
-    sys.call("(sleep 2; /sbin/sysupgrade " .. FIRMWARE .. " >/tmp/r76s-sysupgrade.log 2>&1) >/dev/null 2>&1 &")
-
+    -- The signed backend repeats manifest, device, state-preservation and boot-disk checks.
+    local launch_rc, launch_out = run_with_rc("/usr/libexec/r76s/r76s-ota install 2>&1")
     json_reply({
-        ok = true,
-        message = "升级已启动，目标为当前启动盘 " .. boot.medium .. " (" .. boot.path .. ")。设备将自动重启。"
+        ok = launch_rc == 0,
+        message = launch_rc == 0 and
+            ("升级已启动，目标为当前启动盘 " .. boot.medium .. " (" .. boot.path .. ")。设备将自动重启。") or
+            (launch_out ~= "" and launch_out or "升级未启动，已保留当前配置。")
     })
 end
 
@@ -406,4 +418,65 @@ function api_backup()
     http.prepare_content("application/gzip")
     http.header("Content-Disposition", 'attachment; filename="R76S-config-backup.tar.gz"')
     http.write(fs.readfile(backup) or "")
+end
+
+function api_restore()
+    local archive = "/tmp/r76s-config-restore.tar.gz"
+    local current = "/tmp/r76s-pre-restore-backup.tar.gz"
+    local upload = nil
+    local upload_error = nil
+    fs.remove(archive)
+
+    http.setfilehandler(function(meta, chunk, eof)
+        if not meta or meta.name ~= "backup" then return end
+        if meta.file and not upload then
+            upload = io.open(archive, "w")
+        end
+        if upload and chunk and #chunk > 0 then
+            if not upload:write(chunk) then upload_error = "无法写入上传文件。" end
+        end
+        if eof and upload then upload:close(); upload = nil end
+    end)
+    http.formvalue("token")
+    if upload then upload:close(); upload = nil end
+    if upload_error or not fs.access(archive) then
+        json_reply({ok=false, message=upload_error or "未收到配置备份文件。"})
+        return
+    end
+
+    local listing = sys.exec("tar -tzf " .. archive .. " 2>/dev/null") or ""
+    local details = sys.exec("tar -tvzf " .. archive .. " 2>/dev/null") or ""
+    -- Only accept the /etc tree emitted by sysupgrade -b.  Reject traversal,
+    -- absolute paths, and links so a crafted archive cannot write elsewhere.
+    if listing == "" or details == "" or listing:find("..", 1, true) or listing:sub(1, 1) == "/" or
+       details:find(" -> ", 1, true) or details:find("\nl", 1, true) or details:sub(1, 1) == "l" or
+       details:find("\nh", 1, true) or details:sub(1, 1) == "h" then
+        fs.remove(archive)
+        json_reply({ok=false, message="备份文件无效或包含不安全路径，已拒绝恢复。"})
+        return
+    end
+    local invalid = false
+    for path in listing:gmatch("[^\r\n]+") do
+        if path:sub(1, 4) ~= "etc/" then invalid = true; break end
+    end
+    if invalid then
+        fs.remove(archive)
+        json_reply({ok=false, message="只允许恢复同设备生成的 /etc 配置备份。"})
+        return
+    end
+
+    fs.remove(current)
+    local backup_rc = run_with_rc("/sbin/sysupgrade -b " .. current .. " 2>&1")
+    if backup_rc ~= 0 or not fs.access(current) then
+        fs.remove(archive)
+        json_reply({ok=false, message="恢复前保护性备份失败，未修改当前配置。"})
+        return
+    end
+    local restore_rc, restore_out = run_with_rc("/sbin/sysupgrade -r " .. archive .. " 2>&1")
+    fs.remove(archive)
+    if restore_rc ~= 0 then
+        json_reply({ok=false, message="恢复失败，当前配置保护备份保留在 " .. current .. "。" .. (restore_out ~= "" and (" " .. restore_out) or "")})
+        return
+    end
+    json_reply({ok=true, message="配置已恢复；建议重启设备使网络、DNS 和服务状态完全生效。"})
 end

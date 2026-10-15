@@ -56,8 +56,14 @@ class V13Integration(unittest.TestCase):
         pattern = r'(?s)<script type="text/javascript">.*?</script>'
         self.assertIn('r76s-sysupgrade', current)
         self.assertIn('r76s-metadata', current)
-        self.assertEqual(re.findall(r'id="([^"]+)"', current),
-                         re.findall(r'id="([^"]+)"', baseline))
+        baseline_ids = re.findall(r'id="([^"]+)"', baseline)
+        current_ids = re.findall(r'id="([^"]+)"', current)
+        # V1.4.1 adds explicit OTA-signature status and a real restore form;
+        # all existing DOM IDs remain in their original order.
+        self.assertEqual([x for x in current_ids if x not in
+                          ('r76s-ota-signature', 'r76s-restore-file')], baseline_ids)
+        self.assertIn('r76s-ota-signature', current_ids)
+        self.assertIn('r76s-restore-file', current_ids)
         self.assertIn('R76S-V1.4.1 · 在线升级', current)
 
     def test_generated_rules_match_stable_baseline(self):
