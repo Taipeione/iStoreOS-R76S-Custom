@@ -57,3 +57,14 @@ python3 ../scripts/r76s-v111-passwall-dns-generator.py --patch "$PASSWALL_APP" "
 python3 ../scripts/r76s-v111-passwall-dns-generator.py --verify "$PASSWALL_APP" "$PW_DNSMASQ_HELPER"
 
 test -f package/diy/luci-app-ota/Makefile
+
+# R76S-V1.4.4 startup gate: the native init adapters must call the
+# persistent service manager before invoking upstream PassWall code.  The
+# manager uses actual /etc/rc.d links, because rc.common's `enabled` return
+# value is not reliable on every iStoreOS build.
+SERVICE_MANAGER="../feeds/r76s-core/files/usr/libexec/r76s/r76s-service-manager"
+test -x "$SERVICE_MANAGER"
+grep -qF 'init_link_enabled' "$SERVICE_MANAGER"
+grep -qF 'autostart link missing' "$SERVICE_MANAGER"
+grep -qF 'autostart link still present' "$SERVICE_MANAGER"
+echo "R76S_V144_PASSWALL_AUTOSTART_MUTEX_SOURCE=PASS"

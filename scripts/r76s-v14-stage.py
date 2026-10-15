@@ -38,9 +38,10 @@ for app in ('passwall','passwall2'):
     contents=path.read_text()
     for action in ('start','restart'):
         anchor=action+'() {\n'
-        contents,count=re.subn(r'(?m)^'+re.escape(anchor),lambda m:anchor+
-            f'\t/usr/libexec/r76s/r76s-service-manager check {app} || return 1\n',contents)
-        assert count==1
+        guard=f'\t# R76S_V144_PASSWALL_AUTOSTART_MUTEX\n\t/usr/libexec/r76s/r76s-service-manager check {app} || return 1\n'
+        if guard not in contents:
+            contents,count=re.subn(r'(?m)^'+re.escape(anchor),lambda m:anchor+guard,contents,count=1)
+            assert count==1
     path.write_text(contents)
 # Keep UCI/init consistency when users apply the native SmartDNS page too.
 for path in root.glob('feeds/**/smartdns.init'):

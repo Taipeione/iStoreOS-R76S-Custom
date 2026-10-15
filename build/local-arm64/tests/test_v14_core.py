@@ -11,6 +11,7 @@ class ServiceTransactions(unittest.TestCase):
         self.tmp=tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         self.root=Path(self.tmp.name)
         (self.root/'etc/init.d').mkdir(parents=True)
+        (self.root/'etc/rc.d').mkdir(parents=True)
         (self.root/'bin').mkdir()
         self.state=self.root/'state.json'
         self.env={**os.environ,'R76S_SERVICE_ROOT':str(self.root),'STATE':str(self.state),
@@ -33,9 +34,10 @@ elif a[0]=='commit' and os.environ.get('FAIL_COMMIT')=='1':sys.exit(1)
 root="$R76S_SERVICE_ROOT"
 name="${0##*/}"
 case "$1" in
-enabled) test -f "$root/$name.enabled";;
-enable) [ "${FAIL_ENABLE:-0}" != 1 ] && touch "$root/$name.enabled";;
-disable) rm -f "$root/$name.enabled";;
+enabled) # Deliberately return success even when disabled; rc.d is authoritative.
+    exit 0;;
+enable) [ "${FAIL_ENABLE:-0}" != 1 ] && ln -sf "../init.d/$name" "$root/etc/rc.d/S99$name";;
+disable) rm -f "$root/etc/rc.d/S99$name";;
 restart) [ "${FAIL_RESTART:-0}" != 1 ];;
 stop) exit 0;;
 esac
@@ -55,33 +57,61 @@ esac
             self.assertEqual(result.returncode==0,not(pw and pw2),result.stderr)
             if result.returncode==0:
                 for service,flag in zip(('passwall','passwall2','smartdns'),(pw,pw2,sd)):
-                    self.assertEqual((self.root/(service+'.enabled')).exists(),bool(flag))
+                    self.assertEqual((self.root/'etc/rc.d'/('S99'+service)).is_symlink(),bool(flag))
             self.assertEqual(json.loads(self.state.read_text())['passwall.@global[0].enabled'],str(pw))
 
     def test_set_synchronizes_and_failed_restart_restores(self):
         self.seed(0,0,0)
         self.assertEqual(self.run_manager('set','passwall','1').returncode,0)
-        self.assertTrue((self.root/'passwall.enabled').exists())
+        self.assertTrue((self.root/'etc/rc.d/S99passwall').is_symlink())
         self.assertNotEqual(self.run_manager('set','passwall2','1').returncode,0)
         self.assertEqual(self.run_manager('set','passwall','0').returncode,0)
-        self.assertFalse((self.root/'passwall.enabled').exists())
+        self.assertFalse((self.root/'etc/rc.d/S99passwall').exists())
         result=self.run_manager('set','passwall2','1',FAIL_RESTART='1')
         self.assertNotEqual(result.returncode,0)
         self.assertEqual(json.loads(self.state.read_text())['passwall2.@global[0].enabled'],'0')
-        self.assertFalse((self.root/'passwall2.enabled').exists())
+        self.assertFalse((self.root/'etc/rc.d/S99passwall2').exists())
 
     def test_status_handles_disabled_and_invalid_input_is_rejected(self):
         self.seed(0,0,0)
         self.assertEqual(len(self.run_manager('status').stdout.splitlines()),3)
+        # The native rc.common "enabled" command is not authoritative on all
+        # iStoreOS builds; status must follow the actual rc.d symlink.
+        self.assertIn('passwall\t0\t0', self.run_manager('status').stdout)
+        (self.root/'etc/rc.d/S99passwall').symlink_to('../init.d/passwall')
+        self.assertIn('passwall\t0\t1', self.run_manager('status').stdout)
         self.assertNotEqual(self.run_manager('set','passwall;reboot','1').returncode,0)
         self.assertNotEqual(self.run_manager('set','passwall','2').returncode,0)
+
+    def test_native_check_resolves_the_other_proxy_before_start(self):
+        self.seed(1,1,0)
+        (self.root/'etc/rc.d/S99passwall2').symlink_to('../init.d/passwall2')
+        result=self.run_manager('check','passwall')
+        self.assertEqual(result.returncode,0,result.stderr)
+        state=json.loads(self.state.read_text())
+        self.assertEqual(state['passwall.@global[0].enabled'],'1')
+        self.assertEqual(state['passwall2.@global[0].enabled'],'0')
+        self.assertFalse((self.root/'etc/rc.d/S99passwall2').exists())
+        self.assertTrue((self.root/'etc/rc.d/S99passwall').is_symlink())
+
+    def test_preserve_helper_uses_rc_links_not_enabled_return_code(self):
+        helper=(ROOT/'files/usr/libexec/r76s/r76s-ota-preserve-state').read_text()
+        self.assertIn('for link in "$rcdir"/S*', helper)
+        self.assertIn('readlink "$link"', helper)
+        self.assertNotIn('/etc/init.d/"$name" enabled', helper)
+
+    def test_proxy_init_adapters_are_guarded_before_start_and_restart(self):
+        stage=ROOT/'scripts/r76s-v14-stage.py'
+        text=stage.read_text()
+        self.assertIn("r76s-service-manager check {app}", text)
+        self.assertIn("for app in ('passwall','passwall2')", text)
 
     def test_init_enable_failure_restores_uci(self):
         self.seed(0,0,0)
         result=self.run_manager('set','passwall','1',FAIL_ENABLE='1')
         self.assertNotEqual(result.returncode,0)
         self.assertEqual(json.loads(self.state.read_text())['passwall.@global[0].enabled'],'0')
-        self.assertFalse((self.root/'passwall.enabled').exists())
+        self.assertFalse((self.root/'etc/rc.d/S99passwall').exists())
 
 class CoreSources(unittest.TestCase):
     @unittest.skipUnless(LUA,'requires Lua interpreter')

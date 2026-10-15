@@ -15,6 +15,19 @@ key() {
         *) fail 'unsupported service' ;;
     esac
 }
+init_link_enabled() {
+    rc_service="$1"
+    rcdir="$ROOT/etc/rc.d"
+    [ -d "$rcdir" ] || return 1
+    for link in "$rcdir"/S*; do
+        [ -L "$link" ] || continue
+        link_target="$(readlink "$link" 2>/dev/null || true)"
+        case "$link_target" in
+            */"$rc_service"|"$rc_service") return 0 ;;
+        esac
+    done
+    return 1
+}
 intent() {
     flag="$(uci -q get "$(key "$1")" 2>/dev/null || echo 0)"
     case "$flag" in 0|1) printf '%s' "$flag" ;; *) fail "invalid enabled: $1" ;; esac
@@ -22,14 +35,44 @@ intent() {
 conflict() {
     [ "$(intent passwall)$(intent passwall2)" != 11 ] || fail 'both transparent proxies selected; disable one explicitly'
 }
+deactivate_other_proxy() {
+    service="$1"
+    case "$service" in
+        passwall) other=passwall2 ;;
+        passwall2) other=passwall ;;
+        *) return 0 ;;
+    esac
+    [ "$(intent "$service")" = 1 ] || return 0
+    [ "$(intent "$other")" = 1 ] || return 0
+    other_target="$(key "$other")"
+    uci -q set "$other_target=0" || return 1
+    uci -q commit "$other" || return 1
+    [ -x "$INIT/$other" ] && "$INIT/$other" stop >/dev/null 2>&1 || true
+    [ -x "$INIT/$other" ] && "$INIT/$other" disable >/dev/null 2>&1 || true
+    init_link_enabled "$other" && return 1
+    logger -t r76s-service-manager "${service} selected; ${other} stopped and disabled" 2>/dev/null || true
+}
 sync_one() {
     [ -x "$INIT/$1" ] || return 0
-    if [ "$(intent "$1")" = 1 ]; then "$INIT/$1" enable; else "$INIT/$1" disable; fi
+    if [ "$(intent "$1")" = 1 ]; then
+        "$INIT/$1" enable || return 1
+        if ! init_link_enabled "$1"; then
+            echo "r76s-services: autostart link missing: $1" >&2
+            return 1
+        fi
+    else
+        "$INIT/$1" disable || return 1
+        if init_link_enabled "$1"; then
+            echo "r76s-services: autostart link still present: $1" >&2
+            return 1
+        fi
+    fi
 }
 case "${1:-status}" in
     check)
         service="${2:-}"
         key "$service" >/dev/null
+        deactivate_other_proxy "$service" || fail 'proxy mutex synchronization failed'
         conflict
         sync_one "$service"
         ;;
@@ -40,7 +83,7 @@ case "${1:-status}" in
     set)
         service="${2:-}"; value="${3:-}"
         case "$value" in 0|1) ;; *) fail 'expected 0 or 1';; esac
-        target="$(key "$service")"
+        service_target="$(key "$service")"
         [ -x "$INIT/$service" ] || fail 'service absent'
         if [ "$value" = 1 ]; then
             case "$service" in
@@ -49,11 +92,11 @@ case "${1:-status}" in
             esac
         fi
         previous="$(intent "$service")"
-        init_previous=0; "$INIT/$service" enabled >/dev/null 2>&1 && init_previous=1
-        uci -q set "$target=$value"
+        init_previous=0; init_link_enabled "$service" && init_previous=1
+        uci -q set "$service_target=$value"
         uci -q commit "$service" || { uci -q revert "$service"; fail 'commit failed'; }
         if ! sync_one "$service"; then
-            uci -q set "$target=$previous"; uci -q commit "$service"
+            uci -q set "$service_target=$previous"; uci -q commit "$service"
             if [ "$init_previous" = 1 ]; then "$INIT/$service" enable; else "$INIT/$service" disable; fi
             fail 'init synchronization failed; previous persistent state restored'
         fi
@@ -61,7 +104,7 @@ case "${1:-status}" in
         flock -u 8
         if [ "$value" = 1 ]; then action=restart; else action=stop; fi
         if ! "$INIT/$service" "$action"; then
-            uci -q set "$target=$previous"; uci -q commit "$service"
+            uci -q set "$service_target=$previous"; uci -q commit "$service"
             if [ "$init_previous" = 1 ]; then "$INIT/$service" enable; else "$INIT/$service" disable; fi
             [ "$previous" = 0 ] || "$INIT/$service" restart || true
             fail 'service operation failed; previous persistent state restored'
@@ -69,7 +112,7 @@ case "${1:-status}" in
         ;;
     status)
         for service in passwall passwall2 smartdns; do
-            enabled=0; if [ -x "$INIT/$service" ] && "$INIT/$service" enabled >/dev/null 2>&1; then enabled=1; fi
+            enabled=0; if [ -x "$INIT/$service" ] && init_link_enabled "$service"; then enabled=1; fi
             printf '%s\t%s\t%s\n' "$service" "$(intent "$service")" "$enabled"
         done
         ;;

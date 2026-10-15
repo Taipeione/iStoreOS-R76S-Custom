@@ -21,7 +21,12 @@ printf 'WAN PPPoE：%s\n' "$(uci -q get network.wan.proto 2>/dev/null | grep -qx
 printf 'IPv4：%s%s\n' "$(up_value "$wan4")" "${ipv4:+ ($ipv4)}"
 if printf '%s' "$wan6" | grep -q '"up":true' && [ -n "$ipv6" ] && [ -n "$pd" ]; then printf 'IPv6：正常（接口 %s，公网地址和 delegated prefix 已发现）\n' "$wan6_name"; else printf 'IPv6：%s（优先检查 wan_6，其次 wan6；地址或 delegated prefix 未完整发现）\n' "$(up_value "$wan6")"; fi
 printf 'DNS：%s\n' "$(pgrep -f '[d]nsmasq' >/dev/null 2>&1 && printf 'dnsmasq 运行中' || printf '未确认')"
-printf 'PassWall：%s\n' "$(uci -q get passwall.@global[0].enabled 2>/dev/null | grep -qx 1 && printf '已启用' || printf '未启用')"
+service_autostart() {
+    /usr/libexec/r76s/r76s-service-manager status 2>/dev/null \
+        | awk -v name="$1" '$1==name {print ($3==1 ? "自启已开启" : "自启未开启"); found=1} END {if (!found) print "自启状态未知"}'
+}
+printf 'PassWall：%s（%s）\n' "$(uci -q get passwall.@global[0].enabled 2>/dev/null | grep -qx 1 && printf '已启用' || printf '未启用')" "$(service_autostart passwall)"
+printf 'PassWall2：%s（%s）\n' "$(uci -q get passwall2.@global[0].enabled 2>/dev/null | grep -qx 1 && printf '已启用' || printf '未启用')" "$(service_autostart passwall2)"
 printf 'Xray：%s\n' "$(pgrep -f '[x]ray' >/dev/null 2>&1 && printf '运行中' || printf '未运行')"
 printf 'ChinaDNS-NG：%s\n' "$(pgrep -f '[c]hinadns-ng' >/dev/null 2>&1 && printf '运行中' || printf '未运行')"
 RULE_FILE='/usr/share/r76s/rules.json'; names=''

@@ -10,11 +10,17 @@ fail() {
 
 init_enabled() {
     name="$1"
-    if [ -x "/etc/init.d/$name" ] && /etc/init.d/"$name" enabled >/dev/null 2>&1; then
-        printf '1\n'
-    else
-        printf '0\n'
+    rcdir=/etc/rc.d
+    if [ -x "/etc/init.d/$name" ] && [ -d "$rcdir" ]; then
+        for link in "$rcdir"/S*; do
+            [ -L "$link" ] || continue
+            target="$(readlink "$link" 2>/dev/null || true)"
+            case "$target" in
+                */"$name"|"$name") printf '1\n'; return 0 ;;
+            esac
+        done
     fi
+    printf '0\n'
 }
 
 uci_flag() {

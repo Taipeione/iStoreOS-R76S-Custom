@@ -56,6 +56,8 @@ REQUIRED = (
     'etc/shadow',
     'etc/init.d/r76s-ota-restore',
     'etc/init.d/r76s-root-password',
+    'etc/init.d/passwall',
+    'etc/init.d/passwall2',
     'etc/uci-defaults/99-r76s-root-auth',
     'etc/init.d/r76s-root-password',
     'lib/upgrade/keep.d/r76s-v110',
@@ -95,6 +97,8 @@ CONTENT = {
     'etc/init.d/r76s-ota-restore': 'R76S_V12_OTA_HARDENING',
     'etc/uci-defaults/99-r76s-v110-ota-restore': 'R76S_V12_OTA_HARDENING',
     'usr/lib/lua/luci/controller/r76s_updater.lua': 'R76S_V14_OTA_BACKEND',
+    'etc/init.d/passwall': '/usr/libexec/r76s/r76s-service-manager check passwall',
+    'etc/init.d/passwall2': '/usr/libexec/r76s/r76s-service-manager check passwall2',
 }
 LMO = (
     'usr/lib/lua/luci/i18n/passwall2.zh-cn.lmo',

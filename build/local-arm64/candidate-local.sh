@@ -23,7 +23,7 @@ fi
 if [ "$MODE" = status ]; then
   docker run --rm --platform linux/arm64 --user 1000:1000 \
     --mount type=volume,src=r76s-v12-work,dst=/home/builder/work,readonly \
-    "$IMAGE" bash -c 'find /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.4.3 -maxdepth 1 -type f -printf "%f %s bytes\n" 2>/dev/null || true'
+    "$IMAGE" bash -c 'find /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.4.4 -maxdepth 1 -type f -printf "%f %s bytes\n" 2>/dev/null || true'
   exit 0
 fi
 # No assumptions about GitHub account ownership: derive from the actual repository origin.
@@ -41,11 +41,11 @@ if [[ ! "$GITHUB_REPOSITORY" =~ ^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$ ]]; then
   echo 'Invalid R76S_GITHUB_REPOSITORY; expected owner/repo' >&2; exit 2
 fi
 # R76S_V143_FIXED_CLEAN_FLASH_PASSWORD
-# V1.4.3 has one deterministic root credential policy for both public and
+# V1.4.4 has one deterministic root credential policy for both public and
 # local validation builds. Never prompt for or generate another password.
 R76S_PUBLIC_RELEASE=1
 export R76S_PUBLIC_RELEASE
-[ -z "${R76S_CLEAN_FLASH_PASSWORD_HASH:-}" ] || { echo 'V1.4.3 rejects supplied root password hashes' >&2; exit 2; }
+[ -z "${R76S_CLEAN_FLASH_PASSWORD_HASH:-}" ] || { echo 'V1.4.4 rejects supplied root password hashes' >&2; exit 2; }
 echo 'PUBLIC_ROOT_CREDENTIAL_MODE=FIXED_PASSWORD'
 # Required staging inputs must be present, and the host repository stays read-only.
 for item in config/R76S.config feeds/luci-app-r76s-status/Makefile feeds/luci-app-r76s-updater/Makefile config/rules/r76s-rules.json; do
