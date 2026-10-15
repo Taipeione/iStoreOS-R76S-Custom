@@ -123,29 +123,25 @@ test -s files/www/luci-static/resources/view/system/flash.js
 grep -qF 'R76S_V110_FLASH_UPLOAD_PATCH' files/www/luci-static/resources/view/system/flash.js
 echo "Final rootfs overlay assertions: PASS"
 
-# R76S_V142_FIXED_CLEAN_FLASH_PASSWORD
+# R76S_V143_FIXED_CLEAN_FLASH_PASSWORD
 if [ "${R76S_PUBLIC_RELEASE:-0}" = 1 ]; then
-    test -x files/etc/uci-defaults/99-r76s-first-root-password
-    sh -n files/etc/uci-defaults/99-r76s-first-root-password
-    grep -qF 'R76S_V142_FIXED_CLEAN_FLASH_PASSWORD' files/etc/uci-defaults/99-r76s-first-root-password
-    grep -qF 'password' files/etc/uci-defaults/99-r76s-first-root-password
-    ! test -e files/etc/uci-defaults/05-r76s-public-serial-provision
-    ! grep -qF '/dev/urandom' files/etc/uci-defaults/99-r76s-first-root-password
-    test -x files/etc/uci-defaults/99-r76s-v142-root-password-migration
-    sh -n files/etc/uci-defaults/99-r76s-v142-root-password-migration
-    grep -qF 'R76S_V142_ROOT_PASSWORD_MIGRATION' files/etc/uci-defaults/99-r76s-v142-root-password-migration
-    grep -qF 'R76S-V1.4.2' files/etc/uci-defaults/99-r76s-v142-root-password-migration
-    ! grep -qF '/dev/urandom' files/etc/uci-defaults/99-r76s-v142-root-password-migration
     test -x files/etc/init.d/r76s-root-password
     sh -n files/etc/init.d/r76s-root-password
-    grep -qF 'R76S_V142_ROOT_PASSWORD_BOOT_MIGRATION' files/etc/init.d/r76s-root-password
+    grep -qF 'R76S_V143_ROOT_PASSWORD_POLICY' files/etc/init.d/r76s-root-password
+    grep -qF 'R76S-V1.4.3' files/etc/init.d/r76s-root-password
+    grep -qF 'password' files/etc/init.d/r76s-root-password
     test -L files/etc/rc.d/S99r76s-root-password
     test -x files/etc/uci-defaults/99-r76s-root-auth
     sh -n files/etc/uci-defaults/99-r76s-root-auth
-    grep -qF 'R76S_V142_ROOT_PASSWORD_AUTH' files/etc/uci-defaults/99-r76s-root-auth
-    grep -qF 'root:$6$r76sv142$H.kfcJrWWsTua2YvebgkODjm4pwlnj74EuJy4HSapFihAcHlu.HX2INSgTIy.PqkoRfXQkzR8uv0kfUH1NL690:' package/base-files/files/etc/shadow
+    grep -qF 'R76S_V143_ROOT_PASSWORD_AUTH' files/etc/uci-defaults/99-r76s-root-auth
+    ! test -e files/etc/uci-defaults/99-r76s-first-root-password
+    ! test -e files/etc/uci-defaults/99-r76s-v142-root-password-migration
+    ! test -e files/etc/uci-defaults/99-r76s-v143-root-password-migration
+    ! grep -RqsE '/dev/(urandom|ttyS0)' files/etc/init.d/r76s-root-password files/etc/uci-defaults/99-r76s-root-auth
+    grep -qF 'root:$6$r76sv143$j/yuToJ35nP6zluEW5qQzsYySWhM0mx8xaNVL.ZK2/J00HuN1d1Qr1h6PP2yWHgXmRlkRnA/Ymtqj60ETzJoi.:' package/base-files/files/etc/shadow
     grep -qF "option PasswordAuth '1'" files/etc/config/dropbear
     grep -qF "option RootPasswordAuth '1'" files/etc/config/dropbear
+    grep -qF "option Interface 'lan'" files/etc/config/dropbear
 fi
 
 echo "R76S v1.1.1 configuration verified successfully."
@@ -159,7 +155,7 @@ grep -qF 'R76S_V12_OTA_HARDENING' package/custom/luci-app-r76s-updater/files/con
 grep -qF '/usr/libexec/r76s/r76s-ota install' package/custom/luci-app-r76s-updater/files/controller/r76s_updater.lua
 ! grep -qF 'r76s-ota-preserve-state && /sbin/sysupgrade' package/custom/luci-app-r76s-updater/files/controller/r76s_updater.lua
 
-# R76S-V1.4.2 phase 1: native WireGuard UI and read-only AGH service entry.
+# R76S-V1.4.3 phase 1: native WireGuard UI and read-only AGH service entry.
 for required in wireguard-tools kmod-wireguard luci-proto-wireguard luci-lib-uqr ucode; do
     grep -qxF "CONFIG_PACKAGE_${required}=y" .config || {
         echo "ERROR: WireGuard integration missing: $required" >&2; exit 1;

@@ -23,7 +23,7 @@ fi
 if [ "$MODE" = status ]; then
   docker run --rm --platform linux/arm64 --user 1000:1000 \
     --mount type=volume,src=r76s-v12-work,dst=/home/builder/work,readonly \
-    "$IMAGE" bash -c 'find /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.4.2 -maxdepth 1 -type f -printf "%f %s bytes\n" 2>/dev/null || true'
+    "$IMAGE" bash -c 'find /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.4.3 -maxdepth 1 -type f -printf "%f %s bytes\n" 2>/dev/null || true'
   exit 0
 fi
 # No assumptions about GitHub account ownership: derive from the actual repository origin.
@@ -40,33 +40,13 @@ fi
 if [[ ! "$GITHUB_REPOSITORY" =~ ^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$ ]]; then
   echo 'Invalid R76S_GITHUB_REPOSITORY; expected owner/repo' >&2; exit 2
 fi
-# R76S_V142_FIXED_CLEAN_FLASH_PASSWORD
-R76S_PUBLIC_RELEASE="${R76S_PUBLIC_RELEASE:-0}"
-case "$R76S_PUBLIC_RELEASE" in 0|1) ;; *) echo 'R76S_PUBLIC_RELEASE must be 0 or 1' >&2; exit 2;; esac
+# R76S_V143_FIXED_CLEAN_FLASH_PASSWORD
+# V1.4.3 has one deterministic root credential policy for both public and
+# local validation builds. Never prompt for or generate another password.
+R76S_PUBLIC_RELEASE=1
 export R76S_PUBLIC_RELEASE
-if [ "$R76S_PUBLIC_RELEASE" = 1 ]; then
-  [ -z "${R76S_CLEAN_FLASH_PASSWORD_HASH:-}" ] || { echo 'Public image forbids build-supplied root hash' >&2; exit 2; }
-  echo 'PUBLIC_ROOT_CREDENTIAL_MODE=FIXED_PASSWORD'
-else
-# Require an independently chosen clean-flash login secret without saving plaintext to files or shell history.
-if [ -z "${R76S_CLEAN_FLASH_PASSWORD_HASH:-}" ]; then
-  if [ ! -t 0 ]; then echo 'A terminal is needed to enter the build-only root password' >&2; exit 2; fi
-  printf 'Enter a unique R76S clean-flash root password (14+ characters): ' >&2
-  IFS= read -r -s SECRET_ONE; printf '\n' >&2
-  printf 'Confirm password: ' >&2
-  IFS= read -r -s SECRET_TWO; printf '\n' >&2
-  if [ "$SECRET_ONE" != "$SECRET_TWO" ] || [ "${#SECRET_ONE}" -lt 14 ]; then
-    unset SECRET_ONE SECRET_TWO
-    echo 'Passwords differ or are too short; build not started' >&2; exit 2
-  fi
-  R76S_CLEAN_FLASH_PASSWORD_HASH="$(printf '%s\n' "$SECRET_ONE" | docker run --rm -i --network none --platform linux/arm64 "$IMAGE" openssl passwd -6 -stdin)"
-  unset SECRET_ONE SECRET_TWO
-  export R76S_CLEAN_FLASH_PASSWORD_HASH
-fi
-if [[ ! "$R76S_CLEAN_FLASH_PASSWORD_HASH" =~ ^\$6\$[A-Za-z0-9./]{8,16}\$[A-Za-z0-9./]{86}$ ]]; then
-  echo 'Build root hash rejected (expected SHA-512 crypt format)' >&2; exit 2
-fi
-fi
+[ -z "${R76S_CLEAN_FLASH_PASSWORD_HASH:-}" ] || { echo 'V1.4.3 rejects supplied root password hashes' >&2; exit 2; }
+echo 'PUBLIC_ROOT_CREDENTIAL_MODE=FIXED_PASSWORD'
 # Required staging inputs must be present, and the host repository stays read-only.
 for item in config/R76S.config feeds/luci-app-r76s-status/Makefile feeds/luci-app-r76s-updater/Makefile config/rules/r76s-rules.json; do
   test -s "$ROOT/$item" || { echo "Missing required input: $item" >&2; exit 2; }

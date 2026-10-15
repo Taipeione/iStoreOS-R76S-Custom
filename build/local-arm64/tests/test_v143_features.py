@@ -10,81 +10,17 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 
 
-class V142Features(unittest.TestCase):
-    def test_firstboot_password_sets_clean_default_and_preserves_existing_hash(self):
-        source = (ROOT / 'files/etc/uci-defaults/99-r76s-first-root-password').read_text()
-        with tempfile.TemporaryDirectory() as directory:
-            root = pathlib.Path(directory)
-            shadow = root / 'shadow'
-            flag = root / 'r76s_first_password_done'
-            fakebin = root / 'bin'
-            fakebin.mkdir()
-            passwd = fakebin / 'passwd'
-            passwd.write_text(
-                '#!/bin/sh\n'
-                'cat > "$R76S_TEST_PASSWD_INPUT"\n'
-                "printf '%s\\n' 'root:$6$fixed$hash:0:0:root:/root:/bin/ash' > \"$R76S_TEST_SHADOW\"\n"
-            )
-            passwd.chmod(0o755)
-            script = root / 'firstboot'
-            script.write_text(source.replace('/etc/config/r76s_first_password_done', str(flag))
-                              .replace('/etc/shadow', str(shadow)))
-            script.chmod(0o755)
-            env = dict(os.environ)
-            env['PATH'] = str(fakebin) + ':' + env['PATH']
-            env['R76S_TEST_SHADOW'] = str(shadow)
-            env['R76S_TEST_PASSWD_INPUT'] = str(root / 'passwd-input')
-
-            shadow.write_text('root:!:0:0:root:/root:/bin/ash\n')
-            result = subprocess.run([str(script)], env=env, capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertTrue(flag.exists())
-            self.assertIn('root:$6$fixed$hash:', shadow.read_text())
-            self.assertEqual((root / 'passwd-input').read_text(), 'password\npassword\n')
-
-            flag.unlink()
-            shadow.write_text('root:$6$existing$hash:0:0:root:/root:/bin/ash\n')
-            (root / 'passwd-input').unlink()
-            result = subprocess.run([str(script)], env=env, capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertTrue(flag.exists())
-            self.assertIn('root:$6$existing$hash:', shadow.read_text())
-            self.assertFalse((root / 'passwd-input').exists())
-
-    def test_fixed_clean_flash_password_and_preserve_upgrade_policy(self):
-        stage = next((ROOT / 'build/local-arm64/stages').glob('16-*.sh')).read_text()
-        firstboot = (ROOT / 'files/etc/uci-defaults/99-r76s-first-root-password').read_text()
-        adapter = (ROOT / 'build/local-arm64/public-release/install.py').read_text()
-        self.assertIn('R76S_V142_FIXED_CLEAN_FLASH_PASSWORD', stage)
-        self.assertIn('CLEAN_FLASH_ROOT_HASH=', stage)
-        self.assertIn('root:${CLEAN_FLASH_ROOT_HASH}:', stage)
-        self.assertIn('password\npassword', firstboot)
-        self.assertIn("if [ \"$ROOT_FIELD\" != '!' ]", firstboot)
-        self.assertNotIn('/dev/urandom', stage)
-        self.assertNotIn('/dev/ttyS0', firstboot)
-        self.assertNotIn('R76S_V12_PUBLIC_CREDENTIALS_20261010', stage + firstboot)
-        self.assertIn('R76S_FIXED_CLEAN_FLASH_PASSWORD_POLICY=PASS', adapter)
-        self.assertIn('R76S_V142_PRESERVE_UPGRADE_PASSWORD_MIGRATION=PASS', adapter)
-
-    def test_artifact_gate_verifies_password_hash_and_dropbear_auth(self):
-        audit = (ROOT / 'scripts/r76s-v111-final-audit.py').read_text()
-        self.assertIn('FIXED_CLEAN_FLASH_ROOT_HASH', audit)
-        self.assertIn("crypt.crypt('password', value)", audit)
-        self.assertIn('DROPBEAR_ROOT_PASSWORD_AUTH_DISABLED', audit)
-        self.assertIn('V142_ROOT_PASSWORD_BOOT_MIGRATION', audit)
-        self.assertIn('V142_ROOT_PASSWORD_AUTH_DEFAULT', audit)
-
-    def test_v142_migration_resets_preserved_password_once(self):
-        source = (ROOT / 'files/etc/uci-defaults/99-r76s-v142-root-password-migration').read_text()
+class V143Features(unittest.TestCase):
+    def _run_root_policy(self, shadow_value, marker=False):
+        source = (ROOT / 'files/etc/init.d/r76s-root-password').read_text()
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             etc = root / 'etc'
             (etc / 'config').mkdir(parents=True)
             shadow = etc / 'shadow'
             release = etc / 'openwrt_release'
-            marker = etc / 'config/r76s_v142_root_password_migrated'
-            fakebin = root / 'bin'
-            fakebin.mkdir()
+            marker_path = etc / 'config/r76s_root_password_v143_done'
+            fakebin = root / 'bin'; fakebin.mkdir()
             passwd = fakebin / 'passwd'
             passwd.write_text(
                 '#!/bin/sh\n'
@@ -92,31 +28,57 @@ class V142Features(unittest.TestCase):
                 "printf '%s\\n' 'root:$6$new$password:0:0:root:/root:/bin/ash' > \"$R76S_TEST_SHADOW\"\n"
             )
             passwd.chmod(0o755)
-            script = root / 'migration'
-            script.write_text(source.replace('/etc/config/r76s_v142_root_password_migrated', str(marker))
+            runner = root / 'runner'
+            runner.write_text(source.replace('#!/bin/sh /etc/rc.common', '#!/bin/sh').replace('/etc/config', str(etc / 'config'))
                               .replace('/etc/openwrt_release', str(release))
-                              .replace('/etc/shadow', str(shadow)))
-            script.chmod(0o755)
-            env = dict(os.environ)
-            env['PATH'] = str(fakebin) + ':' + env['PATH']
-            env['R76S_TEST_SHADOW'] = str(shadow)
-            env['R76S_TEST_PASSWD_INPUT'] = str(root / 'passwd-input')
-            release.write_text("DISTRIB_REVISION='R76S-V1.4.2'\n")
-            shadow.write_text('root:$6$old$hash:0:0:root:/root:/bin/ash\n')
-            result = subprocess.run([str(script)], env=env, capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertTrue(marker.exists())
-            self.assertIn('root:$6$new$password:', shadow.read_text())
-            self.assertEqual((root / 'passwd-input').read_text(), 'password\npassword\n')
+                              .replace('/etc/shadow', str(shadow)) + '\nboot\n')
+            runner.chmod(0o755)
+            env = dict(os.environ, PATH=str(fakebin) + ':' + os.environ['PATH'],
+                       R76S_TEST_SHADOW=str(shadow), R76S_TEST_PASSWD_INPUT=str(root / 'passwd-input'))
+            release.write_text("DISTRIB_REVISION='R76S-V1.4.3'\n")
+            shadow.write_text(f'root:{shadow_value}:0:0:root:/root:/bin/ash\n')
+            if marker:
+                marker_path.touch()
+            result = subprocess.run([str(runner)], env=env, capture_output=True, text=True)
+            input_file = root / 'passwd-input'
+            return (result.returncode, result.stderr, marker_path.exists(), shadow.read_text(),
+                    input_file.exists(), input_file.read_text() if input_file.exists() else '')
 
-            # The administrator changes the password after migration; later boots
-            # must not invoke passwd again or overwrite that chosen credential.
-            shadow.write_text('root:$6$user$changed:0:0:root:/root:/bin/ash\n')
-            (root / 'passwd-input').unlink()
-            result = subprocess.run([str(script)], env=env, capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn('root:$6$user$changed:', shadow.read_text())
-            self.assertFalse((root / 'passwd-input').exists())
+    def test_unified_policy_resets_preserved_password_once_and_allows_later_change(self):
+        rc, err, marker, shadow, input_exists, input_text = self._run_root_policy('$6$old$hash')
+        self.assertEqual(rc, 0, err)
+        self.assertTrue(marker)
+        self.assertIn('root:$6$new$password:', shadow)
+        self.assertTrue(input_exists)
+        self.assertEqual(input_text, 'password\npassword\n')
+        # A boot with the marker is side-effect free after an administrator change.
+        rc, err, marker, shadow, input_exists, input_text = self._run_root_policy('$6$user$changed', marker=True)
+        self.assertEqual(rc, 0, err)
+        self.assertIn('root:$6$user$changed:', shadow)
+        self.assertFalse(input_exists)
+
+    def test_fixed_clean_flash_password_and_old_mechanisms_are_absent(self):
+        stage = next((ROOT / 'build/local-arm64/stages').glob('16-*.sh')).read_text()
+        policy = (ROOT / 'files/etc/init.d/r76s-root-password').read_text()
+        auth = (ROOT / 'files/etc/uci-defaults/99-r76s-root-auth').read_text()
+        self.assertIn('CLEAN_FLASH_ROOT_HASH=', stage)
+        self.assertIn('R76S_V143_ROOT_PASSWORD_POLICY', policy)
+        self.assertIn('R76S_V143_ROOT_PASSWORD_AUTH', auth)
+        self.assertIn("option Interface 'lan'", stage)
+        self.assertIn('password\npassword', policy)
+        self.assertNotIn('/dev/urandom', stage + policy + auth)
+        self.assertNotIn('/dev/ttyS0', stage + policy + auth)
+        self.assertFalse((ROOT / 'files/etc/uci-defaults/99-r76s-first-root-password').exists())
+        self.assertFalse((ROOT / 'files/etc/uci-defaults/99-r76s-v142-root-password-migration').exists())
+        self.assertFalse((ROOT / 'files/etc/uci-defaults/99-r76s-v143-root-password-migration').exists())
+
+    def test_artifact_gate_verifies_password_hash_and_dropbear_auth(self):
+        audit = (ROOT / 'scripts/r76s-v111-final-audit.py').read_text()
+        self.assertIn('FIXED_CLEAN_FLASH_ROOT_HASH', audit)
+        self.assertIn("crypt.crypt('password', value)", audit)
+        self.assertIn('RANDOM_PASSWORD_MECHANISM_PRESENT', audit)
+        self.assertIn('DROPBEAR_ROOT_PASSWORD_AUTH_DISABLED', audit)
+        self.assertIn('R76S_V143_ROOT_PASSWORD_POLICY', audit)
 
     def test_clean_flash_lan_default_is_fixed(self):
         stage = next((ROOT / 'build/local-arm64/stages').glob('16-*.sh')).read_text()
@@ -169,7 +131,7 @@ class V142Features(unittest.TestCase):
         self.assertIn('api_channel', controller)
         self.assertIn('selected_channel', backend)
         self.assertNotIn('测试版 / 预发布版', page)
-        self.assertIn("R76S-V1.4.2", backend)
+        self.assertIn("R76S-V1.4.3", backend)
         self.assertIn("phase=='channel'", backend)
         self.assertIn("m.version==release_tag(channel)", backend)
         for check in ('sysupgrade -T', 'firmware.img.sha256sum', 'configuration.tar.gz',
@@ -248,13 +210,13 @@ dofile(%s)
 
     def test_formal_metadata_and_release_assets(self):
         release = json.loads((ROOT / 'config/r76s-release.json').read_text())
-        self.assertEqual(release['version'], 'R76S-V1.4.2')
+        self.assertEqual(release['version'], 'R76S-V1.4.3')
         self.assertEqual(release['channel'], 'stable')
         workflow = (ROOT / '.github/workflows/r76s-v1.4-build.yml').read_text()
         self.assertIn('--prerelease=false --draft=false --latest', workflow)
         self.assertIn('R76S-stable', workflow)
         self.assertIn('RELEASE_ASSET_REPLACEMENT_REQUIRES_USER_CONFIRMATION=YES', workflow)
-        self.assertIn('gh release edit R76S-V1.4.2', workflow)
+        self.assertIn('gh release edit R76S-V1.4.3', workflow)
         self.assertIn('gh release upload R76S-stable', workflow)
 
 

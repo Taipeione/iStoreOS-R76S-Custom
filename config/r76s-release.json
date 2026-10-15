@@ -1,5 +1,5 @@
 {
-  "version": "R76S-V1.4.2",
+  "version": "R76S-V1.4.3",
   "openwrt_version": "24.10.8",
   "channel": "stable",
   "target": "rockchip/armv8",

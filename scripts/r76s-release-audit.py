@@ -27,21 +27,21 @@ def sha(path):
 def audit(root):
     root=Path(root)
     manifest=json.loads((root/'ota.json').read_text())
-    assert manifest['version']=='R76S-V1.4.2'
+    assert manifest['version']=='R76S-V1.4.3'
     assert manifest['target']=='rockchip/armv8'
     assert manifest['supported_devices']==['friendlyarm,nanopi-r76s']
     assert manifest['hardware_validation']=='not_performed'
     image=root/manifest['image']
-    assert image.name=='R76S-V1.4.2-TF-squashfs.img.gz'
+    assert image.name=='R76S-V1.4.3-TF-squashfs.img.gz'
     assert manifest['size']==image.stat().st_size and manifest['sha256']==sha(image)
-    assert manifest['url'].endswith('/R76S-V1.4.2/'+image.name)
+    assert manifest['url'].endswith('/R76S-V1.4.3/'+image.name)
     for item in manifest['artifacts']:
         assert Path(item['name']).name==item['name']
         p=root/item['name']
         assert p.stat().st_size==item['size'] and sha(p)==item['sha256']
-    assert (root/'version.index').read_text().strip()=='24.10.8-R76S-V1.4.2'
+    assert (root/'version.index').read_text().strip()=='24.10.8-R76S-V1.4.3'
     latest=(root/'version.latest').read_text()
-    assert '[24.10.8-R76S-V1.4.2]('+image.name+')' in latest
+    assert '[24.10.8-R76S-V1.4.3]('+image.name+')' in latest
     assert 'SHA256: '+manifest['sha256'] in latest
     decoder=zlib.decompressobj(16+zlib.MAX_WBITS)
     total=0

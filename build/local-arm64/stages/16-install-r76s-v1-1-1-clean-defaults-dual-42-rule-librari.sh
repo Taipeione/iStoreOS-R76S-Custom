@@ -15,119 +15,68 @@ echo "Preserved user settings remain authoritative; V1.1.1 only adds firmware-ma
 echo "===== Set clean-image default root password ====="
 SHADOW="openwrt/package/base-files/files/etc/shadow"
 test -f "$SHADOW"
-if [ "${R76S_PUBLIC_RELEASE:-0}" = '1' ]; then
-    test -z "${R76S_CLEAN_FLASH_PASSWORD_HASH:-}" || { echo 'Public image refuses a supplied root hash' >&2; exit 1; }
-    # The image must contain a usable credential. Relying only on a
-    # first-boot passwd call left clean-flashed devices with root:! locked.
-    CLEAN_FLASH_ROOT_HASH='$6$r76sv142$H.kfcJrWWsTua2YvebgkODjm4pwlnj74EuJy4HSapFihAcHlu.HX2INSgTIy.PqkoRfXQkzR8uv0kfUH1NL690'
-    sed -i "s#^root:[^:]*:#root:${CLEAN_FLASH_ROOT_HASH}:#" "$SHADOW"
-    grep -qF "root:${CLEAN_FLASH_ROOT_HASH}:" "$SHADOW"
-else
-    PASSWORD_HASH="${R76S_CLEAN_FLASH_PASSWORD_HASH:-}"
-    if [[ ! "$PASSWORD_HASH" =~ ^\$6\$[A-Za-z0-9./]{8,16}\$[A-Za-z0-9./]{86}$ ]]; then
-        echo 'ERROR: Private candidate requires unique SHA-512 crypt root password hash.' >&2
-        exit 1
-    fi
-    sed -i "s#^root:[^:]*:#root:${PASSWORD_HASH}:#" "$SHADOW"
-    grep -qF "root:${PASSWORD_HASH}:" "$SHADOW"
+if [ -n "${R76S_CLEAN_FLASH_PASSWORD_HASH:-}" ]; then
+    echo 'ERROR: V1.4.3 uses the fixed root credential policy; supplied root hashes are not accepted.' >&2
+    exit 1
 fi
-mkdir -p openwrt/files/etc/uci-defaults
-cat > openwrt/files/etc/uci-defaults/99-r76s-first-root-password <<'R76S_FIXED_ROOT'
+CLEAN_FLASH_ROOT_HASH='$6$r76sv143$j/yuToJ35nP6zluEW5qQzsYySWhM0mx8xaNVL.ZK2/J00HuN1d1Qr1h6PP2yWHgXmRlkRnA/Ymtqj60ETzJoi.'
+sed -i "s#^root:[^:]*:#root:${CLEAN_FLASH_ROOT_HASH}:#" "$SHADOW"
+grep -qF "root:${CLEAN_FLASH_ROOT_HASH}:" "$SHADOW"
+mkdir -p openwrt/files/etc/init.d openwrt/files/etc/uci-defaults openwrt/files/etc/rc.d openwrt/files/etc/config
+
+# V1.4.3 has one password setter only. It runs at late boot so a preserved
+# /etc/shadow is repaired once, while later administrator changes persist.
+cat > openwrt/files/etc/init.d/r76s-root-password <<'R76S_V143_PASSWORD_INIT'
+#!/bin/sh /etc/rc.common
+# R76S_V143_ROOT_PASSWORD_POLICY
+START=99
+
+boot() {
+	MARKER="/etc/config/r76s_root_password_v143_done"
+	[ -f "$MARKER" ] && return 0
+	REVISION=""
+	[ -r /etc/openwrt_release ] && REVISION="$(sed -n "s/^DISTRIB_REVISION=['\"]\([^'\"]*\)['\"].*/\1/p" /etc/openwrt_release)"
+	[ "$REVISION" = 'R76S-V1.4.3' ] || return 0
+	if passwd root <<'R76S_V143_PASSWORD'
+password
+password
+R76S_V143_PASSWORD
+	then
+		chmod 0600 /etc/shadow
+		mkdir -p /etc/config
+		touch "$MARKER"
+		return 0
+	fi
+	logger -t r76s-root-password 'root password migration failed; will retry on next boot' 2>/dev/null || true
+	return 1
+}
+R76S_V143_PASSWORD_INIT
+chmod 0755 openwrt/files/etc/init.d/r76s-root-password
+ln -sf ../init.d/r76s-root-password openwrt/files/etc/rc.d/S99r76s-root-password
+
+# Authentication policy is separate from password setting and only enables
+# LAN-side password authentication in the generated Dropbear config.
+cat > openwrt/files/etc/uci-defaults/99-r76s-root-auth <<'R76S_V143_ROOT_AUTH'
 #!/bin/sh
-# R76S_V142_FIXED_CLEAN_FLASH_PASSWORD
-# Clean flash uses the documented default password. Preserve any existing
-# non-locked root credential during a configuration-preserving upgrade.
+# R76S_V143_ROOT_PASSWORD_AUTH
 set -eu
-FLAG="/etc/config/r76s_first_password_done"
-field="$(sed -n 's/^root:\([^:]*\):.*/\1/p' /etc/shadow)"
-[ -f "$FLAG" ] && exit 0
-if [ "$field" != '!' ] && [ -n "$field" ]; then
-    touch "$FLAG"
-    exit 0
-fi
-passwd root <<'R76S_PASSWORD'
-password
-password
-R76S_PASSWORD
-chmod 0600 /etc/shadow
-touch "$FLAG"
+uci -q set dropbear.@dropbear[0].PasswordAuth='1'
+uci -q set dropbear.@dropbear[0].RootPasswordAuth='1'
+uci -q commit dropbear
 exit 0
-R76S_FIXED_ROOT
-chmod 0755 openwrt/files/etc/uci-defaults/99-r76s-first-root-password
+R76S_V143_ROOT_AUTH
+chmod 0755 openwrt/files/etc/uci-defaults/99-r76s-root-auth
 
 if [ "${R76S_PUBLIC_RELEASE:-0}" = '1' ]; then
-    mkdir -p openwrt/files/etc/config
     cat > openwrt/files/etc/config/dropbear <<'EOF_DROPBEAR'
 config dropbear main
 	option enable '1'
 	option PasswordAuth '1'
 	option RootPasswordAuth '1'
+	option Interface 'lan'
 	option Port '22'
 EOF_DROPBEAR
 fi
-
-cat > openwrt/files/etc/uci-defaults/99-r76s-v142-root-password-migration <<'R76S_V142_MIGRATION'
-#!/bin/sh
-# R76S_V142_ROOT_PASSWORD_MIGRATION
-# Reset root exactly once on the first V1.4.2 boot, including preserved
-# configuration upgrades where /etc/shadow came from the previous release.
-set -eu
-MARKER="/etc/config/r76s_v142_root_password_migrated"
-[ -f "$MARKER" ] && exit 0
-REVISION=""
-[ -r /etc/openwrt_release ] && REVISION="$(sed -n "s/^DISTRIB_REVISION=['\"]\([^'\"]*\)['\"].*/\1/p" /etc/openwrt_release)"
-[ "$REVISION" = 'R76S-V1.4.2' ] || exit 0
-passwd root <<'R76S_V142_PASSWORD'
-password
-password
-R76S_V142_PASSWORD
-chmod 0600 /etc/shadow
-touch "$MARKER"
-exit 0
-R76S_V142_MIGRATION
-chmod 0755 openwrt/files/etc/uci-defaults/99-r76s-v142-root-password-migration
-test -x openwrt/files/etc/uci-defaults/99-r76s-v142-root-password-migration
-
-cat > openwrt/files/etc/init.d/r76s-root-password <<'R76S_ROOT_PASSWORD_INIT'
-#!/bin/sh /etc/rc.common
-# R76S_V142_ROOT_PASSWORD_BOOT_MIGRATION
-START=99
-
-boot() {
-	MARKER="/etc/config/r76s_v142_root_password_migrated"
-	[ -f "$MARKER" ] && return 0
-	REVISION=""
-	[ -r /etc/openwrt_release ] && REVISION="$(sed -n "s/^DISTRIB_REVISION=['\"]\([^'\"]*\)['\"].*/\1/p" /etc/openwrt_release)"
-	[ "$REVISION" = 'R76S-V1.4.2' ] || return 0
-	if passwd root <<'R76S_V142_BOOT_PASSWORD'
-password
-password
-R76S_V142_BOOT_PASSWORD
-	then
-		chmod 0600 /etc/shadow
-		touch "$MARKER"
-		return 0
-	fi
-	logger -t r76s-root-password 'root password migration failed; will retry on next boot'
-	return 1
-}
-R76S_ROOT_PASSWORD_INIT
-chmod 0755 openwrt/files/etc/init.d/r76s-root-password
-mkdir -p openwrt/files/etc/rc.d
-ln -sf ../init.d/r76s-root-password openwrt/files/etc/rc.d/S99r76s-root-password
-
-cat > openwrt/files/etc/uci-defaults/99-r76s-root-auth <<'R76S_ROOT_AUTH'
-#!/bin/sh
-# R76S_V142_ROOT_PASSWORD_AUTH
-# Enable LAN-side root password authentication once on the first V1.4.2 boot.
-# The uci-default is removed after success, so later administrator changes win.
-set -eu
-uci -q set dropbear.@dropbear[0].PasswordAuth='1'
-uci -q set dropbear.@dropbear[0].RootPasswordAuth='1'
-uci commit dropbear
-exit 0
-R76S_ROOT_AUTH
-chmod 0755 openwrt/files/etc/uci-defaults/99-r76s-root-auth
 
 echo "===== Solidify clean-image LAN default at generator source ====="
 CFGGEN="openwrt/package/base-files/files/bin/config_generate"
@@ -164,7 +113,7 @@ else:
     if not m:
         raise SystemExit('ERROR: LuCI main language anchor not found')
     pos = s.find('\n', m.end()) + 1
-    s = s[:pos] + "\toption lang 'zh_cn'\n" + s[pos:]
+    s = s[:pos] + "	option lang 'zh_cn'\n" + s[pos:]
 p.write_text(s)
 PY_LUCI_LANG
 grep -q "option lang 'zh_cn'" "$LUCI_CFG"

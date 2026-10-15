@@ -408,7 +408,7 @@ end
 function api_channel()
     local channel = http.formvalue("channel") or ""
     if channel ~= "stable" then
-        json_reply({ok=false, message="R76S-V1.4.2 只支持正式稳定 OTA 通道。", status=build_status()})
+        json_reply({ok=false, message="R76S-V1.4.3 只支持正式稳定 OTA 通道。", status=build_status()})
         return
     end
 

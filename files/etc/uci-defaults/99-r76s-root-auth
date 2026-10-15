@@ -1,0 +1,8 @@
+#!/bin/sh
+# R76S_V143_ROOT_PASSWORD_AUTH
+# Enable LAN-side root password authentication. This does not set a password.
+set -eu
+uci -q set dropbear.@dropbear[0].PasswordAuth='1'
+uci -q set dropbear.@dropbear[0].RootPasswordAuth='1'
+uci -q commit dropbear
+exit 0

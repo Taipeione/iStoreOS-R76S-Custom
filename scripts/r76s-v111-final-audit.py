@@ -55,10 +55,9 @@ REQUIRED = (
     'etc/init.d/smartdns',
     'etc/shadow',
     'etc/init.d/r76s-ota-restore',
-    'etc/uci-defaults/99-r76s-first-root-password',
+    'etc/init.d/r76s-root-password',
     'etc/uci-defaults/99-r76s-root-auth',
     'etc/init.d/r76s-root-password',
-    'etc/uci-defaults/99-r76s-v142-root-password-migration',
     'lib/upgrade/keep.d/r76s-v110',
     'etc/config/r76s_ip_policy',
     'usr/share/r76s/tencent-direct.list',
@@ -101,11 +100,11 @@ LMO = (
     'usr/lib/lua/luci/i18n/passwall2.zh-cn.lmo',
     'usr/share/luci/i18n/passwall2.zh-cn.lmo',
 )
-FIXED_CLEAN_FLASH_ROOT_HASH = '$6$r76sv142$H.kfcJrWWsTua2YvebgkODjm4pwlnj74EuJy4HSapFihAcHlu.HX2INSgTIy.PqkoRfXQkzR8uv0kfUH1NL690'
+FIXED_CLEAN_FLASH_ROOT_HASH = '$6$r76sv143$H.kfcJrWWsTua2YvebgkODjm4pwlnj74EuJy4HSapFihAcHlu.HX2INSgTIy.PqkoRfXQkzR8uv0kfUH1NL690'
 
 
 def check_root_shadow(root):
-    """Inspect extracted real rootfs without disclosing password hashes."""
+    """Inspect the extracted rootfs and verify the real password hash."""
     p = root / 'etc/shadow'
     if not p.is_file() or p.is_symlink():
         return ['ROOT_SHADOW_MISSING_OR_SYMLINK']
@@ -117,8 +116,9 @@ def check_root_shadow(root):
     if len(roots) != 1:
         return ['ROOT_ACCOUNT_COUNT_INVALID']
     value = roots[0]
-    # R76S_V142_FIXED_CLEAN_FLASH_PASSWORD
     if os.environ.get('R76S_PUBLIC_RELEASE') == '1':
+        if value in ('!', '*', '') or value.startswith('!') or value.startswith('*'):
+            return ['ROOT_ACCOUNT_LOCKED']
         if value != FIXED_CLEAN_FLASH_ROOT_HASH:
             return ['CLEAN_IMAGE_ROOT_HASH_MISMATCH']
         try:
@@ -127,43 +127,31 @@ def check_root_shadow(root):
                 return ['CLEAN_IMAGE_ROOT_PASSWORD_HASH_MISMATCH']
         except (ImportError, TypeError):
             return ['CLEAN_IMAGE_ROOT_PASSWORD_CHECK_UNAVAILABLE']
-        firstboot = root / 'etc/uci-defaults/99-r76s-first-root-password'
-        if not firstboot.is_file() or not (firstboot.stat().st_mode & stat.S_IXUSR):
-            return ['FIXED_PASSWORD_FIRSTBOOT_MISSING_OR_NOT_EXECUTABLE']
-        if b'R76S_V142_FIXED_CLEAN_FLASH_PASSWORD' not in firstboot.read_bytes():
-            return ['FIXED_PASSWORD_FIRSTBOOT_UNRECOGNIZED']
-        provision=firstboot.read_text()
-        if 'password\npassword' not in provision or '/dev/urandom' in provision or '/dev/ttyS0' in provision:
-            return ['FIXED_PASSWORD_FIRSTBOOT_POLICY_INVALID']
-        if (root / 'etc/uci-defaults/05-r76s-public-serial-provision').exists():
-            return ['RANDOM_PUBLIC_FIRSTBOOT_SCRIPT_PRESENT']
-        migration = root / 'etc/uci-defaults/99-r76s-v142-root-password-migration'
-        if not migration.is_file() or not (migration.stat().st_mode & stat.S_IXUSR):
-            return ['V142_ROOT_PASSWORD_MIGRATION_MISSING']
-        migration_text = migration.read_text()
-        if 'R76S_V142_ROOT_PASSWORD_MIGRATION' not in migration_text or 'R76S-V1.4.2' not in migration_text:
-            return ['V142_ROOT_PASSWORD_MIGRATION_INVALID']
-        if '/dev/urandom' in migration_text or '/dev/ttyS0' in migration_text:
-            return ['V142_ROOT_PASSWORD_MIGRATION_RANDOM_SOURCE']
-        boot_migration = root / 'etc/init.d/r76s-root-password'
-        if not boot_migration.is_file() or not (boot_migration.stat().st_mode & stat.S_IXUSR):
-            return ['V142_ROOT_PASSWORD_BOOT_MIGRATION_MISSING_OR_NOT_EXECUTABLE']
-        boot_text = boot_migration.read_text(encoding='utf-8')
-        if 'R76S_V142_ROOT_PASSWORD_BOOT_MIGRATION' not in boot_text or 'R76S-V1.4.2' not in boot_text:
-            return ['V142_ROOT_PASSWORD_BOOT_MIGRATION_INVALID']
-        if '/dev/urandom' in boot_text or '/dev/ttyS0' in boot_text:
-            return ['V142_ROOT_PASSWORD_BOOT_MIGRATION_RANDOM_SOURCE']
+        policy = root / 'etc/init.d/r76s-root-password'
+        if not policy.is_file() or not (policy.stat().st_mode & stat.S_IXUSR):
+            return ['V143_ROOT_PASSWORD_POLICY_MISSING_OR_NOT_EXECUTABLE']
+        policy_text = policy.read_text(encoding='utf-8')
+        if 'R76S_V143_ROOT_PASSWORD_POLICY' not in policy_text or 'R76S-V1.4.3' not in policy_text:
+            return ['V143_ROOT_PASSWORD_POLICY_INVALID']
+        if '/dev/urandom' in policy_text or '/dev/ttyS0' in policy_text:
+            return ['RANDOM_PASSWORD_MECHANISM_PRESENT']
+        if (root / 'etc/uci-defaults/99-r76s-first-root-password').exists():
+            return ['OLD_FIRSTBOOT_PASSWORD_MECHANISM_PRESENT']
+        if (root / 'etc/uci-defaults/99-r76s-v142-root-password-migration').exists():
+            return ['OLD_V142_PASSWORD_MIGRATION_PRESENT']
+        if (root / 'etc/uci-defaults/99-r76s-v143-root-password-migration').exists():
+            return ['MULTIPLE_PASSWORD_SETTERS_PRESENT']
         auth_defaults = root / 'etc/uci-defaults/99-r76s-root-auth'
         if not auth_defaults.is_file() or not (auth_defaults.stat().st_mode & stat.S_IXUSR):
-            return ['V142_ROOT_PASSWORD_AUTH_DEFAULT_MISSING_OR_NOT_EXECUTABLE']
+            return ['V143_ROOT_PASSWORD_AUTH_DEFAULT_MISSING_OR_NOT_EXECUTABLE']
         auth_text = auth_defaults.read_text(encoding='utf-8')
-        if 'R76S_V142_ROOT_PASSWORD_AUTH' not in auth_text or "RootPasswordAuth='1'" not in auth_text:
-            return ['V142_ROOT_PASSWORD_AUTH_DEFAULT_INVALID']
+        if 'R76S_V143_ROOT_PASSWORD_AUTH' not in auth_text or "RootPasswordAuth='1'" not in auth_text:
+            return ['V143_ROOT_PASSWORD_AUTH_DEFAULT_INVALID']
         if '/dev/urandom' in auth_text or '/dev/ttyS0' in auth_text:
-            return ['V142_ROOT_PASSWORD_AUTH_DEFAULT_RANDOM_SOURCE']
+            return ['RANDOM_PASSWORD_MECHANISM_PRESENT']
         boot_link = root / 'etc/rc.d/S99r76s-root-password'
         if not boot_link.is_symlink():
-            return ['V142_ROOT_PASSWORD_BOOT_LINK_MISSING']
+            return ['V143_ROOT_PASSWORD_BOOT_LINK_MISSING']
         dropbear = root / 'etc/config/dropbear'
         if not dropbear.is_file():
             return ['DROPBEAR_CONFIG_MISSING']
@@ -172,6 +160,8 @@ def check_root_shadow(root):
             return ['DROPBEAR_PASSWORD_AUTH_DISABLED']
         if not re.search(r"option\s+RootPasswordAuth\s+'(?:1|on)'", cfg):
             return ['DROPBEAR_ROOT_PASSWORD_AUTH_DISABLED']
+        if not re.search(r"option\s+Interface\s+'lan'", cfg):
+            return ['DROPBEAR_NOT_LAN_BOUND']
         return []
     if not re.fullmatch(r'\$6\$[A-Za-z0-9./]{8,16}\$[A-Za-z0-9./]{86}', value):
         return ['ROOT_PASSWORD_NOT_STRONG_SHA512_CRYPT_FORMAT']
@@ -179,7 +169,6 @@ def check_root_shadow(root):
         import crypt
     except ImportError:
         return ['ROOT_WEAK_PASSWORD_CHECK_UNAVAILABLE']
-    # Known sample/default credentials are banned. Never print the hash itself.
     for candidate in ('password', 'root', 'admin', '123456', '12345678',
                       '123456789', '1234567890', 'r76s', 'istoreos', 'openwrt'):
         computed = crypt.crypt(candidate, value)
@@ -188,7 +177,6 @@ def check_root_shadow(root):
         if hmac.compare_digest(computed, value):
             return ['ROOT_WEAK_DEFAULT_PASSWORD_DETECTED']
     return []
-
 
 def check_tree(root, image=False):
     issues = []

@@ -4,17 +4,17 @@ set -euo pipefail
 # Original workflow step: Final verification
 # REVIEW REQUIRED: not yet adapted for local execution.
 
-RELEASE_DIR="$TARGET_DIR/R76S-V1.4.2"
+RELEASE_DIR="$TARGET_DIR/R76S-V1.4.3"
 
-FINAL_IMAGE="$RELEASE_DIR/R76S-V1.4.2-TF-squashfs.img.gz"
+FINAL_IMAGE="$RELEASE_DIR/R76S-V1.4.3-TF-squashfs.img.gz"
 
 echo "===== Final verification ====="
 
 test -s "$FINAL_IMAGE"
 
 echo "===== Verify final sysupgrade metadata ====="
-FINAL_META="${R76S_LOCAL_TMP:-/tmp}/R76S-V1.4.2.verify.meta"
-FINAL_STRIPPED="${R76S_LOCAL_TMP:-/tmp}/R76S-V1.4.2.verify.img.gz"
+FINAL_META="${R76S_LOCAL_TMP:-/tmp}/R76S-V1.4.3.verify.meta"
+FINAL_STRIPPED="${R76S_LOCAL_TMP:-/tmp}/R76S-V1.4.3.verify.img.gz"
 cp -f "$FINAL_IMAGE" "$FINAL_STRIPPED"
 "$FWTOOL" -i "$FINAL_META" -t "$FINAL_STRIPPED"
 grep -qF 'friendlyarm,nanopi-r76s' "$FINAL_META"
@@ -22,7 +22,7 @@ python3 - "$FINAL_META" <<'PY_VERSION'
 import json, sys
 with open(sys.argv[1]) as stream:
     version = json.load(stream)['version']
-assert version['revision'] == 'R76S-V1.4.2', version
+assert version['revision'] == 'R76S-V1.4.3', version
 assert version['version'] == '24.10.8', version
 PY_VERSION
 gzip -t "$FINAL_STRIPPED"
@@ -31,8 +31,8 @@ for ota_file in version.latest version.index sha256 sha256sums ota.json ota.foot
   test -s "$RELEASE_DIR/$ota_file"
 done
 
-grep -qF '24.10.8-R76S-V1.4.2' "$RELEASE_DIR/version.latest"
-grep -qxF '24.10.8-R76S-V1.4.2' "$RELEASE_DIR/version.index"
+grep -qF '24.10.8-R76S-V1.4.3' "$RELEASE_DIR/version.latest"
+grep -qxF '24.10.8-R76S-V1.4.3' "$RELEASE_DIR/version.index"
 
 echo
 echo "Final image:"
@@ -64,4 +64,4 @@ if [ "$FINAL_BOOT_MD5" != "$BOOT_MD5" ]; then
 fi
 
 echo
-echo "R76S-V1.4.2 / PassWall2 / PassWall verified successfully."
+echo "R76S-V1.4.3 / PassWall2 / PassWall verified successfully."
