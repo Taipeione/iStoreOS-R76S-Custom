@@ -1,4 +1,5 @@
 import json
+import os
 import pathlib
 import re
 import shutil
@@ -10,6 +11,60 @@ ROOT = pathlib.Path(__file__).resolve().parents[3]
 
 
 class V141Features(unittest.TestCase):
+    def test_firstboot_password_sets_clean_default_and_preserves_existing_hash(self):
+        source = (ROOT / 'files/etc/uci-defaults/99-r76s-first-root-password').read_text()
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            shadow = root / 'shadow'
+            flag = root / 'r76s_first_password_done'
+            fakebin = root / 'bin'
+            fakebin.mkdir()
+            passwd = fakebin / 'passwd'
+            passwd.write_text(
+                '#!/bin/sh\n'
+                'cat > "$R76S_TEST_PASSWD_INPUT"\n'
+                "printf '%s\\n' 'root:$6$fixed$hash:0:0:root:/root:/bin/ash' > \"$R76S_TEST_SHADOW\"\n"
+            )
+            passwd.chmod(0o755)
+            script = root / 'firstboot'
+            script.write_text(source.replace('/etc/config/r76s_first_password_done', str(flag))
+                              .replace('/etc/shadow', str(shadow)))
+            script.chmod(0o755)
+            env = dict(os.environ)
+            env['PATH'] = str(fakebin) + ':' + env['PATH']
+            env['R76S_TEST_SHADOW'] = str(shadow)
+            env['R76S_TEST_PASSWD_INPUT'] = str(root / 'passwd-input')
+
+            shadow.write_text('root:!:0:0:root:/root:/bin/ash\n')
+            result = subprocess.run([str(script)], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(flag.exists())
+            self.assertIn('root:$6$fixed$hash:', shadow.read_text())
+            self.assertEqual((root / 'passwd-input').read_text(), 'password\npassword\n')
+
+            flag.unlink()
+            shadow.write_text('root:$6$existing$hash:0:0:root:/root:/bin/ash\n')
+            (root / 'passwd-input').unlink()
+            result = subprocess.run([str(script)], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(flag.exists())
+            self.assertIn('root:$6$existing$hash:', shadow.read_text())
+            self.assertFalse((root / 'passwd-input').exists())
+
+    def test_fixed_clean_flash_password_and_preserve_upgrade_policy(self):
+        stage = next((ROOT / 'build/local-arm64/stages').glob('16-*.sh')).read_text()
+        firstboot = (ROOT / 'files/etc/uci-defaults/99-r76s-first-root-password').read_text()
+        adapter = (ROOT / 'build/local-arm64/public-release/install.py').read_text()
+        self.assertIn('R76S_V141_FIXED_CLEAN_FLASH_PASSWORD', stage)
+        self.assertIn("sed -i 's#^root:[^:]*:#root:!:#'", stage)
+        self.assertIn('password\npassword', firstboot)
+        self.assertIn("if [ \"$ROOT_FIELD\" != '!' ]", firstboot)
+        self.assertNotIn('/dev/urandom', stage)
+        self.assertNotIn('/dev/ttyS0', firstboot)
+        self.assertNotIn('R76S_V12_PUBLIC_CREDENTIALS_20261010', stage + firstboot)
+        self.assertIn('R76S_FIXED_CLEAN_FLASH_PASSWORD=password', adapter)
+        self.assertIn('R76S_PRESERVE_EXISTING_ROOT_PASSWORD=YES', adapter)
+
     def test_health_command_is_safe_and_prefers_wan_6(self):
         path = ROOT / 'feeds/r76s-core/files/usr/bin/r76s-health'
         text = path.read_text()

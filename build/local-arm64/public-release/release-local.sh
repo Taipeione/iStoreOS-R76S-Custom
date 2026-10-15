@@ -60,7 +60,7 @@ PY
 gzip -t "$T/image.gz"
 gzip -dc "$T/image.gz" > "$T/image.raw"
 python3 /r76s-repo/scripts/r76s-v111-final-audit.py --phase image --image "$T/image.raw"
-echo 'PUBLIC_FIRMWARE_ROOTFS_LOCKED=PASS'
+echo 'PUBLIC_FIRMWARE_FIXED_PASSWORD_POLICY=PASS'
 echo 'PUBLIC_FIRMWARE_METADATA=PASS'
 echo 'PUBLIC_FIRMWARE_SHA256=PASS'
 echo 'PUBLIC_FIRMWARE_STATIC_AUDIT=PASS'
@@ -99,7 +99,7 @@ case "$MODE" in
  build)
    require_tools
    require_clean_git
-   echo 'Building NEW public root-locked image. Existing private candidate cannot be reused.'
+   echo 'Building NEW public fixed-password image. Existing private candidate cannot be reused.'
    R76S_PUBLIC_RELEASE=1 R76S_JOBS="${R76S_JOBS:-4}" bash "$ROOT/build/local-arm64/candidate-local.sh" build
    docker run --rm --platform linux/arm64 --user 1000:1000 \
       --mount type=volume,src=r76s-v12-work,dst=/home/builder/work \
@@ -119,7 +119,7 @@ case "$MODE" in
    fi
    gh release create "$TAG" --repo "$REPO" --draft --target main \
      --title 'R76S-V1.4.1' \
-     --notes 'PUBLIC ROOT-LOCKED CANDIDATE: not validated on physical hardware. Not a stable/latest release. Clean flash requires physical UART access to capture the generated first-boot password; verify OTA credential preservation before promotion.' \
+     --notes 'PUBLIC R76S-V1.4.1 candidate: clean flash default root password is password; preserved-config OTA keeps the existing root password. Hardware validation is required before promotion.' \
      "$DEST/$NAME" "$DEST/R76S-V1.4.1-TF-squashfs.img" "$DEST/ota.json" "$DEST/sha256" "$DEST/sha256sums" "$DEST/version.latest" "$DEST/version.index" "$DEST/ota.footer.html" "$DEST/BOOTLOADER_INFO.txt"
    echo 'GITHUB_DRAFT_CREATED=PASS; NOT LATEST; NO AUTOMATIC OTA YET'
    ;;
@@ -129,7 +129,7 @@ case "$MODE" in
    command -v gh >/dev/null
    report="${R76S_QA_REPORT:-}"
    [ -f "$report" ] || { echo 'ERROR: provide R76S_QA_REPORT path with physical test evidence' >&2; exit 3; }
-   for line in 'UART_FIRST_BOOT=PASS' 'EMMC_OTA_TEST=PASS' 'ROOT_PASSWORD_PRESERVED=PASS' \
+   for line in 'CLEAN_FLASH_PASSWORD=PASS' 'EMMC_OTA_TEST=PASS' 'ROOT_PASSWORD_PRESERVED=PASS' \
       'LAN_DNS_TEST=PASS' 'WEB_OTA_TEST=PASS'; do
      grep -qxF "$line" "$report" || { echo "ERROR: missing QA evidence $line" >&2; exit 3; }
    done

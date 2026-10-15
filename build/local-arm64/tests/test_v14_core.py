@@ -163,10 +163,16 @@ assert(calls[2]:find('delete element',1,true) and calls[2]:find('add element',1,
         tencent=set((ROOT/'feeds/luci-app-r76s-updater/files/root/usr/share/r76s/tencent-direct.list').read_text().splitlines())
         self.assertEqual({d.removeprefix('domain:') for d in union},tencent)
 
-    def test_no_fixed_password_and_signed_backend_is_staged_last(self):
+    def test_fixed_clean_flash_password_preserves_existing_root(self):
         stage=next((ROOT/'build/local-arm64/stages').glob('16-*.sh')).read_text()
-        self.assertNotIn('secret="password"',stage)
-        self.assertIn('/dev/urandom',stage)
+        firstboot=(ROOT/'files/etc/uci-defaults/99-r76s-first-root-password').read_text()
+        self.assertIn('R76S_V141_FIXED_CLEAN_FLASH_PASSWORD',stage)
+        self.assertIn('password',stage)
+        self.assertNotIn('/dev/urandom',stage)
+        self.assertIn('ROOT_FIELD',firstboot)
+        self.assertIn('password\npassword',firstboot)
+        self.assertNotIn('/dev/urandom',firstboot)
+        self.assertNotIn('05-r76s-public-serial-provision',stage)
         self.assertIn('r76s-v14-stage.py',stage.splitlines()[-1])
 
 if __name__=='__main__':unittest.main()

@@ -123,13 +123,14 @@ test -s files/www/luci-static/resources/view/system/flash.js
 grep -qF 'R76S_V110_FLASH_UPLOAD_PATCH' files/www/luci-static/resources/view/system/flash.js
 echo "Final rootfs overlay assertions: PASS"
 
-# R76S_V12_PUBLIC_CREDENTIALS_20261010
+# R76S_V141_FIXED_CLEAN_FLASH_PASSWORD
 if [ "${R76S_PUBLIC_RELEASE:-0}" = 1 ]; then
-    grep -qxF 'CONFIG_PACKAGE_openssl-util=y' .config || {
-       echo 'ERROR: public firstboot requires openssl-util in final config' >&2; exit 1;
-    }
-    test -x files/etc/uci-defaults/05-r76s-public-serial-provision
-    sh -n files/etc/uci-defaults/05-r76s-public-serial-provision
+    test -x files/etc/uci-defaults/99-r76s-first-root-password
+    sh -n files/etc/uci-defaults/99-r76s-first-root-password
+    grep -qF 'R76S_V141_FIXED_CLEAN_FLASH_PASSWORD' files/etc/uci-defaults/99-r76s-first-root-password
+    grep -qF 'password' files/etc/uci-defaults/99-r76s-first-root-password
+    ! test -e files/etc/uci-defaults/05-r76s-public-serial-provision
+    ! grep -qF '/dev/urandom' files/etc/uci-defaults/99-r76s-first-root-password
 fi
 
 echo "R76S v1.1.1 configuration verified successfully."

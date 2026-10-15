@@ -105,7 +105,7 @@ printf '%s\n' \
   'WAN clean default: DHCP client' \
   'DHCP/DNS: dnsmasq uses WAN DNS without forced SmartDNS/AdGuard chain' \
   'LuCI theme: Argon' \
-  "System login: $(if [ "${R76S_PUBLIC_RELEASE:-0}" = 1 ]; then echo 'fresh flash: one-time random UART password; OTA preserves existing credentials'; else echo 'PRIVATE image includes build-supplied root hash; DO NOT PUBLISH'; fi)" \
+  "System login: $(if [ "${R76S_PUBLIC_RELEASE:-0}" = 1 ]; then echo 'clean flash default root password: password; OTA preserves existing credentials'; else echo 'PRIVATE image includes build-supplied root hash; DO NOT PUBLISH'; fi)" \
   'PassWall: installed, clean default disabled, user settings persist' \
   'PassWall2: installed, clean default disabled, user settings persist' \
   'SmartDNS: bundled Release48.4 runtime, clean default disabled/user-controlled' \

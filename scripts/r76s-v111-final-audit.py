@@ -55,6 +55,7 @@ REQUIRED = (
     'etc/init.d/smartdns',
     'etc/shadow',
     'etc/init.d/r76s-ota-restore',
+    'etc/uci-defaults/99-r76s-first-root-password',
     'lib/upgrade/keep.d/r76s-v110',
     'etc/config/r76s_ip_policy',
     'usr/share/r76s/tencent-direct.list',
@@ -112,20 +113,20 @@ def check_root_shadow(root):
     if len(roots) != 1:
         return ['ROOT_ACCOUNT_COUNT_INVALID']
     value = roots[0]
-    # R76S_V12_PUBLIC_CREDENTIALS_20261010
+    # R76S_V141_FIXED_CLEAN_FLASH_PASSWORD
     if os.environ.get('R76S_PUBLIC_RELEASE') == '1':
         if value != '!':
-            return ['PUBLIC_IMAGE_ROOT_NOT_LOCKED_OR_EMBEDS_HASH']
-        firstboot = root / 'etc/uci-defaults/05-r76s-public-serial-provision'
+            return ['CLEAN_IMAGE_ROOT_FIELD_NOT_LOCKED']
+        firstboot = root / 'etc/uci-defaults/99-r76s-first-root-password'
         if not firstboot.is_file() or not (firstboot.stat().st_mode & stat.S_IXUSR):
-            return ['PUBLIC_SERIAL_FIRSTBOOT_MISSING_OR_NOT_EXECUTABLE']
-        if b'R76S_V12_PUBLIC_CREDENTIALS_20261010' not in firstboot.read_bytes():
-            return ['PUBLIC_SERIAL_FIRSTBOOT_UNRECOGNIZED']
-        if not (root / 'usr/bin/openssl').is_file():
-            return ['PUBLIC_OPENSSL_RUNTIME_MISSING']
+            return ['FIXED_PASSWORD_FIRSTBOOT_MISSING_OR_NOT_EXECUTABLE']
+        if b'R76S_V141_FIXED_CLEAN_FLASH_PASSWORD' not in firstboot.read_bytes():
+            return ['FIXED_PASSWORD_FIRSTBOOT_UNRECOGNIZED']
         provision=firstboot.read_text()
-        if 'secret="password"' in provision or '/dev/urandom' not in provision or '> /dev/ttyS0' not in provision:
-            return ['PUBLIC_FIRSTBOOT_CREDENTIAL_POLICY_INVALID']
+        if 'password\npassword' not in provision or '/dev/urandom' in provision or '/dev/ttyS0' in provision:
+            return ['FIXED_PASSWORD_FIRSTBOOT_POLICY_INVALID']
+        if (root / 'etc/uci-defaults/05-r76s-public-serial-provision').exists():
+            return ['RANDOM_PUBLIC_FIRSTBOOT_SCRIPT_PRESENT']
         return []
     if not re.fullmatch(r'\$6\$[A-Za-z0-9./]{8,16}\$[A-Za-z0-9./]{86}', value):
         return ['ROOT_PASSWORD_NOT_STRONG_SHA512_CRYPT_FORMAT']

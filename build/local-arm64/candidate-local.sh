@@ -40,13 +40,13 @@ fi
 if [[ ! "$GITHUB_REPOSITORY" =~ ^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$ ]]; then
   echo 'Invalid R76S_GITHUB_REPOSITORY; expected owner/repo' >&2; exit 2
 fi
-# R76S_V12_PUBLIC_CREDENTIALS_20261010
+# R76S_V141_FIXED_CLEAN_FLASH_PASSWORD
 R76S_PUBLIC_RELEASE="${R76S_PUBLIC_RELEASE:-0}"
 case "$R76S_PUBLIC_RELEASE" in 0|1) ;; *) echo 'R76S_PUBLIC_RELEASE must be 0 or 1' >&2; exit 2;; esac
 export R76S_PUBLIC_RELEASE
 if [ "$R76S_PUBLIC_RELEASE" = 1 ]; then
   [ -z "${R76S_CLEAN_FLASH_PASSWORD_HASH:-}" ] || { echo 'Public image forbids build-supplied root hash' >&2; exit 2; }
-  echo 'PUBLIC_ROOT_CREDENTIAL_MODE=SERIAL_FIRST_BOOT'
+  echo 'PUBLIC_ROOT_CREDENTIAL_MODE=FIXED_PASSWORD'
 else
 # Require an independently chosen clean-flash login secret without saving plaintext to files or shell history.
 if [ -z "${R76S_CLEAN_FLASH_PASSWORD_HASH:-}" ]; then

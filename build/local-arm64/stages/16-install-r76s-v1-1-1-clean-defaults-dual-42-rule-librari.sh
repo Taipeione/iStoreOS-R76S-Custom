@@ -15,55 +15,31 @@ echo "Preserved user settings remain authoritative; V1.1.1 only adds firmware-ma
 echo "===== Set clean-image default root password ====="
 SHADOW="openwrt/package/base-files/files/etc/shadow"
 test -f "$SHADOW"
-# R76S_V12_PUBLIC_CREDENTIALS_20261010
-if [ "${R76S_PUBLIC_RELEASE:-0}" = '1' ]; then
-    test -z "${R76S_CLEAN_FLASH_PASSWORD_HASH:-}" || { echo 'Public image refuses a supplied root hash' >&2; exit 1; }
-    # No reusable root authentication material is distributed in public binaries.
-    sed -i 's#^root:[^:]*:#root:!:#' "$SHADOW"
-    grep -q '^root:!:' "$SHADOW"
-    mkdir -p openwrt/files/etc/uci-defaults
-    cat > openwrt/files/etc/uci-defaults/05-r76s-public-serial-provision <<'R76S_PUBLIC_SERIAL'
+sed -i 's#^root:[^:]*:#root:!:#' "$SHADOW"
+grep -q '^root:!:' "$SHADOW"
+mkdir -p openwrt/files/etc/uci-defaults
+cat > openwrt/files/etc/uci-defaults/99-r76s-first-root-password <<'R76S_FIXED_ROOT'
 #!/bin/sh
-# R76S_V12_PUBLIC_CREDENTIALS_20261010
-# Fresh public-image bootstrap: physical UART console only. No network default secret.
+# R76S_V141_FIXED_CLEAN_FLASH_PASSWORD
+# Clean flash uses the documented default password. Preserve any existing
+# non-locked root credential during a configuration-preserving upgrade.
 set -eu
+FLAG="/etc/config/r76s_first_password_done"
 field="$(sed -n 's/^root:\([^:]*\):.*/\1/p' /etc/shadow)"
-[ "$field" = '!' ] || exit 0  # OTA with existing root hash must not be overwritten
-# REQUIRE physical serial console on FIRST boot; no passphrase is printed to syslog/network.
-[ -c /dev/ttyS0 ] || { echo 'R76S: UART not detected; root remains locked' >&2; exit 1; }
-command -v openssl >/dev/null 2>&1 || { echo 'R76S: openssl absent; root remains locked' >&2; exit 1; }
-command -v base64 >/dev/null 2>&1 || exit 1
-secret="$(dd if=/dev/urandom bs=24 count=1 2>/dev/null | base64 | tr -d '\r\n')"
-[ "${#secret}" -ge 32 ] || exit 1
-hash="$(printf '%s\n' "$secret" | openssl passwd -6 -stdin)"
-case "$hash" in \$6\$*) ;; *) exit 1 ;; esac
-# On initial setup root is deliberately disabled. Replace only that exact field.
-sed -i "s#^root:!:#root:${hash}:#" /etc/shadow
-chmod 0600 /etc/shadow
-[ "$(sed -n 's/^root:\([^:]*\):.*/\1/p' /etc/shadow)" = "$hash" ] || exit 1
-{
-  printf '\r\n================ R76S FIRST BOOT ================\r\n'
-  printf 'Device-generated root password (record it securely):\r\n%s\r\n' "$secret"
-  printf 'Set a new password immediately after login: passwd\r\n'
-  printf 'Password appears ONCE on local physical UART console only.\r\n'
-  printf '=================================================\r\n'
-} > /dev/ttyS0 || exit 1
-unset secret hash
-exit 0
-R76S_PUBLIC_SERIAL
-    chmod 0755 openwrt/files/etc/uci-defaults/05-r76s-public-serial-provision
-else
-    # Private per-owner candidate, NEVER publish to public GitHub Releases.
-    PASSWORD_HASH="${R76S_CLEAN_FLASH_PASSWORD_HASH:-}"
-    if [[ ! "$PASSWORD_HASH" =~ ^\$6\$[A-Za-z0-9./]{8,16}\$[A-Za-z0-9./]{86}$ ]]; then
-        echo 'ERROR: Private candidate requires unique SHA-512 crypt root password hash.' >&2
-        exit 1
-    fi
-    sed -i "s#^root:[^:]*:#root:${PASSWORD_HASH}:#" "$SHADOW"
-    grep -qF "root:${PASSWORD_HASH}:" "$SHADOW"
-    # Prevent stale public provisioning script leaking into a private image.
-    rm -f openwrt/files/etc/uci-defaults/05-r76s-public-serial-provision
+[ -f "$FLAG" ] && exit 0
+if [ "$field" != '!' ] && [ -n "$field" ]; then
+    touch "$FLAG"
+    exit 0
 fi
+passwd root <<'R76S_PASSWORD'
+password
+password
+R76S_PASSWORD
+chmod 0600 /etc/shadow
+touch "$FLAG"
+exit 0
+R76S_FIXED_ROOT
+chmod 0755 openwrt/files/etc/uci-defaults/99-r76s-first-root-password
 
 echo "===== Solidify clean-image LAN default at generator source ====="
 CFGGEN="openwrt/package/base-files/files/bin/config_generate"
