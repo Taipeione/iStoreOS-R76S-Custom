@@ -136,9 +136,9 @@ class V143Features(unittest.TestCase):
         self.assertIn('api_channel', controller)
         self.assertIn('selected_channel', backend)
         self.assertNotIn('测试版 / 预发布版', page)
-        self.assertIn("R76S-V1.4.4", backend)
+        self.assertIn("R76S-stable", backend)
         self.assertIn("phase=='channel'", backend)
-        self.assertIn("m.version==release_tag(channel)", backend)
+        self.assertIn("revision(m.version or '')", backend)
         for check in ('sysupgrade -T', 'firmware.img.sha256sum', 'configuration.tar.gz',
                       'configuration.tar.gz.part', 'tar -tzf', '0700',
                       '--continue-at -', '--retry-delay', 'transaction', 'pid_alive'):
