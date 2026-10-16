@@ -36,7 +36,7 @@ class V143Features(unittest.TestCase):
             env = dict(os.environ, PATH=str(fakebin) + ':' + os.environ['PATH'],
                        R76S_TEST_SHADOW=str(shadow), R76S_TEST_PASSWD_INPUT=str(root / 'passwd-input'))
             # The one-time migration is intentionally gated to the prior
-            # V1.4.3 preserve-config boot; V1.4.5 clean images already carry
+            # V1.4.3 preserve-config boot; V1.4.6 clean images already carry
             # the deterministic hash and must not reset later user changes.
             release.write_text("DISTRIB_REVISION='R76S-V1.4.3'\n")
             shadow.write_text(f'root:{shadow_value}:0:0:root:/root:/bin/ash\n')
@@ -215,13 +215,13 @@ dofile(%s)
 
     def test_formal_metadata_and_release_assets(self):
         release = json.loads((ROOT / 'config/r76s-release.json').read_text())
-        self.assertEqual(release['version'], 'R76S-V1.4.5')
+        self.assertEqual(release['version'], 'R76S-V1.4.6')
         self.assertEqual(release['channel'], 'stable')
         workflow = (ROOT / '.github/workflows/r76s-v1.4-build.yml').read_text()
         self.assertIn('--prerelease=false --draft=false --latest', workflow)
         self.assertIn('R76S-stable', workflow)
         self.assertIn('RELEASE_ASSET_REPLACEMENT_REQUIRES_USER_CONFIRMATION=YES', workflow)
-        self.assertIn('gh release edit R76S-V1.4.5', workflow)
+        self.assertIn('gh release edit R76S-V1.4.6', workflow)
         self.assertIn('gh release upload R76S-stable', workflow)
 
 

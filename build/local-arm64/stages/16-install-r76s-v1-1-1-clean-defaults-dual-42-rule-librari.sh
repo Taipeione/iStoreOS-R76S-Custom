@@ -16,7 +16,7 @@ echo "===== Set clean-image default root password ====="
 SHADOW="openwrt/package/base-files/files/etc/shadow"
 test -f "$SHADOW"
 if [ -n "${R76S_CLEAN_FLASH_PASSWORD_HASH:-}" ]; then
-    echo 'ERROR: V1.4.5 uses the fixed root credential policy; supplied root hashes are not accepted.' >&2
+    echo 'ERROR: V1.4.6 uses the fixed root credential policy; supplied root hashes are not accepted.' >&2
     exit 1
 fi
 CLEAN_FLASH_ROOT_HASH='$6$r76sv143$j/yuToJ35nP6zluEW5qQzsYySWhM0mx8xaNVL.ZK2/J00HuN1d1Qr1h6PP2yWHgXmRlkRnA/Ymtqj60ETzJoi.'
@@ -24,7 +24,7 @@ sed -i "s#^root:[^:]*:#root:${CLEAN_FLASH_ROOT_HASH}:#" "$SHADOW"
 grep -qF "root:${CLEAN_FLASH_ROOT_HASH}:" "$SHADOW"
 mkdir -p openwrt/files/etc/init.d openwrt/files/etc/uci-defaults openwrt/files/etc/rc.d openwrt/files/etc/config
 
-# V1.4.5 has one password setter only. It runs at late boot so a preserved
+# V1.4.6 has one password setter only. It runs at late boot so a preserved
 # /etc/shadow is repaired once, while later administrator changes persist.
 cat > openwrt/files/etc/init.d/r76s-root-password <<'R76S_V143_PASSWORD_INIT'
 #!/bin/sh /etc/rc.common
@@ -37,7 +37,7 @@ boot() {
 	REVISION=""
 	[ -r /etc/openwrt_release ] && REVISION="$(sed -n "s/^DISTRIB_REVISION=['\"]\([^'\"]*\)['\"].*/\1/p" /etc/openwrt_release)"
 	# Legacy migration is intentionally limited to V1.4.3 preserved boots.
-	# V1.4.5 clean images already contain the fixed hash; later boots must
+	# V1.4.6 clean images already contain the fixed hash; later boots must
 	# never overwrite an administrator's password.
 	[ "$REVISION" = 'R76S-V1.4.3' ] || return 0
 	if passwd root <<'R76S_V143_PASSWORD'
@@ -190,14 +190,24 @@ EOF
 chmod 0755 openwrt/files/lib/upgrade/ota.sh
 
 cat > openwrt/files/lib/upgrade/keep.d/r76s-v110 <<'EOF_KEEP'
+/etc/config/r76s
+/etc/config/network
+/etc/config/firewall
+/etc/config/dhcp
+/etc/config/ddns
+/etc/config/dockerd
+/etc/config/ttyd
 /etc/config/passwall
 /etc/config/passwall2
 /etc/config/smartdns
+/etc/config/ucitrack
 /etc/smartdns/r76s-v13/ip-family.conf
 /etc/config/r76s_ip_policy
 /etc/r76s-ip6-guard/last-good.nft
 /etc/config/adguardhome
 /etc/config/r76s_ota_state
+/etc/docker/
+/var/lib/docker/
 /etc/config/r76s_v111_dns
 /etc/r76s-v111-dns/
 /etc/adguardhome.yaml
@@ -261,6 +271,12 @@ if [ -e /etc/uci-defaults/10_disable_services ]; then
     uci -q set r76s_ota_state.state.standard_smartdns_init="$(service_was_enabled smartdns)"
     uci -q set r76s_ota_state.state.standard_adguardhome_init="$(service_was_enabled adguardhome)"
     uci -q commit r76s_ota_state
+
+    # V1.4.6 registry snapshot replaces package-inventory heuristics for all
+    # services while retaining the legacy fields above for compatibility.
+    if [ -x /usr/libexec/r76s/r76s-service-manager ]; then
+        /usr/libexec/r76s/r76s-service-manager snapshot standard || exit 1
+    fi
 
     logger -t r76s-v110 \
         "standard preserve-config sysupgrade detected and init states captured" \

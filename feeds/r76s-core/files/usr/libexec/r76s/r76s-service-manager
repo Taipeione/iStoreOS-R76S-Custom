@@ -1,27 +1,51 @@
 #!/bin/sh
 # UCI describes persistent intent. This manager does not rewrite nodes or subscriptions.
+# R76S_V146_PLUGIN_LIFECYCLE: registry-driven apply, snapshot and status.
 set -eu
 ROOT="${R76S_SERVICE_ROOT:-}"
 INIT="$ROOT/etc/init.d"
 LOCK="$ROOT/tmp/r76s-services.lock"
+REGISTRY="$ROOT/usr/share/r76s/plugin-registry"
 mkdir -p "$ROOT/tmp"
 exec 8>"$LOCK"
 flock -w 10 8 || exit 1
 fail() { echo "r76s-services: $*" >&2; exit 1; }
+records() {
+    if [ -r "$REGISTRY" ]; then
+        sed -n '/^[[:space:]]*#/d;/^[[:space:]]*$/d;p' "$REGISTRY"
+    else
+        # Compatibility for the isolated V1.4 unit-test root.
+        printf '%s\n' \
+            'passwall|passwall|passwall.@global[0].enabled|uci|proxy' \
+            'passwall2|passwall2|passwall2.@global[0].enabled|uci|proxy' \
+            'smartdns|smartdns|smartdns.@smartdns[0].enabled|uci|dns'
+    fi
+}
+load_spec() {
+    wanted="$1"
+    spec_name= spec_init= spec_key= spec_mode= spec_group=
+    while IFS='|' read -r name init uci_key mode group; do
+        [ "$name" = "$wanted" ] || continue
+        spec_name="$name"; spec_init="$init"; spec_key="$uci_key"
+        spec_mode="$mode"; spec_group="$group"
+        return 0
+    done <<EOF_REGISTRY
+$(records)
+EOF_REGISTRY
+    return 1
+}
 key() {
-    case "$1" in
-        passwall|passwall2) printf '%s.@global[0].enabled' "$1" ;;
-        smartdns) printf 'smartdns.@smartdns[0].enabled' ;;
-        *) fail 'unsupported service' ;;
-    esac
+    load_spec "$1" || fail "unsupported service: $1"
+    [ "$spec_key" != "-" ] || fail "service has no UCI intent: $1"
+    printf '%s' "$spec_key"
 }
 init_link_enabled() {
     rc_service="$1"
     rcdir="$ROOT/etc/rc.d"
     [ -d "$rcdir" ] || return 1
-    for link in "$rcdir"/S*; do
-        [ -L "$link" ] || continue
-        link_target="$(readlink "$link" 2>/dev/null || true)"
+    for rc_link in "$rcdir"/S*; do
+        [ -L "$rc_link" ] || continue
+        link_target="$(readlink "$rc_link" 2>/dev/null || true)"
         case "$link_target" in
             */"$rc_service"|"$rc_service") return 0 ;;
         esac
@@ -29,11 +53,116 @@ init_link_enabled() {
     return 1
 }
 intent() {
-    flag="$(uci -q get "$(key "$1")" 2>/dev/null || echo 0)"
+    load_spec "$1" || fail "unsupported service: $1"
+    if [ "$spec_key" = "-" ]; then
+        init_link_enabled "$spec_init" && printf '1' || printf '0'
+        return 0
+    fi
+    flag="$(uci -q get "$spec_key" 2>/dev/null || echo 0)"
     case "$flag" in 0|1) printf '%s' "$flag" ;; *) fail "invalid enabled: $1" ;; esac
 }
 conflict() {
     [ "$(intent passwall)$(intent passwall2)" != 11 ] || fail 'both transparent proxies selected; disable one explicitly'
+}
+state_name() {
+    printf '%s' "$1" | tr '-' '_'
+}
+state_value() {
+    name="$1"; field="$2"
+    state_key="r76s_ota_state.state.plugin_$(state_name "$name")_$field"
+    value="$(uci -q get "$state_key" 2>/dev/null || true)"
+    if [ -n "$value" ]; then
+        printf '%s' "$value"
+        return 0
+    fi
+    # Read snapshots written by V1.4.5 and earlier while migrating forward.
+    case "$name:$field" in
+        passwall:init) uci -q get r76s_ota_state.state.passwall_init 2>/dev/null || true ;;
+        passwall2:init) uci -q get r76s_ota_state.state.passwall2_init 2>/dev/null || true ;;
+        smartdns:init) uci -q get r76s_ota_state.state.smartdns_init 2>/dev/null || true ;;
+        adguardhome:init) uci -q get r76s_ota_state.state.adguardhome_init 2>/dev/null || true ;;
+        passwall:intent) uci -q get r76s_ota_state.state.passwall_uci 2>/dev/null || true ;;
+        passwall2:intent) uci -q get r76s_ota_state.state.passwall2_uci 2>/dev/null || true ;;
+        smartdns:intent) uci -q get r76s_ota_state.state.smartdns_uci 2>/dev/null || true ;;
+        *) true ;;
+    esac
+}
+snapshot() {
+    mode="${1:-custom}"
+    case "$mode" in custom|standard) ;; *) fail 'snapshot mode must be custom or standard' ;; esac
+    uci -q get r76s_ota_state.state >/dev/null 2>&1 || fail 'OTA state section missing'
+    while IFS='|' read -r name init uci_key owner _group; do
+        [ -x "$INIT/$init" ] || continue
+        intent_value=0
+        init_state=0; init_link_enabled "$init" && init_state=1
+        suffix="plugin_$(state_name "$name")"
+        uci -q set "r76s_ota_state.state.${suffix}_init=$init_state" || fail "cannot snapshot $name init state"
+        if [ "$uci_key" != "-" ]; then
+            intent_value="$(uci -q get "$uci_key" 2>/dev/null || echo 0)"
+            case "$intent_value" in 0|1) ;; *) fail "invalid UCI intent for $name" ;; esac
+            uci -q set "r76s_ota_state.state.${suffix}_intent=$intent_value" || fail "cannot snapshot $name intent"
+        fi
+        case "$name" in
+            passwall) uci -q set r76s_ota_state.state.passwall_init="$init_state"; uci -q set r76s_ota_state.state.passwall_uci="${intent_value:-0}" ;;
+            passwall2) uci -q set r76s_ota_state.state.passwall2_init="$init_state"; uci -q set r76s_ota_state.state.passwall2_uci="${intent_value:-0}" ;;
+            smartdns) uci -q set r76s_ota_state.state.smartdns_init="$init_state"; uci -q set r76s_ota_state.state.smartdns_uci="${intent_value:-0}" ;;
+            adguardhome) uci -q set r76s_ota_state.state.adguardhome_init="$init_state" ;;
+        esac
+    done <<EOF_SNAPSHOT
+$(records)
+EOF_SNAPSHOT
+    if [ "$mode" = custom ]; then
+        uci -q set r76s_ota_state.state.pending=1 || fail 'cannot set custom OTA pending'
+    else
+        uci -q set r76s_ota_state.state.standard_preserve=1 || fail 'cannot set standard preserve marker'
+    fi
+    uci -q commit r76s_ota_state || fail 'cannot commit OTA snapshot'
+}
+restore() {
+    mode="${1:-custom}"
+    case "$mode" in custom) marker=pending ;; standard) marker=standard_preserve ;; *) fail 'restore mode must be custom or standard' ;; esac
+    [ "$(uci -q get "r76s_ota_state.state.$marker" 2>/dev/null || true)" = 1 ] || return 0
+    # Restore UCI intent first, without touching any other configuration item.
+    committed=""
+    while IFS='|' read -r name init uci_key owner _group; do
+        [ "$uci_key" != "-" ] || continue
+        value="$(state_value "$name" intent)"
+        case "$value" in 0|1) ;; *) fail "missing $name intent snapshot" ;; esac
+        uci -q set "$uci_key=$value" || fail "cannot restore $name intent"
+        package="${uci_key%%.*}"
+        case " $committed " in *" $package "*) ;; *) uci -q commit "$package" || fail "cannot commit $package"; committed="$committed $package" ;; esac
+    done <<EOF_RESTORE_UCI
+$(records)
+EOF_RESTORE_UCI
+    conflict
+    # Recreate exactly the recorded autostart state for every installed entry.
+    while IFS='|' read -r name init _key owner _group; do
+        [ -x "$INIT/$init" ] || continue
+        value="$(state_value "$name" init)"
+        case "$value" in
+            1) "$INIT/$init" enable >/dev/null 2>&1 || fail "cannot enable $name" ;;
+            0) "$INIT/$init" stop >/dev/null 2>&1 || true; "$INIT/$init" disable >/dev/null 2>&1 || fail "cannot disable $name" ;;
+            *) fail "missing $name init snapshot" ;;
+        esac
+    done <<EOF_RESTORE_LINKS
+$(records)
+EOF_RESTORE_LINKS
+    # Start only services that were both configured/enabled and enabled at boot.
+    while IFS='|' read -r name init uci_key owner _group; do
+        [ -x "$INIT/$init" ] || continue
+        case "$name" in r76s-reconcile|r76s-ota-restore|r76s-root-password) continue ;; esac
+        init_state="$(state_value "$name" init)"
+        [ "$init_state" = 1 ] || continue
+        if [ "$uci_key" != "-" ]; then
+            [ "$(state_value "$name" intent)" = 1 ] || continue
+        fi
+        if [ "$name" = adguardhome ] && [ ! -s /etc/adguardhome.yaml ] && [ ! -s /etc/adguardhome/adguardhome.yaml ]; then
+            fail 'AdGuard Home was enabled but its YAML configuration is absent'
+        fi
+        "$INIT/$init" restart >/dev/null 2>&1 || fail "cannot restart $name"
+    done <<EOF_RESTORE_START
+$(records)
+EOF_RESTORE_START
 }
 deactivate_other_proxy() {
     service="$1"
@@ -53,32 +182,69 @@ deactivate_other_proxy() {
     logger -t r76s-service-manager "${service} selected; ${other} stopped and disabled" 2>/dev/null || true
 }
 sync_one() {
-    [ -x "$INIT/$1" ] || return 0
+    load_spec "$1" || return 1
+    [ -x "$INIT/$spec_init" ] || return 0
+    # Init-link-owned services (Docker, DDNS, ttyd, servers, etc.) are never
+    # rewritten by reconcile. Their existing rc.d link is the user's intent.
+    [ "$spec_mode" = uci ] || return 0
     if [ "$(intent "$1")" = 1 ]; then
-        "$INIT/$1" enable || return 1
-        if ! init_link_enabled "$1"; then
+        "$INIT/$spec_init" enable || return 1
+        if ! init_link_enabled "$spec_init"; then
             echo "r76s-services: autostart link missing: $1" >&2
             return 1
         fi
     else
-        "$INIT/$1" disable || return 1
-        if init_link_enabled "$1"; then
+        "$INIT/$spec_init" disable || return 1
+        if init_link_enabled "$spec_init"; then
             echo "r76s-services: autostart link still present: $1" >&2
             return 1
         fi
     fi
 }
 case "${1:-status}" in
+    snapshot) snapshot "${2:-custom}" ;;
+    restore) restore "${2:-custom}" ;;
     check)
         service="${2:-}"
-        key "$service" >/dev/null
-        deactivate_other_proxy "$service" || fail 'proxy mutex synchronization failed'
-        conflict
+        load_spec "$service" || fail "unsupported service: $service"
+        if [ "$spec_mode" = uci ]; then
+            deactivate_other_proxy "$service" || fail 'proxy mutex synchronization failed'
+            conflict
+        fi
         sync_one "$service"
         ;;
     reconcile)
         conflict
-        for service in passwall passwall2 smartdns; do sync_one "$service"; done
+        while IFS='|' read -r service _init _key mode _group; do
+            [ "$mode" = uci ] || continue
+            sync_one "$service"
+        done <<EOF_RECONCILE
+$(records)
+EOF_RECONCILE
+        ;;
+    apply)
+        service="${2:-}"
+        load_spec "$service" || fail "unsupported service: $service"
+        [ -x "$INIT/$spec_init" ] || fail "service absent: $service"
+        if [ "$spec_mode" = uci ]; then
+            deactivate_other_proxy "$service" || fail 'proxy mutex synchronization failed'
+            conflict
+            sync_one "$service" || fail 'init synchronization failed'
+            value="$(intent "$service")"
+        else
+            init_link_enabled "$spec_init" || exit 0
+            value=1
+        fi
+        # Native PassWall start/restart calls this manager's check action.
+        # Release the lock before invoking the native script to avoid a
+        # self-deadlock while retaining serialized state changes.
+        flock -u 8
+        if [ "$value" = 1 ]; then
+            "$INIT/$spec_init" restart
+        else
+            "$INIT/$spec_init" stop >/dev/null 2>&1 || true
+            "$INIT/$spec_init" disable
+        fi
         ;;
     set)
         service="${2:-}"; value="${3:-}"
@@ -111,10 +277,14 @@ case "${1:-status}" in
         fi
         ;;
     status)
-        for service in passwall passwall2 smartdns; do
-            enabled=0; if [ -x "$INIT/$service" ] && init_link_enabled "$service"; then enabled=1; fi
-            printf '%s\t%s\t%s\n' "$service" "$(intent "$service")" "$enabled"
-        done
+        while IFS='|' read -r service init _key mode _group; do
+            installed=0; link_state=0
+            [ -x "$INIT/$init" ] && installed=1
+            [ "$installed" = 1 ] && init_link_enabled "$init" && link_state=1
+            printf '%s\t%s\t%s\t%s\t%s\n' "$service" "$(intent "$service")" "$link_state" "$installed" "$mode"
+        done <<EOF_STATUS
+$(records)
+EOF_STATUS
         ;;
-    *) fail 'usage: status | reconcile | check SERVICE | set SERVICE 0|1' ;;
+    *) fail 'usage: status | reconcile | check SERVICE | apply SERVICE | set SERVICE 0|1' ;;
 esac

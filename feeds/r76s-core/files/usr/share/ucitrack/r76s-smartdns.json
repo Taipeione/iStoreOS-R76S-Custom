@@ -1,0 +1,4 @@
+{
+    "config": "smartdns",
+    "exec": "/usr/libexec/r76s/r76s-config-event smartdns"
+}

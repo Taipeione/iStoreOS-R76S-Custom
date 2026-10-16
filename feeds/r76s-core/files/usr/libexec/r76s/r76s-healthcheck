@@ -1,18 +1,71 @@
 #!/bin/sh
-# Local readiness checks; no private node data is printed.
-set -eu
-/usr/libexec/r76s/r76s-service-manager reconcile
-for service in passwall passwall2; do
-    if [ "$(uci -q get "$service.@global[0].enabled")" = 1 ]; then
-        pgrep -f "/tmp/etc/$service/" >/dev/null || {
-            echo "$service: no runtime instance" >&2; exit 1;
-        }
-        nft list ruleset | grep -q "$service" || {
-            echo "$service: no firewall rules" >&2; exit 1;
-        }
+# R76S_V146_PLUGIN_LIFECYCLE: read-only, registry-driven health classification.
+# It never enables or restarts a service. A non-zero result means an enabled
+# service failed its functional probe; disabled and unconfigured services are
+# reported without being treated as failures.
+set -u
+
+failed=0
+printf '%s\n' 'R76S_PLUGIN_HEALTH_BEGIN'
+
+while IFS='	' read -r name intent link installed mode; do
+    [ -n "$name" ] || continue
+    if [ "$installed" != 1 ]; then
+        printf '%s\tNOT_INSTALLED\n' "$name"
+        continue
     fi
-done
-if [ "$(uci -q get smartdns.@smartdns[0].enabled)" = 1 ]; then
-    pgrep -f '[s]martdns' >/dev/null || exit 1
+    if [ "$link" != 1 ]; then
+        printf '%s\tDISABLED\n' "$name"
+        continue
+    fi
+
+    case "$name" in
+        passwall|passwall2)
+            if [ "$intent" != 1 ]; then
+                printf '%s\tCONFIG_DISABLED\n' "$name"
+            elif ! pgrep -f "/tmp/etc/$name/" >/dev/null 2>&1; then
+                printf '%s\tENABLED_BUT_NOT_RUNNING\n' "$name"; failed=1
+            elif ! nft list ruleset 2>/dev/null | grep -q "$name"; then
+                printf '%s\tRUNNING_BUT_FIREWALL_RULES_UNCONFIRMED\n' "$name"; failed=1
+            else
+                printf '%s\tHEALTHY\n' "$name"
+            fi
+            ;;
+        smartdns)
+            if [ "$intent" != 1 ]; then
+                printf '%s\tCONFIG_DISABLED\n' "$name"
+            elif ! pgrep -f '[s]martdns' >/dev/null 2>&1; then
+                printf '%s\tENABLED_BUT_NOT_RUNNING\n' "$name"; failed=1
+            else
+                printf '%s\tHEALTHY_PROCESS\n' "$name"
+            fi
+            ;;
+        adguardhome)
+            if ! pgrep -x AdGuardHome >/dev/null 2>&1; then
+                printf '%s\tENABLED_BUT_NOT_RUNNING\n' "$name"; failed=1
+            else
+                printf '%s\tHEALTHY_PROCESS\n' "$name"
+            fi
+            ;;
+        *)
+            # DDNS, WireGuard, QuickStart and similar components do not all
+            # expose a persistent daemon. Their autostart intent is reported,
+            # but no false process failure is invented.
+            printf '%s\tENABLED_NO_LONG_DAEMON_PROBE\n' "$name"
+            ;;
+    esac
+done <<EOF_STATUS
+$(/usr/libexec/r76s/r76s-service-manager status 2>/dev/null || true)
+EOF_STATUS
+
+if dig @127.0.0.1 example.com A +time=2 +tries=1 +noall +comments 2>/dev/null \
+    | grep -q 'status: NOERROR'; then
+    printf '%s\n' 'dnsmasq:HEALTHY_QUERY'
+else
+    printf '%s\n' 'dnsmasq:QUERY_FAILED'
+    failed=1
 fi
-dig @127.0.0.1 example.com A +time=2 +tries=1 +noall +comments | grep -q 'status: NOERROR'
+
+if [ "$failed" = 0 ]; then result=PASS; else result=FAIL; fi
+printf 'R76S_PLUGIN_HEALTH_RESULT=%s\n' "$result"
+exit "$failed"

@@ -20,7 +20,7 @@ class ProductionAuditTests(unittest.TestCase):
                 path.write_text(text)
                 return path
             release = write('etc/openwrt_release',
-                "DISTRIB_RELEASE='24.10.8'\nDISTRIB_REVISION='R76S-V1.4.5'\n")
+                "DISTRIB_RELEASE='24.10.8'\nDISTRIB_REVISION='R76S-V1.4.6'\n")
             status = write('usr/lib/opkg/status', ''.join(
                 f'Package: {name}\nStatus: install user installed\n\n'
                 for name in production.PACKAGES))
@@ -41,7 +41,7 @@ class ProductionAuditTests(unittest.TestCase):
             write('lib/upgrade/keep.d/r76s-v110', '/etc/smartdns/r76s-v13/ip-family.conf\n/etc/config/r76s_ip_policy\n/etc/r76s-ip6-guard/last-good.nft\n')
             self.assertEqual(production.audit(root), [])
             for path, old, new, expected in (
-                (release, 'R76S-V1.4.5', 'V1.2', 'identity mismatch'),
+                (release, 'R76S-V1.4.6', 'V1.2', 'identity mismatch'),
                 (status, 'Package: wireguard-tools', 'Package: absent', 'wireguard-tools'),
                 (defaults[0], "shunt_rules 'Xbox'", "shunt_rules 'WrongOrder'", 'order mismatch'),
                 (clean, "port='6053'", "port='53'", 'SmartDNS clean default'),

@@ -1,0 +1,22 @@
+# name|init.d service|UCI intent key or -|ownership|conflict group
+# ownership=uci means the UCI flag is authoritative; init means the rc.d link is the intent.
+passwall|passwall|passwall.@global[0].enabled|uci|proxy
+passwall2|passwall2|passwall2.@global[0].enabled|uci|proxy
+smartdns|smartdns|smartdns.@smartdns[0].enabled|uci|dns
+adguardhome|adguardhome|-|init|dns
+ddns|ddns|-|init|network
+dockerd|dockerd|-|init|container
+ttyd|ttyd|-|init|management
+irqbalance|irqbalance|-|init|system
+zram|zram|-|init|system
+sysntpd|sysntpd|-|init|system
+quickstart|quickstart|-|init|management
+istore|istore|-|init|management
+passwall_server|passwall_server|-|init|proxy-server
+passwall2_server|passwall2_server|-|init|proxy-server
+r76s-reconcile|r76s-reconcile|-|init|r76s
+r76s-ota-restore|r76s-ota-restore|-|init|r76s
+r76s-ip6-guard|r76s-ip6-guard|-|init|r76s
+r76s-v111-dns-manager|r76s-v111-dns-manager|r76s_v111_dns.main.enabled|uci|dns
+wireguard|wireguard|-|init|network
+upnp|miniupnpd|upnpd.@miniupnpd[0].enabled|uci|dns

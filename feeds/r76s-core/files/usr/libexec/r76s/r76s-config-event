@@ -1,0 +1,13 @@
+#!/bin/sh
+# R76S_V146_PLUGIN_LIFECYCLE: config changes must work even when a service is disabled.
+set -eu
+service="${1:-}"
+case "$service" in
+    passwall|passwall2|smartdns|adguardhome|ddns|dockerd|ttyd|quickstart|istore|r76s-v111-dns-manager)
+        exec /usr/libexec/r76s/r76s-service-manager apply "$service"
+        ;;
+    *)
+        echo "r76s-config-event: unsupported config owner: $service" >&2
+        exit 2
+        ;;
+esac

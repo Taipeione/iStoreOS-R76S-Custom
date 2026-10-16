@@ -3,10 +3,15 @@
 /etc/config/firewall
 /etc/config/dhcp
 /etc/config/ddns
+/etc/config/dockerd
+/etc/config/ttyd
 /etc/config/passwall
 /etc/config/passwall2
 /etc/config/smartdns
+/etc/config/ucitrack
 /etc/config/r76s_ota_state
+/etc/docker/
+/var/lib/docker/
 /etc/config/r76s_ip_policy
 /etc/passwall/
 /etc/passwall2/

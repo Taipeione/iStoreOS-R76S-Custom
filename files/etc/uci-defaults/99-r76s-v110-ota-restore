@@ -33,6 +33,15 @@ if [ "$CUSTOM_PENDING" = 1 ]; then
 fi
 
 if [ "$CUSTOM_PENDING" != 1 ] && [ "$STANDARD_PRESERVE" = 1 ]; then
+    if [ -x /usr/libexec/r76s/r76s-service-manager ]; then
+        /usr/libexec/r76s/r76s-service-manager restore standard || restore_error 'standard plugin restore failed; marker retained'
+        for key in standard_preserve standard_passwall_init standard_passwall2_init \
+                   standard_smartdns_init standard_adguardhome_init; do
+            uci -q delete "r76s_ota_state.state.$key" 2>/dev/null || true
+        done
+        uci -q commit r76s_ota_state || restore_error 'cannot commit standard restore cleanup'
+        exit 0
+    fi
     pw_init="$(uci -q get r76s_ota_state.state.standard_passwall_init)"
     pw2_init="$(uci -q get r76s_ota_state.state.standard_passwall2_init)"
     sd_init="$(uci -q get r76s_ota_state.state.standard_smartdns_init)"

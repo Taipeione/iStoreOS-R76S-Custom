@@ -1,0 +1,4 @@
+{
+    "config": "passwall2",
+    "exec": "/usr/libexec/r76s/r76s-config-event passwall2"
+}

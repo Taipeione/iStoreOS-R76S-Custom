@@ -6,6 +6,20 @@ set -euo pipefail
 
 cd openwrt
 
+echo "===== V1.4.6 restage canonical lifecycle and OTA files ====="
+test -d package/custom/r76s-core
+cp -a /r76s-repo/feeds/r76s-core/files/. package/custom/r76s-core/files/
+mkdir -p files/etc/init.d files/etc/uci-defaults files/etc/config files/lib/upgrade/keep.d files/usr/libexec/r76s
+install -m 0755 /r76s-repo/files/etc/init.d/r76s-ota-restore files/etc/init.d/r76s-ota-restore
+install -m 0755 /r76s-repo/files/etc/uci-defaults/99-r76s-v110-ota-restore files/etc/uci-defaults/99-r76s-v110-ota-restore
+install -m 0644 /r76s-repo/files/etc/config/r76s_ota_state files/etc/config/r76s_ota_state
+install -m 0644 /r76s-repo/feeds/r76s-core/files/lib/upgrade/keep.d/r76s files/lib/upgrade/keep.d/r76s
+install -m 0755 /r76s-repo/files/usr/libexec/r76s/r76s-ota-preserve-state files/usr/libexec/r76s/r76s-ota-preserve-state
+grep -qF 'R76S_V146_PLUGIN_LIFECYCLE' package/custom/r76s-core/files/usr/libexec/r76s/r76s-service-manager
+test -s package/custom/r76s-core/files/usr/share/ucitrack/r76s-passwall.json
+grep -qF '/var/lib/docker/' files/lib/upgrade/keep.d/r76s
+sh -n files/etc/init.d/r76s-ota-restore files/etc/uci-defaults/99-r76s-v110-ota-restore files/usr/libexec/r76s/r76s-ota-preserve-state
+
 echo "===== TARGET ====="
 
 grep -E \

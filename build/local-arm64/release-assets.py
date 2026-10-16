@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import shutil
 
-VERSION = 'R76S-V1.4.5'
+VERSION = 'R76S-V1.4.6'
 
 
 def digest(path):
@@ -44,7 +44,8 @@ def generate(release, target, repository, commit):
             'artifacts': artifacts}
     (release / 'ota.json').write_text(json.dumps(data, indent=2) + '\n')
     metadata = ['ota.json', 'version.latest', 'version.index',
-                'ota.footer.html', 'BOOTLOADER_INFO.txt']
+                'ota.footer.html', 'BOOTLOADER_INFO.txt',
+                'R76S-V1.4.6-PLUGIN-MATRIX.md']
     paths = images + [release / name for name in metadata]
     checksums = ''.join(f'{digest(p)}  {p.name}\n' for p in paths)
     for name in ('sha256', 'sha256sums'):

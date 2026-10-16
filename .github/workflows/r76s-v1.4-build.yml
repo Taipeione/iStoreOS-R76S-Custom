@@ -1,6 +1,6 @@
-# R76S V1.4.5 cloud build. GitHub Actions compiles; source changes stay reviewable.
-name: R76S Build V1.4.5
-run-name: "R76S-V1.4.5 #${{ github.run_number }}"
+# R76S V1.4.6 cloud build. GitHub Actions compiles; source changes stay reviewable.
+name: R76S Build V1.4.6
+run-name: "R76S-V1.4.6 #${{ github.run_number }}"
 
 on:
   workflow_dispatch:
@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   build:
-    if: github.repository == 'Taipeione/iStoreOS-R76S-Custom' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/r76s-v1.4.5')
+    if: github.repository == 'Taipeione/iStoreOS-R76S-Custom' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/r76s-v1.4.6')
     runs-on: ubuntu-22.04
     timeout-minutes: 350
     defaults:
@@ -27,7 +27,7 @@ jobs:
       R76S_CCACHE_SIZE: "1G"
       DEBIAN_FRONTEND: noninteractive
     steps:
-      - name: Checkout V1.4.5 source
+      - name: Checkout V1.4.6 source
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
@@ -44,6 +44,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 build/local-arm64/preflight.py --repo .
+          python3 scripts/r76s-plugin-matrix.py --repo . --output /tmp/R76S-V1.4.6-PLUGIN-MATRIX.md
+          grep -qF 'NEEDS_DEVICE_TEST' /tmp/R76S-V1.4.6-PLUGIN-MATRIX.md
           python3 -m unittest discover -s build/local-arm64/tests -q
           python3 build/local-arm64/public-release/install.py --repo . --check
           test "${R76S_PUBLIC_RELEASE}" = '1'
@@ -122,7 +124,7 @@ jobs:
           test "$(git -C openwrt rev-parse HEAD)" = fb971407ffd9a094e6f16d9c029f1f580ed5c2ad
           echo 'ISTOREOS_PINNED_SOURCE=PASS'
 
-      - name: Build V1.4.5 using all existing 27 guarded stages
+      - name: Build V1.4.6 using all existing 27 guarded stages
         run: |
           set -euo pipefail
           export GITHUB_SHA="$(git rev-parse HEAD)"
@@ -134,15 +136,15 @@ jobs:
           V=s bash build/local-arm64/candidate-inside.sh
           echo 'BUILD_COMPLETE=YES'
 
-      - name: Verify V1.4.5 artifacts and SHA256
+      - name: Verify V1.4.6 artifacts and SHA256
         run: |
           set -euo pipefail
-          cd /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.4.5
-          test -s R76S-V1.4.5-TF-squashfs.img.gz
+          cd /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.4.6
+          test -s R76S-V1.4.6-TF-squashfs.img.gz
           test -s version.latest
           test -s version.index
-          grep -qxF '24.10.8-R76S-V1.4.5' version.index
-          grep -qF '[24.10.8-R76S-V1.4.5](R76S-V1.4.5-TF-squashfs.img.gz)' version.latest
+          grep -qxF '24.10.8-R76S-V1.4.6' version.index
+          grep -qF '[24.10.8-R76S-V1.4.6](R76S-V1.4.6-TF-squashfs.img.gz)' version.latest
           sha256sum -c sha256sums
           echo 'GITHUB_V12_IMAGE_STATIC_AUDIT=PASS'
           test -s ota.json
@@ -160,10 +162,10 @@ jobs:
           trap 'rm -f "$keyfile"' EXIT
           printf '%s\n' "$R76S_OTA_SIGNING_KEY" > "$keyfile"
           unset R76S_OTA_SIGNING_KEY
-          release=/home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.4.5
+          release=/home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.4.6
           openssl pkeyutl -sign -inkey "$keyfile" -rawin -in "$release/ota.json" -out "$release/ota.json.sig"
           cp config/ota-public.pem "$release/ota-public.pem"
-          cp docs/R76S-V1.4.5-RELEASE.md "$release/RELEASE-NOTES.md"
+          cp docs/R76S-V1.4.6-RELEASE.md "$release/RELEASE-NOTES.md"
           cp files/usr/libexec/r76s/r76s-ota-preserve-state "$release/r76s-ota-preserve-state"
           python3 scripts/r76s-release-audit.py "$release" --finalize
 
@@ -187,38 +189,38 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: R76S-V1.4.5-cloud-diagnostics-${{ github.run_number }}
+          name: R76S-V1.4.6-cloud-diagnostics-${{ github.run_number }}
           path: |
             /home/builder/work/logs/
             /home/builder/work/r76s-build-diagnostics/
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Upload V1.4.5 firmware
+      - name: Upload V1.4.6 firmware
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: R76S-V1.4.5-firmware-${{ github.run_number }}
-          path: /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.4.5/*
+          name: R76S-V1.4.6-firmware-${{ github.run_number }}
+          path: /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.4.6/*
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
 
-      - name: Publish R76S-V1.4.5 GitHub Release and OTA assets
+      - name: Publish R76S-V1.4.6 GitHub Release and OTA assets
         if: success()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          cd /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.4.5
+          cd /home/builder/work/openwrt/bin/targets/rockchip/armv8/R76S-V1.4.6
           sha256sum -c sha256
           shopt -s nullglob
-          assets=( *.img *.bin *.gz ota.json sha256 sha256sums version.latest version.index ota.footer.html BOOTLOADER_INFO.txt ota.json.sig ota-public.pem RELEASE-NOTES.md TEST-REPORT.txt r76s-ota-preserve-state BUILD-VALIDATION.txt sources.lock.json release.json )
-          # Never silently replace an existing same-tag asset. A V1.4.5
+          assets=( *.img *.bin *.gz ota.json sha256 sha256sums version.latest version.index ota.footer.html BOOTLOADER_INFO.txt ota.json.sig ota-public.pem RELEASE-NOTES.md TEST-REPORT.txt R76S-V1.4.6-PLUGIN-MATRIX.md r76s-ota-preserve-state BUILD-VALIDATION.txt sources.lock.json release.json )
+          # Never silently replace an existing same-tag asset. A V1.4.6
           # rebuild stops with an explicit digest diff; publication requires
           # user approval after that diff is reviewed.
-          if gh release view R76S-V1.4.5 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            release_id="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/R76S-V1.4.5" --jq .id)"
+          if gh release view R76S-V1.4.6 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            release_id="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/R76S-V1.4.6" --jq .id)"
             remote_assets="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets?per_page=100")"
             asset_diff=0
             for asset in "${assets[@]}"; do
@@ -236,13 +238,13 @@ jobs:
               echo 'RELEASE_ASSET_REPLACEMENT_REQUIRES_USER_CONFIRMATION=YES'
               exit 42
             fi
-            gh release edit R76S-V1.4.5 --repo "$GITHUB_REPOSITORY" \
-              --title R76S-V1.4.5 --notes-file RELEASE-NOTES.md \
+            gh release edit R76S-V1.4.6 --repo "$GITHUB_REPOSITORY" \
+              --title R76S-V1.4.6 --notes-file RELEASE-NOTES.md \
               --prerelease=false --draft=false --latest
           else
-            gh release create R76S-V1.4.5 "${assets[@]}" \
+            gh release create R76S-V1.4.6 "${assets[@]}" \
               --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-              --title R76S-V1.4.5 --notes-file RELEASE-NOTES.md \
+              --title R76S-V1.4.6 --notes-file RELEASE-NOTES.md \
               --prerelease=false --latest
           fi
           stable_assets=( ota.json ota.json.sig ota-public.pem version.latest version.index )
@@ -254,7 +256,7 @@ jobs:
             gh release create R76S-stable "${stable_assets[@]}" \
               --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
               --title 'R76S Stable OTA Pointer' \
-              --notes 'Stable OTA metadata pointer for the formal R76S-V1.4.5 release.' \
+              --notes 'Stable OTA metadata pointer for the formal R76S-V1.4.6 release.' \
               --prerelease=false --latest=false
           fi
           openssl pkeyutl -verify -pubin -inkey ota-public.pem -rawin \

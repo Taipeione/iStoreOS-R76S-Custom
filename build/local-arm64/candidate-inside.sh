@@ -27,6 +27,9 @@ export GITHUB_ENV="$WORK/.r76s-candidate/stage.env"
 export R76S_REPO_ROOT="$REPO"
 export HOME=/home/builder
 : > "$GITHUB_ENV"
+python3 "$REPO/scripts/r76s-plugin-matrix.py" \
+  --repo "$REPO" \
+  --output "$WORK/.r76s-candidate/R76S-V1.4.6-PLUGIN-MATRIX.md"
 # Stage 01 requires executable temporary mock commands; Docker /tmp is a limited exec tmpfs.
 # Explicit stage environment exports: never eval/source untrusted contents of GITHUB_ENV.
 apply_env() {
@@ -79,12 +82,12 @@ stage=29
 bash -e -o pipefail "$REPO/build/local-arm64/stages/28-collect-v1-1-1-diagnostic-report-even-on-failure.sh" \
   > "$WORK/logs/r76s-v12-candidate-diagnostics.log" 2>&1 || true
 # Keep candidate separate from any publication. Rootfs audit ran at stage25.
-release="$WORK/openwrt/bin/targets/rockchip/armv8/R76S-V1.4.5"
-test -s "$release/R76S-V1.4.5-TF-squashfs.img.gz"
+release="$WORK/openwrt/bin/targets/rockchip/armv8/R76S-V1.4.6"
+test -s "$release/R76S-V1.4.6-TF-squashfs.img.gz"
 cp "$REPO/config/r76s-sources.lock.json" "$release/sources.lock.json"
 cp "$REPO/config/r76s-release.json" "$release/release.json"
 printf '%s\n' 'Build and static image checks passed. Hardware validation is not performed by this workflow.' > "$release/BUILD-VALIDATION.txt"
-printf '%s\n' 'R76S-V1.4.5 source and artifact tests completed in GitHub Actions.' > "$release/TEST-REPORT.txt"
-sha256sum "$release/R76S-V1.4.5-TF-squashfs.img.gz" > "$WORK/logs/r76s-v12-candidate-final.sha256"
+printf '%s\n' 'R76S-V1.4.6 source and artifact tests completed in GitHub Actions.' > "$release/TEST-REPORT.txt"
+sha256sum "$release/R76S-V1.4.6-TF-squashfs.img.gz" > "$WORK/logs/r76s-v12-candidate-final.sha256"
 trap - EXIT
 echo 'CANDIDATE_BUILD=PASS_STATIC_IMAGE_AUDIT_ONLY; no publish or flash'

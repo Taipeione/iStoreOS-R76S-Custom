@@ -18,9 +18,10 @@ class ReleaseAssetsTests(unittest.TestCase):
             target = root / 'target'
             release = target / 'release'
             release.mkdir(parents=True)
-            for name in ('R76S-V1.4.5-TF-squashfs.img',
-                         'R76S-V1.4.5-TF-squashfs.img.gz', 'version.latest',
-                         'version.index', 'ota.footer.html', 'BOOTLOADER_INFO.txt'):
+            for name in ('R76S-V1.4.6-TF-squashfs.img',
+                         'R76S-V1.4.6-TF-squashfs.img.gz', 'version.latest',
+                         'version.index', 'ota.footer.html', 'BOOTLOADER_INFO.txt',
+                         'R76S-V1.4.6-PLUGIN-MATRIX.md'):
                 (release / name).write_bytes(name.encode())
             # Internal build metadata is not uploaded by the Release workflow.
             (release / 'config.buildinfo').write_text('internal\n')
@@ -28,9 +29,9 @@ class ReleaseAssetsTests(unittest.TestCase):
             binary.write_bytes(b'real bin')
             assets.generate(release, target, 'owner/repo', 'abc123')
             manifest = json.loads((release / 'ota.json').read_text())
-            self.assertEqual(manifest['version'], 'R76S-V1.4.5')
+            self.assertEqual(manifest['version'], 'R76S-V1.4.6')
             self.assertEqual(manifest['source_commit'], 'abc123')
-            self.assertIn('/releases/download/R76S-V1.4.5/', manifest['url'])
+            self.assertIn('/releases/download/R76S-V1.4.6/', manifest['url'])
             self.assertEqual(len(manifest['artifacts']), 3)
             self.assertEqual(binary.read_bytes(), b'real bin')
             checksums = (release / 'sha256').read_text()

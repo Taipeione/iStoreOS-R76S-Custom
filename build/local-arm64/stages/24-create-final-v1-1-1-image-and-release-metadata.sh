@@ -5,9 +5,9 @@ set -euo pipefail
 # REVIEW REQUIRED: not yet adapted for local execution.
 
 TARGET_DIR="$(realpath "$TARGET_DIR")"
-RELEASE_DIR="$TARGET_DIR/R76S-V1.4.5"
+RELEASE_DIR="$TARGET_DIR/R76S-V1.4.6"
 
-FINAL_NAME="R76S-V1.4.5-TF-squashfs.img.gz"
+FINAL_NAME="R76S-V1.4.6-TF-squashfs.img.gz"
 FINAL_IMAGE="$RELEASE_DIR/$FINAL_NAME"
 
 mkdir -p "$RELEASE_DIR"
@@ -26,11 +26,27 @@ echo "===== Restore OpenWrt sysupgrade metadata ====="
 test -x "$FWTOOL"
 test -s "$SYSUPGRADE_META"
 "$FWTOOL" -I "$SYSUPGRADE_META" "$FINAL_IMAGE"
-FINAL_RAW="$RELEASE_DIR/R76S-V1.4.5-TF-squashfs.img"
+FINAL_RAW="$RELEASE_DIR/R76S-V1.4.6-TF-squashfs.img"
 cp "$RAW_IMAGE" "$FINAL_RAW"
-"$FWTOOL" -I "$SYSUPGRADE_META" "$FINAL_RAW"
 
-FINAL_META_CHECK="${R76S_LOCAL_TMP:-/tmp}/R76S-V1.4.5.final.meta"
+# The raw companion is intentionally metadata-free.  fwtool metadata belongs
+# to the sysupgrade container; keeping it out of the raw artifact makes the
+# gzip/raw identity check exact instead of relying on a tolerated trailer.
+cmp -s "$RAW_IMAGE" "$FINAL_RAW"
+
+# fwtool appends the sysupgrade metadata after the gzip member.  Strip it into
+# a temporary copy before checking gzip and byte-for-byte payload identity;
+# this avoids treating the OpenWrt metadata footer as compressed image data.
+FINAL_PAYLOAD_CHECK="${R76S_LOCAL_TMP:-/tmp}/R76S-V1.4.6-final-payload.img.gz"
+FINAL_PAYLOAD_RAW="${R76S_LOCAL_TMP:-/tmp}/R76S-V1.4.6-final-payload.img"
+rm -f "$FINAL_PAYLOAD_CHECK" "$FINAL_PAYLOAD_RAW"
+cp "$FINAL_IMAGE" "$FINAL_PAYLOAD_CHECK"
+"$FWTOOL" -i "${R76S_LOCAL_TMP:-/tmp}/R76S-V1.4.6-final-payload.meta" -t "$FINAL_PAYLOAD_CHECK"
+gzip -t "$FINAL_PAYLOAD_CHECK"
+gzip -dc "$FINAL_PAYLOAD_CHECK" > "$FINAL_PAYLOAD_RAW"
+cmp -s "$FINAL_RAW" "$FINAL_PAYLOAD_RAW"
+
+FINAL_META_CHECK="${R76S_LOCAL_TMP:-/tmp}/R76S-V1.4.6.final.meta"
 rm -f "$FINAL_META_CHECK"
 "$FWTOOL" -i "$FINAL_META_CHECK" "$FINAL_IMAGE"
 test -s "$FINAL_META_CHECK"
@@ -40,7 +56,7 @@ with open(sys.argv[1], 'r', encoding='utf-8') as f: meta=json.load(f)
 if 'friendlyarm,nanopi-r76s' not in meta.get('supported_devices', []):
     raise SystemExit('ERROR: final metadata lacks R76S support')
 v=meta.get('version',{})
-exp={'dist':'iStoreOS','version':'24.10.8','revision':'R76S-V1.4.5','target':'rockchip/armv8'}
+exp={'dist':'iStoreOS','version':'24.10.8','revision':'R76S-V1.4.6','target':'rockchip/armv8'}
 for k,val in exp.items():
     if v.get(k) != val: raise SystemExit(f'ERROR: metadata {k}={v.get(k)!r}, expected {val!r}')
 PY_FINAL_META
@@ -50,6 +66,11 @@ echo
 echo "===== SHA256 ====="
 
 cd "$RELEASE_DIR"
+
+python3 /r76s-repo/scripts/r76s-plugin-matrix.py \
+  --repo /r76s-repo \
+  --output "$RELEASE_DIR/R76S-V1.4.6-PLUGIN-MATRIX.md"
+test -s "$RELEASE_DIR/R76S-V1.4.6-PLUGIN-MATRIX.md"
 
 FINAL_SHA="$(
   sha256sum "$FINAL_NAME" | awk '{print $1}'
@@ -64,22 +85,22 @@ printf '%s  %s\n' \
 # device-specific OTA_URL_BASE. Our ota.sh points that base to this
 # repository's latest GitHub Release assets.
 cat > version.latest <<EOF
-[24.10.8-R76S-V1.4.5]($FINAL_NAME)
-R76S-V1.4.5 / RK3576 / TF
+[24.10.8-R76S-V1.4.6]($FINAL_NAME)
+R76S-V1.4.6 / RK3576 / TF
 SHA256: $FINAL_SHA
 EOF
 
 cat > version.index <<'EOF'
-24.10.8-R76S-V1.4.5
+24.10.8-R76S-V1.4.6
 EOF
 
 cat > ota.footer.html <<'EOF'
-<p>R76S-V1.4.5: TF-first / eMMC-fallback boot policy. Online upgrade preserves configuration by default.</p>
+<p>R76S-V1.4.6: TF-first / eMMC-fallback boot policy. Online upgrade preserves configuration by default.</p>
 EOF
 
 # R76S_V12_BUILD_STAGE_FIX_20261010: no comments inside backslash-continued printf arguments.
 printf '%s\n' \
-  'R76S-V1.4.5 / PassWall2 / PassWall' \
+  'R76S-V1.4.6 / PassWall2 / PassWall' \
   '' \
   'Target:' \
   'rockchip/armv8' \

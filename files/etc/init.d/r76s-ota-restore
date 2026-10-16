@@ -29,6 +29,14 @@ service_init_state() {
 
 start() {
     [ "$(uci -q get r76s_ota_state.state.pending 2>/dev/null)" = 1 ] || return 0
+    if [ -x /usr/libexec/r76s/r76s-service-manager ]; then
+        /usr/libexec/r76s/r76s-service-manager restore custom || return 1
+        uci -q set r76s_ota_state.state.phase='complete' || return 1
+        uci -q set r76s_ota_state.state.pending='0' || return 1
+        uci -q commit r76s_ota_state || return 1
+        [ "$(uci -q get r76s_ota_state.state.pending 2>/dev/null)" = 0 ] || return 1
+        return 0
+    fi
     pw_uci="$(uci -q get r76s_ota_state.state.passwall_uci)"
     pw2_uci="$(uci -q get r76s_ota_state.state.passwall2_uci)"
     sd_uci="$(uci -q get r76s_ota_state.state.smartdns_uci)"
