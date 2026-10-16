@@ -1,6 +1,5 @@
 import hashlib
 import re
-import subprocess
 import unittest
 from pathlib import Path
 
@@ -20,31 +19,16 @@ class V143OtaHotfix(unittest.TestCase):
         self.assertNotIn("return 'R76S-V1.4.4'", text)
 
     def test_v143_client_pin_is_the_real_root_cause(self):
-        old = subprocess.check_output(
-            ["git", "show", "HEAD^:feeds/r76s-core/files/usr/libexec/r76s/r76s-ota"],
-            cwd=ROOT,
-            text=True,
-        )
-        self.assertIn("return 'R76S-V1.4.3'", old)
-        self.assertIn("m.version==release_tag(channel)", old)
-        self.assertIn("return repository..release_tag(channel)..'/'..name", old)
+        patch = (HOTFIX / "r76s-ota-stable-channel.patch").read_text()
+        self.assertIn("-    return 'R76S-V1.4.3'", patch)
+        self.assertIn("-        assert(m.version==release_tag(channel)", patch)
+        self.assertIn("+    return 'R76S-stable'", patch)
 
     def test_exact_hotfix_transform(self):
-        old = subprocess.check_output(
-            ["git", "show", "HEAD^:feeds/r76s-core/files/usr/libexec/r76s/r76s-ota"],
-            cwd=ROOT,
-            text=True,
-        )
-        patched = old.replace("return 'R76S-V1.4.3'", "return 'R76S-stable'")
-        patched = patched.replace("V1.4.3 只支持正式稳定 OTA 通道", "只支持正式稳定 OTA 通道")
-        patched = patched.replace(
-            "assert(m.version==release_tag(channel),'OTA 版本不是正式 V1.4.3')",
-            "assert(revision(m.version or ''),'OTA metadata 未提供有效版本')",
-        )
-        patched = patched.replace("release='R76S-V1.4.3'", "release='stable'")
-        self.assertIn("return 'R76S-stable'", patched)
-        self.assertIn("OTA metadata 未提供有效版本", patched)
-        self.assertNotIn("return 'R76S-V1.4.3'", patched)
+        patch = (HOTFIX / "r76s-ota-stable-channel.patch").read_text()
+        self.assertIn("+    return 'R76S-stable'", patch)
+        self.assertIn("+        assert(revision(m.version or ''),", patch)
+        self.assertIn("+        persist({phase='channel_changed',channel='stable',release='stable'})", patch)
 
     def test_installer_is_guarded_and_non_flashing(self):
         text = INSTALL.read_text()
