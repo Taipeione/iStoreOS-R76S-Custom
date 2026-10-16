@@ -29,7 +29,9 @@ class PluginLifecycleSources(unittest.TestCase):
         config = (ROOT / "config/R76S.config").read_text()
         for package in ("luci-app-passwall", "luci-app-passwall2", "smartdns",
                         "adguardhome", "luci-app-ddns", "dockerd", "luci-app-dockerman",
-                        "luci-app-ttyd", "quickstart", "wireguard-tools"):
+                        "luci-app-ttyd", "quickstart", "wireguard-tools",
+                        "luci-app-r76s-status", "luci-app-r76s-updater",
+                        "luci-app-ota", "luci-app-package-manager"):
             self.assertIn(f"CONFIG_PACKAGE_{package}=y", config)
 
     def test_config_change_trigger_does_not_require_autostart_link(self):
@@ -60,6 +62,9 @@ class PluginLifecycleSources(unittest.TestCase):
         self.assertIn("NEEDS_DEVICE_TEST", result.stdout)
         self.assertIn("| upnp | miniupnpd | N/A |", result.stdout)
         self.assertIn("| passwall | passwall | PASS |", result.stdout)
+        self.assertIn("| r76s-status-ui | - | PASS | feature |", result.stdout)
+        self.assertIn("| r76s-updater-ui | - | PASS | feature |", result.stdout)
+        self.assertIn("| ota-ui | - | PASS | feature |", result.stdout)
 
 
 class FakeOpenWrtApply(unittest.TestCase):

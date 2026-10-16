@@ -31,6 +31,20 @@ PACKAGE_CANDIDATES = {
     "upnp": ("miniupnpd", "luci-app-upnp"),
 }
 
+# Components with a LuCI/configuration surface but no independent long-lived
+# daemon in this image.  They are intentionally kept outside the init.d
+# registry: a UI package must not be made "healthy" by inventing a service
+# or by enabling an unrelated daemon.
+FEATURE_COMPONENTS = {
+    "istore-ui": ("luci-app-store", "management"),
+    "quickstart-ui": ("luci-app-quickstart", "management"),
+    "r76s-status-ui": ("luci-app-r76s-status", "management"),
+    "r76s-updater-ui": ("luci-app-r76s-updater", "ota"),
+    "ota-ui": ("luci-app-ota", "ota"),
+    "package-manager-ui": ("luci-app-package-manager", "management"),
+    "wireguard-luci": ("luci-proto-wireguard", "network"),
+}
+
 INTERNAL_SERVICES = {
     "passwall_server",
     "passwall2_server",
@@ -100,10 +114,44 @@ def row_for(name: str, service: str, key: str, ownership: str, group: str,
     return row
 
 
+def feature_row(name: str, package: str, group: str, selected: set[str]) -> dict[str, str]:
+    """Return an explicit matrix row for a non-daemon feature component."""
+    present = package in selected
+    row = {
+        "plugin": name,
+        "service": "-",
+        "ownership": "feature",
+        "group": group,
+        "installed": "PASS" if present else "N/A",
+        "evidence": f"config: {package}" if present else f"not selected in config/R76S.config",
+    }
+    if not present:
+        row.update({test: "N/A" for test in TESTS})
+        return row
+    # Installation and dependency selection are source-verifiable.  LuCI
+    # save/apply, actual function, reboot and OTA behavior remain device-only.
+    row["TEST-01"] = "PASS"
+    row["TEST-02"] = "PASS"
+    row["TEST-03"] = "NEEDS_DEVICE_TEST"
+    row["TEST-16"] = "PASS"
+    for test in DEVICE_TESTS:
+        if test in {"TEST-05", "TEST-15", "TEST-17"}:
+            row[test] = "N/A"
+        else:
+            row[test] = "NEEDS_DEVICE_TEST"
+    return row
+
+
 def generate(repo: Path) -> str:
     selected = selected_packages(repo / "config/R76S.config")
     entries = registry_entries(repo / "feeds/r76s-core/files/usr/share/r76s/plugin-registry")
     rows = [row_for(*entry, *installed(entry[0], selected, repo), repo) for entry in entries]
+    registered_names = {entry[0] for entry in entries}
+    rows.extend(
+        feature_row(name, package, group, selected)
+        for name, (package, group) in FEATURE_COMPONENTS.items()
+        if name not in registered_names
+    )
     lines = [
         "# R76S-V1.4.6 Plugin Lifecycle Regression Matrix",
         "",
