@@ -16,7 +16,7 @@ echo "===== Set clean-image default root password ====="
 SHADOW="openwrt/package/base-files/files/etc/shadow"
 test -f "$SHADOW"
 if [ -n "${R76S_CLEAN_FLASH_PASSWORD_HASH:-}" ]; then
-    echo 'ERROR: V1.4.4 uses the fixed root credential policy; supplied root hashes are not accepted.' >&2
+    echo 'ERROR: V1.4.5 uses the fixed root credential policy; supplied root hashes are not accepted.' >&2
     exit 1
 fi
 CLEAN_FLASH_ROOT_HASH='$6$r76sv143$j/yuToJ35nP6zluEW5qQzsYySWhM0mx8xaNVL.ZK2/J00HuN1d1Qr1h6PP2yWHgXmRlkRnA/Ymtqj60ETzJoi.'
@@ -24,7 +24,7 @@ sed -i "s#^root:[^:]*:#root:${CLEAN_FLASH_ROOT_HASH}:#" "$SHADOW"
 grep -qF "root:${CLEAN_FLASH_ROOT_HASH}:" "$SHADOW"
 mkdir -p openwrt/files/etc/init.d openwrt/files/etc/uci-defaults openwrt/files/etc/rc.d openwrt/files/etc/config
 
-# V1.4.4 has one password setter only. It runs at late boot so a preserved
+# V1.4.5 has one password setter only. It runs at late boot so a preserved
 # /etc/shadow is repaired once, while later administrator changes persist.
 cat > openwrt/files/etc/init.d/r76s-root-password <<'R76S_V143_PASSWORD_INIT'
 #!/bin/sh /etc/rc.common
@@ -37,7 +37,7 @@ boot() {
 	REVISION=""
 	[ -r /etc/openwrt_release ] && REVISION="$(sed -n "s/^DISTRIB_REVISION=['\"]\([^'\"]*\)['\"].*/\1/p" /etc/openwrt_release)"
 	# Legacy migration is intentionally limited to V1.4.3 preserved boots.
-	# V1.4.4 clean images already contain the fixed hash; later boots must
+	# V1.4.5 clean images already contain the fixed hash; later boots must
 	# never overwrite an administrator's password.
 	[ "$REVISION" = 'R76S-V1.4.3' ] || return 0
 	if passwd root <<'R76S_V143_PASSWORD'

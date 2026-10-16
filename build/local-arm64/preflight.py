@@ -62,7 +62,7 @@ def audit(root: Path):
     rules=json.loads((root/'config/rules/r76s-rules.json').read_text())['rules']
     names=[rule['name'] for rule in rules]
     expected_rules = ['WeChatDirect','ChatGPTLogin','OpenAI','GitHub','GoogleWork','GoogleAI','YouTube','Netflix','Disney','MaxHBO','PrimeVideo','Twitter','Telegram','Google','TikTok','PlayStation','Nintendo','Instagram','Xbox','Signal','Spotify','Slack','DirectGame','ProxyGame','AIGC','Streaming','Proxy','Direct','LINE','WhatsApp','Discord','Facebook','Reddit','Claude','Perplexity','Copilot','Grok','Apple','Microsoft','Zoom','Notion','Dropbox','TencentMediaDirect']
-    manifest_ok=release['version']=='R76S-V1.4.4' and names==expected_rules
+    manifest_ok=release['version']=='R76S-V1.4.5' and names==expected_rules
     shell_files = list((root/'feeds/r76s-core/files/usr/libexec/r76s').iterdir()) + [root/'feeds/r76s-core/files/usr/bin/r76s-health']
     for path in shell_files:
         if path.read_text().startswith('#!/bin/sh'):

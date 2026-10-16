@@ -16,7 +16,7 @@ class V143OtaHotfix(unittest.TestCase):
         text = OTA.read_text()
         self.assertIn("return 'R76S-stable'", text)
         self.assertIn("OTA metadata 未提供有效版本", text)
-        self.assertNotIn("return 'R76S-V1.4.4'", text)
+        self.assertNotIn("return 'R76S-V1.4.5'", text)
 
     def test_v143_client_pin_is_the_real_root_cause(self):
         patch = (HOTFIX / "r76s-ota-stable-channel.patch").read_text()

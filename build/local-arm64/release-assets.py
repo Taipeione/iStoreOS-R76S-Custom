@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import shutil
 
-VERSION = 'R76S-V1.4.4'
+VERSION = 'R76S-V1.4.5'
 
 
 def digest(path):

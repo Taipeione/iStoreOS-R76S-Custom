@@ -2,7 +2,7 @@
 # Original workflow step: Copy build metadata
 # REVIEW REQUIRED: not yet adapted for local execution.
 
-RELEASE_DIR="$TARGET_DIR/R76S-V1.4.4"
+RELEASE_DIR="$TARGET_DIR/R76S-V1.4.5"
 
 for file in \
   config.buildinfo \

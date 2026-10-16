@@ -173,7 +173,7 @@ local function transaction_body()
     reject_flashing_state()
     acquire_lock(phase)
     if phase=='channel' then
-        assert((arg[2] or 'stable')=='stable','V1.4.4 不支持测试 OTA 通道')
+        assert((arg[2] or 'stable')=='stable','V1.4.5 不支持测试 OTA 通道')
         local uci=require 'uci'.cursor()
         assert(uci:set('r76s','main','channel','stable'))
         assert(uci:commit('r76s'))

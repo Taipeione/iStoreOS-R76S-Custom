@@ -58,7 +58,7 @@ python3 ../scripts/r76s-v111-passwall-dns-generator.py --verify "$PASSWALL_APP" 
 
 test -f package/diy/luci-app-ota/Makefile
 
-# R76S-V1.4.4 startup gate: the native init adapters must call the
+# R76S-V1.4.5 startup gate: the native init adapters must call the
 # persistent service manager before invoking upstream PassWall code.  The
 # manager uses actual /etc/rc.d links, because rc.common's `enabled` return
 # value is not reliable on every iStoreOS build.
