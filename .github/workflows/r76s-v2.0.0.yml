@@ -202,6 +202,9 @@ jobs:
           ccache --zero-stats || true
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+          sh "$GITHUB_WORKSPACE/scripts/r76s-stage-smartdns-runtime.sh" \
+            "$GITHUB_WORKSPACE/feeds/luci-app-r76s-updater" \
+            "$RUNNER_TEMP/smartdns-runtime"
           mkdir -p package/r76s
           cp -a "$GITHUB_WORKSPACE/feeds/." package/r76s/
           cp -a "$GITHUB_WORKSPACE/files/." .
