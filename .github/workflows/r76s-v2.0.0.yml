@@ -1,0 +1,440 @@
+name: R76S-V2.0.0
+run-name: "R76S-V2.0.0 #${{ github.run_number }}"
+
+on:
+  push:
+    branches:
+      - main
+      - codex/r76s-v2.0.0-openwrt-25.12
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: r76s-v2.0.0-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  OPENWRT_COMMIT: 64900e756efa667774214f9c6b17c113222e01f7
+  OPENWRT_VERSION: 25.12.6
+  TARGET: rockchip/armv8
+  DEVICE: friendlyarm_nanopi-r76s
+  VERSION: R76S-V2.0.0
+  R76S_JOBS: 2
+  DEBIAN_FRONTEND: noninteractive
+
+jobs:
+  source-validation:
+    name: Source Validation
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact repository commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install validation dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            build-essential bison flex gawk gettext git libncurses-dev \
+            libssl-dev libelf-dev python3 python3-distutils rsync unzip \
+            wget xsltproc zlib1g-dev file ccache lua5.1 lua-filesystem
+
+      - name: Prepare validation report and verify hosted runner
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/source-validation"
+          {
+            echo "# R76S-V2.0.0 cloud source validation"
+            echo
+            echo "- Repository: $GITHUB_REPOSITORY"
+            echo "- Commit: $GITHUB_SHA"
+            echo "- Runner: $(uname -a)"
+            echo "- Architecture: $(uname -m)"
+            echo "- Formal platform: GitHub-hosted Ubuntu x86_64"
+            echo "- OpenWrt: $OPENWRT_VERSION ($OPENWRT_COMMIT)"
+            echo "- Target: $TARGET"
+            echo "- Device: $DEVICE"
+            echo "- Hardware boot test: NOT TESTED"
+          } > "$RUNNER_TEMP/source-validation/source-validation.md"
+          test "$(uname -m)" = x86_64
+          df -h "$GITHUB_WORKSPACE" | tee -a "$RUNNER_TEMP/source-validation/source-validation.md"
+
+      - name: Validate repository gates and locked source metadata
+        run: |
+          set -Eeuo pipefail
+          python3 build/v2/preflight.py --repo . | tee -a "$RUNNER_TEMP/source-validation/source-validation.md"
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          lock = json.loads(Path('config/r76s-v2-sources.lock.json').read_text())
+          assert lock['openwrt']['commit'] == '64900e756efa667774214f9c6b17c113222e01f7'
+          assert lock['openwrt']['target'] == 'rockchip/armv8'
+          assert lock['openwrt']['device'] == 'friendlyarm_nanopi-r76s'
+          assert lock['openwrt']['release_kernel'] == '6.12.112'
+          print('LOCKED_METADATA=PASS')
+          PY
+
+      - name: Fetch and verify official OpenWrt 25.12.6
+        run: |
+          set -Eeuo pipefail
+          export OPENWRT_DIR="$RUNNER_TEMP/openwrt"
+          git clone --filter=blob:none https://github.com/openwrt/openwrt.git "$OPENWRT_DIR"
+          git -C "$OPENWRT_DIR" fetch --depth 1 origin "$OPENWRT_COMMIT"
+          git -C "$OPENWRT_DIR" checkout --detach "$OPENWRT_COMMIT"
+          test "$(git -C "$OPENWRT_DIR" rev-parse HEAD)" = "$OPENWRT_COMMIT"
+          grep -q 'define Device/friendlyarm_nanopi-r76s' "$OPENWRT_DIR/target/linux/rockchip/image/armv8.mk"
+          grep -q '$(Device/rk3576)' "$OPENWRT_DIR/target/linux/rockchip/image/armv8.mk"
+          grep -q 'UBOOT_DEVICE_NAME := generic-rk3576' "$OPENWRT_DIR/target/linux/rockchip/image/armv8.mk"
+          grep -q 'TARGET_DEVICES += friendlyarm_nanopi-r76s' "$OPENWRT_DIR/target/linux/rockchip/image/armv8.mk"
+          test -f "$OPENWRT_DIR/target/linux/rockchip/patches-6.12/136-arm64-dts-rockchip-Update-LED-properties-for-NanoPi-R76S.patch"
+          {
+            echo
+            echo '## OpenWrt/RK3576 source checks'
+            echo '- OpenWrt commit: PASS'
+            echo '- rockchip/armv8: PASS'
+            echo '- friendlyarm_nanopi-r76s profile: PASS'
+            echo '- RK3576 U-Boot device: PASS'
+            echo '- NanoPi R76S DTS patch: PASS'
+          } >> "$RUNNER_TEMP/source-validation/source-validation.md"
+
+      - name: Verify feeds and all 11 rule inputs
+        run: |
+          set -Eeuo pipefail
+          export OPENWRT_DIR="$RUNNER_TEMP/openwrt"
+          cp config/feeds-v2.conf "$OPENWRT_DIR/feeds.conf.default"
+          git -C "$OPENWRT_DIR" config --global --add safe.directory "$OPENWRT_DIR"
+          "$OPENWRT_DIR/scripts/feeds" update -a
+          "$OPENWRT_DIR/scripts/feeds" install -a
+          python3 scripts/r76s-import-app-rules.py \
+            --input-dir config/rules/apps \
+            --output "$RUNNER_TEMP/source-validation/r76s-app-rules.json" \
+            --report "$RUNNER_TEMP/source-validation/domain-rule-audit.md"
+          PW1=$(find -L "$OPENWRT_DIR/package" -path '*/luci-app-passwall/root/usr/share/passwall/0_default_config' -type f | sort | head -1)
+          PW2=$(find -L "$OPENWRT_DIR/package" -path '*/luci-app-passwall2/root/usr/share/passwall2/0_default_config' -type f | sort | head -1)
+          test -n "$PW1" -a -n "$PW2"
+          cp "$PW1" "$RUNNER_TEMP/source-validation/passwall-default.config"
+          cp "$PW2" "$RUNNER_TEMP/source-validation/passwall2-default.config"
+          python3 scripts/r76s-generate-rules.py \
+            config/rules/r76s-rules.json "$PW1" "$PW2" \
+            "$RUNNER_TEMP/source-validation/r76s-app-rules.json"
+          python3 scripts/r76s-v2-rules-audit.py \
+            config/rules/r76s-rules.json \
+            "$RUNNER_TEMP/source-validation/r76s-app-rules.json" "$PW1" "$PW2"
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          doc = json.loads(Path(__import__('os').environ['RUNNER_TEMP'], 'source-validation', 'r76s-app-rules.json').read_text())
+          rules = {r['name']: r for r in doc['rules']}
+          assert len(rules) == 11, len(rules)
+          assert len(rules['AppleEcosystem']['options']['domain_list'].splitlines()) == 85
+          assert not any(k in rules['AppleEcosystem']['options'] for k in ('node', 'outbound', 'strategy'))
+          for name in ('AmazonPrime', 'ChatGPT', 'Disney', 'Emby', 'HBO Max', 'Netflix', 'Nintendo', 'Telegram', 'TikTok', 'YouTubeYouTubeTV'):
+              assert name in rules and rules[name]['options']['domain_list'].strip(), name
+          print('RULE_INPUTS=PASS 11/11; APPLE=PASS 85; USER_APPS=PASS 10/10')
+          PY
+          cat "$RUNNER_TEMP/source-validation/domain-rule-audit.md" >> "$RUNNER_TEMP/source-validation/source-validation.md"
+
+      - name: Upload source validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: R76S-V2.0.0-source-validation-${{ github.run_number }}
+          path: ${{ runner.temp }}/source-validation
+          if-no-files-found: warn
+          retention-days: 30
+
+  openwrt-build:
+    name: OpenWrt 25.12.6 Build
+    needs: source-validation
+    if: needs.source-validation.result == 'success'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    steps:
+      - name: Checkout exact repository commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install OpenWrt build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            build-essential bison flex gawk gettext git libncurses-dev \
+            libssl-dev libelf-dev python3 python3-distutils rsync unzip \
+            wget xsltproc zlib1g-dev file ccache time swig
+
+      - name: Restore OpenWrt download and compiler cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/openwrt-dl
+            ~/.cache/ccache
+          key: r76s-v2.0.0-${{ runner.os }}-${{ hashFiles('config/R76S-V2.config', 'config/feeds-v2.conf') }}
+          restore-keys: |
+            r76s-v2.0.0-${{ runner.os }}-
+
+      - name: Build official OpenWrt firmware
+        run: |
+          set -Eeuo pipefail
+          BUILD_LOG="$RUNNER_TEMP/cloud-build.log"
+          RELEASE="$RUNNER_TEMP/release/R76S-V2.0.0"
+          mkdir -p "$RELEASE" "$RUNNER_TEMP/openwrt-dl"
+          exec > >(tee -a "$BUILD_LOG") 2>&1
+          echo "BUILD_PLATFORM=github-hosted-ubuntu-22.04-x86_64"
+          echo "BUILD_COMMIT=$GITHUB_SHA"
+          echo "OPENWRT_COMMIT=$OPENWRT_COMMIT"
+          git clone --filter=blob:none https://github.com/openwrt/openwrt.git "$RUNNER_TEMP/openwrt"
+          git -C "$RUNNER_TEMP/openwrt" fetch --depth 1 origin "$OPENWRT_COMMIT"
+          git -C "$RUNNER_TEMP/openwrt" checkout --detach "$OPENWRT_COMMIT"
+          cd "$RUNNER_TEMP/openwrt"
+          cp "$GITHUB_WORKSPACE/config/feeds-v2.conf" feeds.conf.default
+          export DL_DIR="$RUNNER_TEMP/openwrt-dl"
+          export CCACHE_DIR="$HOME/.cache/ccache"
+          ccache --zero-stats || true
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          mkdir -p package/r76s
+          cp -a "$GITHUB_WORKSPACE/feeds/." package/r76s/
+          cp -a "$GITHUB_WORKSPACE/files/." .
+          python3 "$GITHUB_WORKSPACE/scripts/r76s-import-app-rules.py" \
+            --input-dir "$GITHUB_WORKSPACE/config/rules/apps" \
+            --output "$RUNNER_TEMP/r76s-app-rules.json" \
+            --report "$RUNNER_TEMP/domain-rule-audit.md"
+          cp "$RUNNER_TEMP/r76s-app-rules.json" package/r76s/r76s-core/files/usr/share/r76s/r76s-app-rules.json
+          PW1=$(find -L package -path '*/luci-app-passwall/root/usr/share/passwall/0_default_config' -type f | sort | head -1)
+          PW2=$(find -L package -path '*/luci-app-passwall2/root/usr/share/passwall2/0_default_config' -type f | sort | head -1)
+          test -n "$PW1" -a -n "$PW2"
+          python3 "$GITHUB_WORKSPACE/scripts/r76s-generate-rules.py" \
+            "$GITHUB_WORKSPACE/config/rules/r76s-rules.json" "$PW1" "$PW2" \
+            "$RUNNER_TEMP/r76s-app-rules.json"
+          python3 "$GITHUB_WORKSPACE/scripts/r76s-v2-rules-audit.py" \
+            "$GITHUB_WORKSPACE/config/rules/r76s-rules.json" \
+            "$RUNNER_TEMP/r76s-app-rules.json" "$PW1" "$PW2"
+          cp "$GITHUB_WORKSPACE/config/R76S-V2.config" .config
+          make defconfig
+          echo 'BUILD_STAGE=target-kernel-and-packages-rootfs-firmware'
+          make -j"$R76S_JOBS" V=s
+          IMAGE_DIR="bin/targets/rockchip/armv8"
+          test -d "$IMAGE_DIR"
+          find "$IMAGE_DIR" -maxdepth 1 -type f \( -name '*nanopi-r76s*' -o -name '*friendlyarm*' \) -exec cp -a {} "$RELEASE/" \;
+          test -n "$(find "$RELEASE" -type f -name '*.img*' -print -quit)"
+          cp "$RUNNER_TEMP/domain-rule-audit.md" "$RELEASE/domain-rule-audit.md"
+          cp "$RUNNER_TEMP/r76s-app-rules.json" "$RELEASE/r76s-app-rules.json"
+          cp "$GITHUB_WORKSPACE/config/rules/r76s-rules.json" "$RELEASE/baseline-rules.json"
+          cp "$PW1" "$RELEASE/PassWall-default.config"
+          cp "$PW2" "$RELEASE/PassWall2-default.config"
+          cp "$GITHUB_WORKSPACE/docs/R76S-V2.0.0-TEST-PLAN.md" "$RELEASE/TestPlan.md"
+          printf '%s\n' "$VERSION" > "$RELEASE/Version"
+          export RELEASE BUILD_LOG
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          lock = json.loads(Path(os.environ['GITHUB_WORKSPACE'], 'config/r76s-v2-sources.lock.json').read_text())
+          info = {
+              'version': os.environ['VERSION'],
+              'repository': os.environ['GITHUB_REPOSITORY'],
+              'source_commit': os.environ['GITHUB_SHA'],
+              'openwrt_commit': os.environ['OPENWRT_COMMIT'],
+              'openwrt_version': os.environ['OPENWRT_VERSION'],
+              'target': os.environ['TARGET'],
+              'device': os.environ['DEVICE'],
+              'kernel_release': lock['openwrt']['release_kernel'],
+              'kmod_abi': lock['openwrt']['release_kmod_abi'],
+              'builder': 'GitHub-hosted ubuntu-22.04 x86_64',
+              'apk': True,
+              'hardware_boot_tested': 'NOT TESTED',
+              'stable_ota_published': False,
+              'rule_gate': '10 user TXT groups + AppleEcosystem 85 required',
+          }
+          Path(os.environ['RELEASE'], 'BuildInfo.json').write_text(json.dumps(info, ensure_ascii=False, indent=2) + '\n')
+          PY
+          cp "$BUILD_LOG" "$RELEASE/build.log"
+          (cd "$RELEASE" && find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+          ccache --show-stats || true
+
+      - name: Upload cloud build evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: R76S-V2.0.0-cloud-build-${{ github.run_number }}
+          path: |
+            ${{ runner.temp }}/release/R76S-V2.0.0
+            ${{ runner.temp }}/cloud-build.log
+          if-no-files-found: warn
+          retention-days: 30
+
+  firmware-audit:
+    name: Firmware Audit
+    needs: openwrt-build
+    if: needs.openwrt-build.result == 'success'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout audit scripts
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download cloud build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: R76S-V2.0.0-cloud-build-${{ github.run_number }}
+          path: ${{ runner.temp }}/cloud-build
+
+      - name: Run automated release gate audit
+        run: |
+          set -Eeuo pipefail
+          RELEASE=$(find "$RUNNER_TEMP/cloud-build" -name BuildInfo.json -printf '%h\n' | head -1)
+          test -n "$RELEASE"
+          test -s "$RELEASE/BuildInfo.json"
+          test -s "$RELEASE/TestPlan.md"
+          test -s "$RELEASE/Version"
+          test -s "$RELEASE/SHA256SUMS"
+          (cd "$RELEASE" && sha256sum -c SHA256SUMS)
+          test -n "$(find "$RELEASE" -maxdepth 1 -type f -name '*.img*' -size +1M -size -1G -print -quit)"
+          grep -E -q 'nanopi-r76s|friendlyarm' < <(find "$RELEASE" -maxdepth 1 -type f -name '*.img*' -printf '%f\n')
+          python3 - "$RELEASE" <<'PY'
+          import json, sys
+          from pathlib import Path
+          release = Path(sys.argv[1])
+          info = json.loads((release / 'BuildInfo.json').read_text())
+          assert info['version'] == 'R76S-V2.0.0'
+          assert info['target'] == 'rockchip/armv8'
+          assert info['device'] == 'friendlyarm_nanopi-r76s'
+          assert info['openwrt_version'] == '25.12.6'
+          assert info['apk'] is True
+          assert info['hardware_boot_tested'] == 'NOT TESTED'
+          manifest = json.loads((release / 'r76s-app-rules.json').read_text())
+          rules = {r['name']: r for r in manifest['rules']}
+          assert len(rules) == 11
+          assert len(rules['AppleEcosystem']['options']['domain_list'].splitlines()) == 85
+          assert not any(k in rules['AppleEcosystem']['options'] for k in ('node', 'outbound', 'strategy'))
+          for name in ('AmazonPrime', 'ChatGPT', 'Disney', 'Emby', 'HBO Max', 'Netflix', 'Nintendo', 'Telegram', 'TikTok', 'YouTubeYouTubeTV'):
+              assert name in rules and rules[name]['options']['domain_list'].strip(), name
+          print('RELEASE_GATE=PASS target=RK3576 device=NanoPi-R76S apple=85 user_apps=10')
+          PY
+          python3 scripts/r76s-v2-rules-audit.py \
+            "$RELEASE/baseline-rules.json" "$RELEASE/r76s-app-rules.json" \
+            "$RELEASE/PassWall-default.config" "$RELEASE/PassWall2-default.config" \
+            | tee "$RUNNER_TEMP/rules-audit.txt"
+          {
+            echo '# R76S-V2.0.0 firmware audit'
+            echo
+            echo '- Cloud build exit: PASS'
+            echo '- Target/device/image filename: PASS'
+            echo '- SHA256SUMS: PASS'
+            echo '- BuildInfo/Version/TestPlan: PASS'
+            echo '- AppleEcosystem: PASS, 85 domains, default outbound policy'
+            echo '- User application groups: PASS, 10/10'
+            echo '- PassWall/PassWall2: PASS'
+            echo '- WeChatDirect TCP/UDP direct and broad qq.com guard: PASS'
+            echo '- HARDWARE BOOT TESTED: NOT TESTED'
+            echo '- STABLE OTA: NOT PUBLISHED'
+            echo
+            cat "$RUNNER_TEMP/rules-audit.txt"
+          } > "$RUNNER_TEMP/firmware-audit.md"
+
+      - name: Upload firmware audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: R76S-V2.0.0-firmware-audit-${{ github.run_number }}
+          path: ${{ runner.temp }}/firmware-audit.md
+          if-no-files-found: warn
+          retention-days: 30
+
+  artifact-upload:
+    name: Artifact Upload
+    needs:
+      - openwrt-build
+      - firmware-audit
+    if: needs.openwrt-build.result == 'success' && needs.firmware-audit.result == 'success'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download cloud build and firmware audit
+        uses: actions/download-artifact@v4
+        with:
+          pattern: R76S-V2.0.0-*-${{ github.run_number }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/final-artifacts
+
+      - name: Add audit report to final artifact set
+        run: |
+          set -Eeuo pipefail
+          RELEASE=$(find "$RUNNER_TEMP/final-artifacts" -name BuildInfo.json -printf '%h\n' | head -1)
+          AUDIT=$(find "$RUNNER_TEMP/final-artifacts" -name firmware-audit.md -print -quit)
+          test -n "$RELEASE" -a -n "$AUDIT"
+          cp "$AUDIT" "$RELEASE/firmware-audit.md"
+
+      - name: Upload final firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: R76S-V2.0.0-${{ github.run_number }}
+          path: ${{ runner.temp }}/final-artifacts
+          if-no-files-found: error
+          retention-days: 90
+
+  release-approval:
+    name: Release Approval
+    needs: artifact-upload
+    if: needs.artifact-upload.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - name: Download final verified artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: R76S-V2.0.0-${{ github.run_number }}
+          path: ${{ runner.temp }}/release
+
+      - name: Recheck release gates and publish Git tag and GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          RELEASE=$(find "$RUNNER_TEMP/release" -name BuildInfo.json -printf '%h\n' | head -1)
+          test -n "$RELEASE"
+          (cd "$RELEASE" && sha256sum -c SHA256SUMS)
+          grep -q 'HARDWARE BOOT TESTED: NOT TESTED' "$RELEASE/firmware-audit.md"
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" >/dev/null 2>&1; then
+            echo "Tag $VERSION already exists; refusing to overwrite it." >&2
+            exit 1
+          fi
+          cat > "$RELEASE/ReleaseReport.md" <<EOF
+          # $VERSION cloud release report
+
+          - Cloud build run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
+          - Source commit: $GITHUB_SHA
+          - Target: $TARGET / $DEVICE / RK3576
+          - OpenWrt: $OPENWRT_VERSION ($OPENWRT_COMMIT)
+          - AppleEcosystem: 85 domains, system-default outbound policy
+          - User application groups: 10/10 imported
+          - SHA256: verified by the Release Approval job
+          - HARDWARE BOOT TESTED: NOT TESTED
+          - STABLE OTA: NOT PUBLISHED
+          EOF
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f "ref=refs/tags/$VERSION" -f "sha=$GITHUB_SHA"
+          assets=(
+            "$RELEASE"/*.img.gz
+            "$RELEASE/SHA256SUMS"
+            "$RELEASE/BuildInfo.json"
+            "$RELEASE/TestPlan.md"
+            "$RELEASE/ReleaseReport.md"
+            "$RELEASE/firmware-audit.md"
+            "$RELEASE/domain-rule-audit.md"
+          )
+          gh release create "$VERSION" --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --title "$VERSION" \
+            --notes-file "$RELEASE/ReleaseReport.md" "${assets[@]}"
+          RELEASE_URL=$(gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" --json url --jq .url)
+          echo "Release URL: $RELEASE_URL" >> "$GITHUB_STEP_SUMMARY"
+          echo "Firmware downloads are attached to: $RELEASE_URL" >> "$GITHUB_STEP_SUMMARY"
