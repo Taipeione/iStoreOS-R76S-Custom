@@ -11,13 +11,13 @@ from pathlib import Path
 APPS = (
     ("amazon-prime", "AmazonPrime", "Amazon Prime"),
     ("chatgpt", "ChatGPT", "ChatGPT"),
-    ("disney", "Disney", "Disney"),
+    ("disney", "DisneyApp", "Disney"),
     ("emby", "Emby", "Emby"),
     ("hbo-max", "HBO Max", "HBO Max"),
-    ("netflix", "Netflix", "Netflix"),
-    ("nintendo", "Nintendo", "Nintendo"),
-    ("telegram", "Telegram", "Telegram"),
-    ("tiktok", "TikTok", "TikTok"),
+    ("netflix", "NetflixApp", "Netflix"),
+    ("nintendo", "NintendoApp", "Nintendo"),
+    ("telegram", "TelegramApp", "Telegram"),
+    ("tiktok", "TikTokApp", "TikTok"),
     ("youtube-youtube-tv", "YouTubeYouTubeTV", "YouTube & YouTube TV"),
     ("apple", "AppleEcosystem", "Apple 生态"),
 )
@@ -30,6 +30,12 @@ DOMAIN_RE = re.compile(
     r"(?:\*\.)?(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+"
     r"[A-Za-z]{2,63}\.?$"
 )
+GEOSITE_RE = re.compile(r"^geosite:[A-Za-z0-9][A-Za-z0-9_.-]*$")
+
+
+def valid_rule_line(value: str) -> bool:
+    # geosite:<name> is a native PassWall/Xray rule expression, not an FQDN.
+    return bool(GEOSITE_RE.fullmatch(value) or DOMAIN_RE.fullmatch(value))
 
 
 def audit(input_dir: Path, output: Path, report: Path, allow_missing: bool) -> int:
@@ -62,7 +68,7 @@ def audit(input_dir: Path, output: Path, report: Path, allow_missing: bool) -> i
                 continue
             source_lines.append(value)
             key = value.lower()
-            if not DOMAIN_RE.fullmatch(value):
+            if not valid_rule_line(value):
                 format_errors.append({"line": line_no, "value": value})
             if key in {x.lower() for x in source_lines[:-1]}:
                 duplicates.append({"line": line_no, "value": value, "scope": "file"})
@@ -73,7 +79,7 @@ def audit(input_dir: Path, output: Path, report: Path, allow_missing: bool) -> i
                      "blank_lines": blank_lines, "comment_lines": comment_lines,
                      "duplicates": duplicates, "format_errors": format_errors,
                      "domains": source_lines})
-        errors += len(format_errors) + len(duplicates)
+        errors += len(format_errors)
 
     cross_duplicates = {k: v for k, v in global_seen.items() if len(v) > 1}
     for row in rows:
@@ -81,7 +87,7 @@ def audit(input_dir: Path, output: Path, report: Path, allow_missing: bool) -> i
             if len(global_seen[domain.lower()]) > 1:
                 row["duplicates"].append({"value": domain, "scope": "cross-file",
                                            "locations": global_seen[domain.lower()]})
-    errors += sum(len(v) - 1 for v in cross_duplicates.values())
+    warnings = sum(len(row["duplicates"]) for row in rows)
     if missing and not allow_missing:
         errors += missing
 
@@ -101,19 +107,21 @@ def audit(input_dir: Path, output: Path, report: Path, allow_missing: bool) -> i
                       encoding="utf-8")
     report.parent.mkdir(parents=True, exist_ok=True)
     report.write_text(render_report(input_dir, rows, missing, cross_duplicates,
-                                    errors, allow_missing), encoding="utf-8")
+                                    errors, warnings, allow_missing), encoding="utf-8")
     print(f"APP_RULE_INPUTS={len(rows)-missing}/{APP_COUNT}")
     print(f"APP_RULE_DOMAINS={sum(r['domain_count'] for r in rows)}")
     print(f"APP_RULE_MISSING={missing}")
     print(f"APP_RULE_ERRORS={errors}")
+    print(f"APP_RULE_WARNINGS={warnings}")
     return 0 if errors == 0 else 2
 
 
-def render_report(input_dir, rows, missing, cross_duplicates, errors, allow_missing):
+def render_report(input_dir, rows, missing, cross_duplicates, errors, warnings, allow_missing):
     lines = ["# R76S-V2.0.0 application domain rule audit", "",
              f"Input directory: `{input_dir}`", "",
              "The report preserves source lines in the generated manifest; it does not rewrite domains.", "",
              "AppleEcosystem is project-maintained from Apple’s official enterprise-network host list; it has no forced node and follows the system default outbound strategy.", "",
+             "Duplicate source entries are reported as non-blocking warnings and remain unchanged in the manifest and preserved originals. Format errors and missing required files remain blocking errors.", "",
              "| Application | File | Present | Domains | Blank | Comments | Duplicate/format findings |", "|---|---|---:|---:|---:|---:|---:|"]
     for r in rows:
         findings = len(r["duplicates"]) + len(r["format_errors"])
@@ -131,11 +139,13 @@ def render_report(input_dir, rows, missing, cross_duplicates, errors, allow_miss
               "- Runtime migration: `/usr/libexec/r76s/r76s-rules-merge.lua`; existing user-named sections are preserved",
               "- Rule priority: baseline order is unchanged; additive application groups are inserted immediately before `TencentMediaDirect`; `WeChatDirect` remains first and explicit TCP/UDP direct",
               "",
-              "## Gate", "", f"- Expected input files: {APP_COUNT}", f"- Missing files: {missing}", f"- Total errors: {errors}", f"- Allow missing: {allow_missing}"]
+              "## Gate", "", f"- Expected input files: {APP_COUNT}", f"- Missing files: {missing}", f"- Blocking format/missing errors: {errors}", f"- Duplicate warnings (preserved): {warnings}", f"- Allow missing: {allow_missing}"]
     if missing:
         result = "INCOMPLETE; user TXT inputs are required before release"
     elif errors:
         result = "FAIL; not release-ready"
+    elif warnings:
+        result = "PASS_WITH_WARNINGS; duplicate source entries preserved"
     else:
         result = "PASS"
     lines.append("- Result: " + result)

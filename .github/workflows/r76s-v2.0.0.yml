@@ -134,7 +134,7 @@ jobs:
           assert len(rules) == 11, len(rules)
           assert len(rules['AppleEcosystem']['options']['domain_list'].splitlines()) == 85
           assert not any(k in rules['AppleEcosystem']['options'] for k in ('node', 'outbound', 'strategy'))
-          for name in ('AmazonPrime', 'ChatGPT', 'Disney', 'Emby', 'HBO Max', 'Netflix', 'Nintendo', 'Telegram', 'TikTok', 'YouTubeYouTubeTV'):
+          for name in ('AmazonPrime', 'ChatGPT', 'DisneyApp', 'Emby', 'HBO Max', 'NetflixApp', 'NintendoApp', 'TelegramApp', 'TikTokApp', 'YouTubeYouTubeTV'):
               assert name in rules and rules[name]['options']['domain_list'].strip(), name
           print('RULE_INPUTS=PASS 11/11; APPLE=PASS 85; USER_APPS=PASS 10/10')
           PY
@@ -317,7 +317,7 @@ jobs:
           assert len(rules) == 11
           assert len(rules['AppleEcosystem']['options']['domain_list'].splitlines()) == 85
           assert not any(k in rules['AppleEcosystem']['options'] for k in ('node', 'outbound', 'strategy'))
-          for name in ('AmazonPrime', 'ChatGPT', 'Disney', 'Emby', 'HBO Max', 'Netflix', 'Nintendo', 'Telegram', 'TikTok', 'YouTubeYouTubeTV'):
+          for name in ('AmazonPrime', 'ChatGPT', 'DisneyApp', 'Emby', 'HBO Max', 'NetflixApp', 'NintendoApp', 'TelegramApp', 'TikTokApp', 'YouTubeYouTubeTV'):
               assert name in rules and rules[name]['options']['domain_list'].strip(), name
           print('RELEASE_GATE=PASS target=RK3576 device=NanoPi-R76S apple=85 user_apps=10')
           PY

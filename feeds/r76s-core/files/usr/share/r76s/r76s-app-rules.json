@@ -1,5 +1,94 @@
 {
   "schema_version": 1,
-  "source": "user-provided-txt",
-  "rules": []
+  "source": "project-rule-inputs",
+  "rules": [
+    {
+      "name": "AmazonPrime",
+      "options": {
+        "remarks": "Amazon Prime（用户 TXT 增量规则）",
+        "network": "tcp,udp",
+        "domain_list": "amazon.com\namazon.co.jp\namazon.co.uk\namazon.de\namazonvideo.com\nprimevideo.com"
+      }
+    },
+    {
+      "name": "ChatGPT",
+      "options": {
+        "remarks": "ChatGPT（用户 TXT 增量规则）",
+        "network": "tcp,udp",
+        "domain_list": "geosite:openai\nopenai.com\nai.com\nchallenges.cloudflare.com\nchat.openai.com.cdn.cloudflare.net\ncompute-pipe.com\nedgecompute.app\nevery1dns.net\nopenaiapi-site.azureedge.net\nsentry.io\nchatgpt.com\noaistatic.com\noaiusercontent.com\nopenai.com.cdn.cloudflare.net\nenaiapi-site.azureedge.net\nenaicom-api-bdcpf8c6d2e9atf6.z01.azurefd.net\nenaicomproductionae4b.blob.core.windows.net\noduction-openaicom-storage.azureedge.net"
+      }
+    },
+    {
+      "name": "DisneyApp",
+      "options": {
+        "remarks": "Disney（用户 TXT 增量规则）",
+        "network": "tcp,udp",
+        "domain_list": "geosite:disney\ndisney-plus.net\ndisneyplus.com\ndisneyplus.com.ssl.sc.omtrdc.net\ndssott.com\ndssott.com.akamaized.net\nbamgrid.com\ncdn.registerdisney.go.com\ncws.conviva.com\nbraze.com\ndisney-plus.net\nexecute-api.us-east-1.amazonaws.com\ngo-mpulse.net\ndisneynow.com\ndisneyjunior.com\nsearch-api-disney.bamgrid.com\ncws.conviva.com\nd9.flashtalking.com\ndisney-portal.my.onetrust.com\ndisneyplus.bn5x.net\nadobedtm.com\noptimizely.com\ndssott.com.akamaized.net"
+      }
+    },
+    {
+      "name": "Emby",
+      "options": {
+        "remarks": "Emby（用户 TXT 增量规则）",
+        "network": "tcp,udp",
+        "domain_list": "easyemby.com\njp01.easyemby.com\nhkt01.easyemby.com"
+      }
+    },
+    {
+      "name": "HBO Max",
+      "options": {
+        "remarks": "HBO Max（用户 TXT 增量规则）",
+        "network": "tcp,udp",
+        "domain_list": "hbo.com\nmax.com\ndiscomax.com\nhbomax.com\nhbomax.eu\nhbomaxcdn.com\nhbonow.com\nmaxgo.com\ncinemax.com\nh264.io\nhbogo.com\nhbogo.co.th\nhbogo.eu\nhboasia.com\nhbogoasia.com\nhbogoasia.hk\nhbogoasia.id\nhbogoasia.my\nhbogoasia.ph\nhbogoasia.sg\nhbogoasia.tw\nhbomax-images.warnermediacdn.com\nwmff.warnermediacdn.com\nhbomaxdash.s.llnwi.net\nhbo.com.c.footprint.net\nhbo.com.edgesuite.net\nhbo.map.fastly.net\nhboasia1-i.akamaihd.net\nhboasia2-i.akamaihd.net\nhboasia3-i.akamaihd.net\nhboasia4-i.akamaihd.net\nhboasia5-i.akamaihd.net\nhboasialive.akamaized.net\nhbogoprod-vod.akamaized.net\nhbolb.onwardsmg.com\nhbounify-prod.evergent.com\nbcbolthboa-a.akamaihd.net\ndai3fd1oh325y.cloudfront.net\n44wilhpljf.execute-api.ap-southeast-1.amazonaws.com"
+      }
+    },
+    {
+      "name": "NetflixApp",
+      "options": {
+        "remarks": "Netflix（用户 TXT 增量规则）",
+        "network": "tcp,udp",
+        "domain_list": "geosite:netflix\nfast.com\nnetflix.com\nnetflix.net\nnflxext.com\nnflximg.com\nnflximg.net\nnflxso.net\nnflxvideo.net\nnetflixdnstest0.com\nnetflixdnstest1.com\nnetflixdnstest2.com\nnetflixdnstest3.com\nnetflixdnstest4.com\nnetflixdnstest5.com\nnetflixdnstest6.com\nnetflixdnstest7.com\nnetflixdnstest8.com\nnetflixdnstest9.com\nimsbiz.com\nspcsdns.net"
+      }
+    },
+    {
+      "name": "NintendoApp",
+      "options": {
+        "remarks": "Nintendo（用户 TXT 增量规则）",
+        "network": "tcp,udp",
+        "domain_list": "nintendo.net\nnintendo.com\nnintendowifi.net"
+      }
+    },
+    {
+      "name": "TelegramApp",
+      "options": {
+        "remarks": "Telegram（用户 TXT 增量规则）",
+        "network": "tcp,udp",
+        "domain_list": "geosite:telegram\nt.me\ntdesktop.com\ntelegra.ph\ntelegram.me\ntelegram.org\ntelesco.pe"
+      }
+    },
+    {
+      "name": "TikTokApp",
+      "options": {
+        "remarks": "TikTok（用户 TXT 增量规则）",
+        "network": "tcp,udp",
+        "domain_list": "p16-tiktokcdn-com.akamaized.net\nbyteoversea.com\nibytedtos.com\nibyteimg.com\nipstatp.com\nmuscdn.com\nmusical.ly\nsgpstatp.com\nsnssdk.com\ntik-tokapi.com\ntiktok.com\ntiktokcdn.com\ntiktokv.com"
+      }
+    },
+    {
+      "name": "YouTubeYouTubeTV",
+      "options": {
+        "remarks": "YouTube & YouTube TV（用户 TXT 增量规则）",
+        "network": "tcp,udp",
+        "domain_list": "geosite:youtube\nwww.youtube.com\nyoutube.com\nfonts.googleapis.com\nyt3.ggpht.com\nyoutube.googleapis.com\ngoogletagmanager.com\ngoogleusercontent.com\ngooglevideo.com\nvideo.google.com\ngstatic.com\nytimg.com\nyoutube-ui.l.google.com\nyoutube-nocookie.com\nyoutubeeducation.com\nyoutu.be\nyt.be\nggpht.com\ngoogleapis.com\nimrworldwide.com"
+      }
+    },
+    {
+      "name": "AppleEcosystem",
+      "options": {
+        "remarks": "Apple 生态（用户 TXT 增量规则）",
+        "network": "tcp,udp",
+        "domain_list": "*.push.apple.com\nalbert.apple.com\ncaptive.apple.com\ngs.apple.com\nhumb.apple.com\nstatic.ips.apple.com\nsq-device.apple.com\ntbsc.apple.com\ntime-ios.apple.com\ntime.apple.com\ntime-macos.apple.com\ndeviceenrollment.apple.com\ndeviceservices-external.apple.com\ngdmf.apple.com\nidentity.apple.com\niprofiles.apple.com\nmdmenrollment.apple.com\nsetup.icloud.com\nvpp.itunes.apple.com\n*.appattest.apple.com\naxm-servicediscovery.apple.com\n*.itunes.apple.com\n*.apps.apple.com\n*.mzstatic.com\nitunes.apple.com\nppq.apple.com\napi.apple-cloudkit.com\n*.apps-marketplace.apple.com\ntoken.safebrowsing.apple\naudiocontentdownload.apple.com\ndevimages-cdn.apple.com\ndownload.developer.apple.com\nplayground-assets-cdn.apple.com\nplayground-cdn.apple.com\nsylvan.apple.com\ngateway.icloud.com\nappldnld.apple.com\nconfiguration.apple.com\ngg.apple.com\nig.apple.com\nmesu.apple.com\noscdn.apple.com\nosrecovery.apple.com\nskl.apple.com\nswcdn.apple.com\nswdist.apple.com\nswdownload.apple.com\nswscan.apple.com\nupdates-http.cdn-apple.com\nupdates.cdn-apple.com\nxp.apple.com\ngdmf-ados.apple.com\ngsra.apple.com\nwkms-public.apple.com\nfcs-keys-pub-prod.cdn-apple.com\naccount.apple.com\nappleid.cdn-apple.com\nidmsa.apple.com\ngsa.apple.com\n*.apple-cloudkit.com\n*.apple-livephotoskit.com\n*.apzones.com\n*.cdn-apple.com\n*.gc.apple.com\n*.icloud.com\n*.icloud.com.cn\n*.icloud.apple.com\n*.icloud-content.com\n*.iwork.apple.com\nmask.icloud.com\nmask-h2.icloud.com\nmask-api.icloud.com\nprobe.icloud.com\npong.icloud.com\nmetrics.icloud.com\napple-native-relay.apple.com\n*.apple-dns.net\nguzzoni.apple.com\n*.smoot.apple.com\napple-relay.cloudflare.com\napple-relay.fastly-edge.com\ncp4.cloudflare.com\napple-relay.apple.com\napp-site-association.cdn-apple.com\napp-site-association.networking.apple"
+      }
+    }
+  ]
 }
