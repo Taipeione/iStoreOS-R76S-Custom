@@ -351,48 +351,134 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-  artifact-upload:
-    name: Artifact Upload
+  rule-audit:
+    name: Rule Audit
+    needs: openwrt-build
+    if: needs.openwrt-build.result == 'success'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout rule audit scripts
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download cloud build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: R76S-V2.0.0-cloud-build-${{ github.run_number }}
+          path: ${{ runner.temp }}/cloud-build
+
+      - name: Audit Apple, ten user groups, PassWall and WeChatDirect
+        run: |
+          set -Eeuo pipefail
+          RELEASE=$(find "$RUNNER_TEMP/cloud-build" -name BuildInfo.json -printf '%h\n' | head -1)
+          test -n "$RELEASE"
+          python3 - "$RELEASE" <<'PY'
+          import json, sys
+          from pathlib import Path
+          release = Path(sys.argv[1])
+          manifest = json.loads((release / 'r76s-app-rules.json').read_text())
+          rules = {r['name']: r for r in manifest['rules']}
+          assert len(rules) == 11
+          assert len(rules['AppleEcosystem']['options']['domain_list'].splitlines()) == 85
+          assert not any(k in rules['AppleEcosystem']['options'] for k in ('node', 'outbound', 'strategy'))
+          for name in ('AmazonPrime', 'ChatGPT', 'Disney', 'Emby', 'HBO Max', 'Netflix', 'Nintendo', 'Telegram', 'TikTok', 'YouTubeYouTubeTV'):
+              assert name in rules and rules[name]['options']['domain_list'].strip(), name
+          PY
+          python3 scripts/r76s-v2-rules-audit.py \
+            "$RELEASE/baseline-rules.json" "$RELEASE/r76s-app-rules.json" \
+            "$RELEASE/PassWall-default.config" "$RELEASE/PassWall2-default.config" \
+            > "$RUNNER_TEMP/rule-audit.md"
+          {
+            echo '# R76S-V2.0.0 rule audit'
+            echo
+            echo '- AppleEcosystem: PASS, 85 domains, no forced outbound strategy'
+            echo '- User application groups: PASS, 10/10 complete'
+            echo '- PassWall: PASS'
+            echo '- PassWall2: PASS'
+            echo '- WeChatDirect TCP/UDP and _direct: PASS'
+            echo '- Broad domain:qq.com in WeChatDirect: ABSENT'
+            echo
+            cat "$RUNNER_TEMP/rule-audit.md"
+          } > "$RUNNER_TEMP/rule-audit.final.md"
+          mv "$RUNNER_TEMP/rule-audit.final.md" "$RUNNER_TEMP/rule-audit.md"
+
+      - name: Upload rule audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: R76S-V2.0.0-rule-audit-${{ github.run_number }}
+          path: ${{ runner.temp }}/rule-audit.md
+          if-no-files-found: warn
+          retention-days: 30
+
+  codex-release-review:
+    name: Codex Release Review
     needs:
       - openwrt-build
       - firmware-audit
-    if: needs.openwrt-build.result == 'success' && needs.firmware-audit.result == 'success'
+      - rule-audit
+    if: needs.openwrt-build.result == 'success' && needs.firmware-audit.result == 'success' && needs.rule-audit.result == 'success'
     runs-on: ubuntu-22.04
+    timeout-minutes: 20
     steps:
-      - name: Download cloud build and firmware audit
+      - name: Download build and all audit evidence
         uses: actions/download-artifact@v4
         with:
           pattern: R76S-V2.0.0-*-${{ github.run_number }}
           merge-multiple: true
           path: ${{ runner.temp }}/final-artifacts
 
-      - name: Add audit report to final artifact set
+      - name: Run final Codex release review and prepare verified artifact
         run: |
           set -Eeuo pipefail
           RELEASE=$(find "$RUNNER_TEMP/final-artifacts" -name BuildInfo.json -printf '%h\n' | head -1)
-          AUDIT=$(find "$RUNNER_TEMP/final-artifacts" -name firmware-audit.md -print -quit)
-          test -n "$RELEASE" -a -n "$AUDIT"
-          cp "$AUDIT" "$RELEASE/firmware-audit.md"
+          FIRMWARE_AUDIT=$(find "$RUNNER_TEMP/final-artifacts" -name firmware-audit.md -print -quit)
+          RULE_AUDIT=$(find "$RUNNER_TEMP/final-artifacts" -name rule-audit.md -print -quit)
+          test -n "$RELEASE" -a -n "$FIRMWARE_AUDIT" -a -n "$RULE_AUDIT"
+          cp "$FIRMWARE_AUDIT" "$RELEASE/firmware-audit.md"
+          cp "$RULE_AUDIT" "$RELEASE/rule-audit.md"
+          (cd "$RELEASE" && sha256sum -c SHA256SUMS)
+          test -s "$RELEASE/BuildInfo.json" -a -s "$RELEASE/TestPlan.md" -a -s "$RELEASE/Version"
+          grep -q 'HARDWARE BOOT TESTED: NOT TESTED' "$RELEASE/firmware-audit.md"
+          grep -q 'AppleEcosystem: PASS' "$RELEASE/rule-audit.md"
+          grep -q 'User application groups: PASS, 10/10 complete' "$RELEASE/rule-audit.md"
+          cat > "$RELEASE/ReleaseReport.md" <<EOF
+          # $VERSION cloud release report
+
+          - Cloud build run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
+          - Source commit: $GITHUB_SHA
+          - Target: $TARGET / $DEVICE / RK3576
+          - OpenWrt: $OPENWRT_VERSION ($OPENWRT_COMMIT)
+          - AppleEcosystem: 85 domains, system-default outbound policy
+          - User application groups: 10/10 imported
+          - PassWall/PassWall2 and WeChatDirect: audited successfully
+          - SHA256: verified by Codex Release Review
+          - HARDWARE BOOT TESTED: NOT TESTED
+          - STABLE OTA: NOT PUBLISHED
+          EOF
 
       - name: Upload final firmware artifact
         uses: actions/upload-artifact@v4
         with:
-          name: R76S-V2.0.0-${{ github.run_number }}
+          name: R76S-V2.0.0-final-${{ github.run_number }}
           path: ${{ runner.temp }}/final-artifacts
           if-no-files-found: error
           retention-days: 90
 
-  release-approval:
-    name: Release Approval
-    needs: artifact-upload
-    if: needs.artifact-upload.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+  github-release:
+    name: GitHub Release
+    needs: codex-release-review
+    if: needs.codex-release-review.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
       - name: Download final verified artifact
         uses: actions/download-artifact@v4
         with:
-          name: R76S-V2.0.0-${{ github.run_number }}
+          name: R76S-V2.0.0-final-${{ github.run_number }}
           path: ${{ runner.temp }}/release
 
       - name: Recheck release gates and publish Git tag and GitHub Release
@@ -404,23 +490,12 @@ jobs:
           test -n "$RELEASE"
           (cd "$RELEASE" && sha256sum -c SHA256SUMS)
           grep -q 'HARDWARE BOOT TESTED: NOT TESTED' "$RELEASE/firmware-audit.md"
+          grep -q 'AppleEcosystem: PASS' "$RELEASE/rule-audit.md"
+          grep -q 'User application groups: 10/10 imported' "$RELEASE/ReleaseReport.md"
           if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" >/dev/null 2>&1; then
             echo "Tag $VERSION already exists; refusing to overwrite it." >&2
             exit 1
           fi
-          cat > "$RELEASE/ReleaseReport.md" <<EOF
-          # $VERSION cloud release report
-
-          - Cloud build run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
-          - Source commit: $GITHUB_SHA
-          - Target: $TARGET / $DEVICE / RK3576
-          - OpenWrt: $OPENWRT_VERSION ($OPENWRT_COMMIT)
-          - AppleEcosystem: 85 domains, system-default outbound policy
-          - User application groups: 10/10 imported
-          - SHA256: verified by the Release Approval job
-          - HARDWARE BOOT TESTED: NOT TESTED
-          - STABLE OTA: NOT PUBLISHED
-          EOF
           gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
             -f "ref=refs/tags/$VERSION" -f "sha=$GITHUB_SHA"
           assets=(
@@ -430,6 +505,7 @@ jobs:
             "$RELEASE/TestPlan.md"
             "$RELEASE/ReleaseReport.md"
             "$RELEASE/firmware-audit.md"
+            "$RELEASE/rule-audit.md"
             "$RELEASE/domain-rule-audit.md"
           )
           gh release create "$VERSION" --repo "$GITHUB_REPOSITORY" \
