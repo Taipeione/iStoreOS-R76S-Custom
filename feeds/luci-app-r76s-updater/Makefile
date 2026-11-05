@@ -14,7 +14,7 @@ define Package/luci-app-r76s-updater
   CATEGORY:=LuCI
   SUBMENU:=3. Applications
   TITLE:=R76S Firmware and Component Online Updater
-  DEPENDS:=+luci-base +luci-lib-jsonc +lua +curl +ca-bundle +ca-certificates +opkg +r76s-core
+  DEPENDS:=+luci-base +luci-lib-jsonc +lua +curl +ca-bundle +ca-certificates +apk-mbedtls +r76s-core
 endef
 
 define Package/luci-app-r76s-updater/description

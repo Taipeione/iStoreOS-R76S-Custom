@@ -10,32 +10,35 @@ mkdir -p "$TMPROOT" "$BACKUP_ROOT"
 
 CORE_PACKAGE() {
     case "$1" in
-        kernel|kmod-*|base-files|busybox|firewall4|netifd|procd|ubus|uci|opkg|libc) return 0;;
+        kernel|kmod-*|base-files|busybox|firewall4|netifd|procd|ubus|uci|apk|apk-*|libc) return 0;;
         *) return 1;;
     esac
 }
 
-# id|Chinese name|opkg package|service|binary|category|channel
+# id|Chinese name|package|service|binary|category|channel
 COMPONENTS='\
-passwall|PassWall|luci-app-passwall|passwall|/usr/bin/xray|代理分流组件|opkg
-passwall2|PassWall2|luci-app-passwall2|passwall2|/usr/bin/xray|代理分流组件|opkg
-xray-core|Xray-core|xray-core|passwall|/usr/bin/xray|代理分流组件|opkg
-sing-box|Sing-box|sing-box|passwall|/usr/bin/sing-box|代理分流组件|opkg
-chinadns-ng|ChinaDNS-NG|chinadns-ng|passwall|/usr/bin/chinadns-ng|代理分流组件|opkg
-smartdns|SmartDNS|smartdns|smartdns|/usr/libexec/r76s/smartdns.bin|DNS 组件|opkg
-adguardhome|AdGuard Home|adguardhome|adguardhome|/usr/bin/AdGuardHome|DNS 组件|opkg
-dnsmasq-full|dnsmasq-full|dnsmasq-full|dnsmasq|/usr/sbin/dnsmasq|DNS 组件|opkg
-wireguard|WireGuard|wireguard-tools|network|/usr/bin/wg|网络组件|opkg
-ddns|DDNS|ddns-scripts|ddns|/usr/lib/ddns/dynamic_dns_functions.sh|网络组件|opkg
-upnp|UPnP|miniupnpd|miniupnpd|/usr/sbin/miniupnpd|网络组件|opkg
-docker|Docker|dockerd|docker|/usr/bin/dockerd|系统增强组件|opkg
-istore|iStore|luci-app-istore|istore|/usr/bin/istore|系统增强组件|opkg
-quickstart|QuickStart|luci-app-quickstart|quickstart|/etc/init.d/quickstart|系统增强组件|opkg
+passwall|PassWall|luci-app-passwall|passwall|/usr/bin/xray|代理分流组件|apk
+passwall2|PassWall2|luci-app-passwall2|passwall2|/usr/bin/xray|代理分流组件|apk
+xray-core|Xray-core|xray-core|passwall|/usr/bin/xray|代理分流组件|apk
+sing-box|Sing-box|sing-box|passwall|/usr/bin/sing-box|代理分流组件|apk
+chinadns-ng|ChinaDNS-NG|chinadns-ng|passwall|/usr/bin/chinadns-ng|代理分流组件|apk
+smartdns|SmartDNS|smartdns|smartdns|/usr/libexec/r76s/smartdns.bin|DNS 组件|apk
+adguardhome|AdGuard Home|adguardhome|adguardhome|/usr/bin/AdGuardHome|DNS 组件|apk
+dnsmasq-full|dnsmasq-full|dnsmasq-full|dnsmasq|/usr/sbin/dnsmasq|DNS 组件|apk
+wireguard|WireGuard|wireguard-tools|network|/usr/bin/wg|网络组件|apk
+ddns|DDNS|ddns-scripts|ddns|/usr/lib/ddns/dynamic_dns_functions.sh|网络组件|apk
+upnp|UPnP|miniupnpd|miniupnpd|/usr/sbin/miniupnpd|网络组件|apk
+docker|Docker|dockerd|docker|/usr/bin/dockerd|系统增强组件|apk
+istore|iStore|luci-app-istore|istore|/usr/bin/istore|系统增强组件|apk
+quickstart|QuickStart|luci-app-quickstart|quickstart|/etc/init.d/quickstart|系统增强组件|apk
 r76s-status|R76S 状态页|luci-app-r76s-status|rpcd|/usr/share/luci/menu.d/r76s-wireguard-client.json|系统增强组件|firmware
 r76s-updater|R76S OTA 升级页|luci-app-r76s-updater|rpcd|/usr/share/luci/menu.d/r76s-updater.json|系统增强组件|firmware
 r76s-health|R76S 健康检查|r76s-core|r76s-reconcile|/usr/bin/r76s-health|系统增强组件|firmware'
 
-pkgver() { opkg status "$1" 2>/dev/null | sed -n 's/^Version: //p' | head -n1; }
+pkgtool() { command -v apk >/dev/null 2>&1 && printf apk || return 1; }
+pkgver() {
+    apk list -I "$1" 2>/dev/null | awk -v p="$1" '$1 ~ "^" p "[-=]" {print $1; exit}'
+}
 service_exists() { [ -x "/etc/init.d/$1" ]; }
 is_installed() { [ -n "$(pkgver "$1")" ] || [ -e "$2" ]; }
 service_running() {
@@ -57,8 +60,8 @@ friendly_current() {
 online_version() {
     local pkg="$1" channel="$2" v
     [ "$channel" = firmware ] && { printf '需要随固件升级'; return; }
-    case "$pkg" in kernel|kmod-*|base-files|busybox|firewall4|netifd|procd|ubus|uci|opkg|libc) printf '需要随固件升级'; return;; esac
-    v="$(opkg list 2>/dev/null | awk -v p="$pkg" '$1==p {print $3; exit}')"
+    case "$pkg" in kernel|kmod-*|base-files|busybox|firewall4|netifd|procd|ubus|uci|apk|apk-*|libc) printf '需要随固件升级'; return;; esac
+    v="$(apk list "$pkg" 2>/dev/null | awk -v p="$pkg" '$1 ~ "^" p "[-=]" {print $1; exit}')"
     [ -n "$v" ] && printf '%s' "$v" || printf '暂不可用'
 }
 backup_config() {
@@ -94,7 +97,7 @@ EOF
     if /etc/init.d/"$service" restart >/tmp/r76s-component-"$id".log 2>&1; then sleep 2; service_running "$service" "$bin" && printf '%s：已重启并恢复运行。\n' "$name" || printf '%s：已重启，但尚未确认恢复，请查看日志。\n' "$name"; else printf '%s：重启失败，日志已保留在 /tmp/r76s-component-%s.log。\n' "$name" "$id"; fi
 }
 has_core_dependency() {
-    printf '%s\n' "$1" | grep -Eiq '(^|[^[:alnum:]_.+-])(kernel|kmod-[[:alnum:]_.+-]+|base-files|busybox|firewall4|netifd|procd|ubus|uci|opkg|libc)([^[:alnum:]_.+-]|$)'
+    printf '%s\n' "$1" | grep -Eiq '(^|[^[:alnum:]_.+-])(kernel|kmod-[[:alnum:]_.+-]+|base-files|busybox|firewall4|netifd|procd|ubus|uci|apk|libc)([^[:alnum:]_.+-]|$)'
 }
 restore_service_state() {
     local service="$1" bin="$2" was_running="$3" was_enabled="$4" name="$5"
@@ -108,20 +111,25 @@ update_component() {
     local row="$1" id name pkg service bin category channel backup log preflight was_running=0 was_enabled=0; IFS='|' read -r id name pkg service bin category channel <<EOF
 $row
 EOF
-    case "$pkg" in kernel|kmod-*|base-files|busybox|firewall4|netifd|procd|ubus|uci|opkg|libc) printf '%s：核心系统包只能跟随完整固件升级。\n' "$name"; return 2;; esac
+    case "$pkg" in kernel|kmod-*|base-files|busybox|firewall4|netifd|procd|ubus|uci|apk|apk-*|libc) printf '%s：核心系统包只能跟随完整固件升级。\n' "$name"; return 2;; esac
     [ "$channel" = firmware ] && { printf '%s：没有安全的独立升级渠道，请随完整固件升级。\n' "$name"; return 2; }
     backup="$(backup_config "$id" "$(date +%Y%m%d-%H%M%S)")" || { printf '%s：配置备份失败，已阻止升级。\n' "$name"; return 1; }; log="/tmp/r76s-component-$id-update.log"; : > "$log"
     if [ -z "$(pkgver "$pkg")" ]; then printf '%s：当前未安装，已保存检查结果；请先通过固件或软件源安装。\n' "$name" | tee -a "$log"; return 0; fi
     service_running "$service" "$bin" && was_running=1 || true
     service_enabled "$service" && was_enabled=1 || true
-    preflight="$(opkg --noaction install "$pkg" 2>&1)"; printf '%s\n' "$preflight" >> "$log"
+    preflight="$(apk add --simulate --upgrade "$pkg" 2>&1)"
+    printf '%s\n' "$preflight" >> "$log"
     if has_core_dependency "$preflight"; then printf '%s：检测到核心系统依赖，已阻止升级；配置备份保留在 %s。\n' "$name" "$backup"; return 2; fi
-    if ! opkg install "$pkg" >>"$log" 2>&1; then printf '%s：升级失败，未覆盖用户配置；日志：%s，备份：%s\n' "$name" "$log" "$backup"; return 1; fi
+    if ! apk add --upgrade "$pkg" >>"$log" 2>&1; then printf '%s：升级失败，未覆盖用户配置；日志：%s，备份：%s\n' "$name" "$log" "$backup"; return 1; fi
     if ! restore_service_state "$service" "$bin" "$was_running" "$was_enabled" "$name" >>"$log" 2>&1; then printf '%s：升级后服务状态未恢复；日志：%s，配置备份：%s\n' "$name" "$log" "$backup"; return 1; fi
     printf '%s：升级完成，已恢复原服务状态。配置备份：%s\n' "$name" "$backup"
 }
 with_lock() { mkdir "$LOCKDIR" 2>/dev/null || { printf '已有组件升级任务正在运行，请稍后再试。\n'; return 1; }; trap 'rmdir "$LOCKDIR" 2>/dev/null || true' EXIT INT TERM; "$@"; local rc=$?; rmdir "$LOCKDIR" 2>/dev/null || true; trap - EXIT INT TERM; return $rc; }
-refresh_indexes() { command -v opkg >/dev/null 2>&1 || return 1; if command -v timeout >/dev/null 2>&1; then timeout 60 opkg update >/tmp/r76s-component-opkg-update.log 2>&1; else opkg update >/tmp/r76s-component-opkg-update.log 2>&1; fi; }
+refresh_indexes() {
+    pkgtool >/dev/null 2>&1 || return 1
+    if command -v timeout >/dev/null 2>&1; then timeout 60 apk update >/tmp/r76s-component-pkg-update.log 2>&1
+    else apk update >/tmp/r76s-component-pkg-update.log 2>&1; fi
+}
 cmd="${1:-status}"; id="${2:-all}"
 case "$cmd" in
     status|check) [ "$cmd" = check ] && refresh_indexes >/dev/null 2>&1 || true; if [ "$id" = all ]; then all_status; else row="$(find_component "$id")" || { printf '未识别的插件：%s\n' "$id"; exit 2; }; IFS='|' read -r rid rname rp rs rb rcat rchannel <<EOF

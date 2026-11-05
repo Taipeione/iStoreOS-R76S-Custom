@@ -1,0 +1,28 @@
+#!/bin/sh
+# Fresh-image defaults only. A V1 configuration has no pending profile and is
+# never rewritten here; it is handled by the selective OTA migration path.
+set -eu
+profile="$(uci -q get r76s.main.defaults_profile 2>/dev/null || true)"
+[ "$profile" = r76s-v2-pending ] || exit 0
+
+uci -q set network.lan.ipaddr='192.168.50.1'
+uci -q set network.lan.netmask='255.255.255.0'
+uci -q set network.wan.proto='pppoe'
+uci -q set network.wan6.proto='dhcpv6'
+uci -q set network.wan6.reqaddress='try'
+uci -q set network.wan6.reqprefix='auto'
+
+# Keep the required ports explicit in the baseline; services remain disabled
+# until their own configuration is present and the administrator selects a
+# chain. The runtime coordinator prevents DNS loops and proxy mutex conflicts.
+uci -q set dhcp.@dnsmasq[0].port='53'
+uci -q set dhcp.@dnsmasq[0].localservice='1'
+uci -q delete dhcp.@dnsmasq[0].server 2>/dev/null || true
+uci -q add_list dhcp.@dnsmasq[0].server='127.0.0.1#15355'
+
+uci -q set r76s.main.defaults_profile='r76s-v2-applied'
+uci -q set r76s.main.schema='2'
+uci -q commit network
+uci -q commit dhcp
+uci -q commit r76s
+exit 0

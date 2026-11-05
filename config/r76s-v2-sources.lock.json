@@ -1,0 +1,28 @@
+{
+  "openwrt": {
+    "tag": "v25.12.6",
+    "commit": "64900e756efa667774214f9c6b17c113222e01f7",
+    "target": "rockchip/armv8",
+    "device": "friendlyarm_nanopi-r76s",
+    "kernel_patchver": "6.12",
+    "release_kernel": "6.12.112",
+    "release_kmod_abi": "6.12.112-1-5eacf764ba9415e5d7ff4aecb2e45c4d"
+  },
+  "official_feeds": {
+    "packages": "093d551675b1119a06ef224d419905e8d6b2af1a",
+    "luci": "75a306df84a020c57a631ef5b4c02ace56d93387",
+    "routing": "48c808034414a2112cf9d5261a20a320e8d0d170",
+    "telephony": "2618106d5846a4a542fdf5809f0d3ed228ce439b",
+    "video": "094bf58da6682f895255a35a84349a79dab4bf95"
+  },
+  "third_party": {
+    "passwall": "701d982a26ee0b960d248754b8f8868f6f18fb59",
+    "passwall_packages": "9178f2e627a1a104b0b35d1c47a7672dff42c970",
+    "passwall2": "2de5aee7a4c704a5b689fdab47b97a18ad11c1a2"
+  },
+  "smartdns": {
+    "release": "Release48.4",
+    "asset_sha256": "d769cff42af9b8e76823aca130ddfd174cf24cbe56f702bc95f1ef20eb5fcf02"
+  },
+  "audit_note": "Third-party refs are inherited from the V1.4.6 baseline and are not release-approved until APK/25.12 compatibility checks pass."
+}

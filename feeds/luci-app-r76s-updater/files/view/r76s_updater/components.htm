@@ -2,7 +2,7 @@
 <h2>R76S 插件在线升级中心</h2>
 <div class="cbi-map">
   <div class="cbi-section">
-    <p>这里仅管理插件和用户态服务。kernel、kmod-*、base-files、busybox、firewall4、netifd、procd、ubus、uci、opkg、libc 等系统核心包只能跟随完整固件升级。</p>
+    <p>这里仅管理插件和用户态服务。kernel、kmod-*、base-files、busybox、firewall4、netifd、procd、ubus、uci、apk、libc 等系统核心包只能跟随完整固件升级。</p>
     <p>插件升级前会自动备份相关配置，升级后重启服务并检查恢复状态。失败时保留日志，不覆盖用户配置。</p>
     <% if result and #result > 0 then %><pre><%=luci.util.pcdata(result)%></pre><% end %>
     <form method="post" action="<%=REQUEST_URI%>">

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "source": "project-rule-inputs",
+  "rules": [
+    {
+      "name": "AppleEcosystem",
+      "options": {
+        "remarks": "Apple 生态（用户 TXT 增量规则）",
+        "network": "tcp,udp",
+        "domain_list": "*.push.apple.com\nalbert.apple.com\ncaptive.apple.com\ngs.apple.com\nhumb.apple.com\nstatic.ips.apple.com\nsq-device.apple.com\ntbsc.apple.com\ntime-ios.apple.com\ntime.apple.com\ntime-macos.apple.com\ndeviceenrollment.apple.com\ndeviceservices-external.apple.com\ngdmf.apple.com\nidentity.apple.com\niprofiles.apple.com\nmdmenrollment.apple.com\nsetup.icloud.com\nvpp.itunes.apple.com\n*.appattest.apple.com\naxm-servicediscovery.apple.com\n*.itunes.apple.com\n*.apps.apple.com\n*.mzstatic.com\nitunes.apple.com\nppq.apple.com\napi.apple-cloudkit.com\n*.apps-marketplace.apple.com\ntoken.safebrowsing.apple\naudiocontentdownload.apple.com\ndevimages-cdn.apple.com\ndownload.developer.apple.com\nplayground-assets-cdn.apple.com\nplayground-cdn.apple.com\nsylvan.apple.com\ngateway.icloud.com\nappldnld.apple.com\nconfiguration.apple.com\ngg.apple.com\nig.apple.com\nmesu.apple.com\noscdn.apple.com\nosrecovery.apple.com\nskl.apple.com\nswcdn.apple.com\nswdist.apple.com\nswdownload.apple.com\nswscan.apple.com\nupdates-http.cdn-apple.com\nupdates.cdn-apple.com\nxp.apple.com\ngdmf-ados.apple.com\ngsra.apple.com\nwkms-public.apple.com\nfcs-keys-pub-prod.cdn-apple.com\naccount.apple.com\nappleid.cdn-apple.com\nidmsa.apple.com\ngsa.apple.com\n*.apple-cloudkit.com\n*.apple-livephotoskit.com\n*.apzones.com\n*.cdn-apple.com\n*.gc.apple.com\n*.icloud.com\n*.icloud.com.cn\n*.icloud.apple.com\n*.icloud-content.com\n*.iwork.apple.com\nmask.icloud.com\nmask-h2.icloud.com\nmask-api.icloud.com\nprobe.icloud.com\npong.icloud.com\nmetrics.icloud.com\napple-native-relay.apple.com\n*.apple-dns.net\nguzzoni.apple.com\n*.smoot.apple.com\napple-relay.cloudflare.com\napple-relay.fastly-edge.com\ncp4.cloudflare.com\napple-relay.apple.com\napp-site-association.cdn-apple.com\napp-site-association.networking.apple"
+      }
+    }
+  ]
+}

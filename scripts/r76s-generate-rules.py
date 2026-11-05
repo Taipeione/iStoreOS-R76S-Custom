@@ -4,10 +4,38 @@ from pathlib import Path
 import json,re,sys
 manifest=json.loads(Path(sys.argv[1]).read_text())
 assert manifest['schema_version']==1
-rules=[(rule['name'],list(rule['options'].items())) for rule in manifest['rules']]
-output_order=[name for name,_ in rules]
-assert len(output_order)==43 and len(set(output_order))==43
-assert output_order[0]=='WeChatDirect' and output_order[-1]=='TencentMediaDirect'
+base_rules=[(rule['name'],list(rule['options'].items())) for rule in manifest['rules']]
+base_order=[name for name,_ in base_rules]
+assert len(base_order)==43 and len(set(base_order))==43
+assert base_order[0]=='WeChatDirect' and base_order[-1]=='TencentMediaDirect'
+rules=base_rules
+app_manifest_path=Path(sys.argv[4]) if len(sys.argv)>4 else None
+if app_manifest_path:
+    app_manifest=json.loads(app_manifest_path.read_text())
+    assert app_manifest['schema_version']==1
+    app_rules=[(rule['name'],list(rule['options'].items())) for rule in app_manifest['rules']]
+    app_names=[name for name,_ in app_rules]
+    assert len(app_names)==len(set(app_names))
+    assert not set(app_names) & set(base_order), 'application rule name collides with baseline'
+    assert all(name not in {'WeChatDirect', 'TencentMediaDirect'} for name in app_names)
+    for name, props in app_rules:
+        options = dict(props)
+        assert options.get('network') == 'tcp,udp', f'{name}: application rule must cover TCP and UDP'
+        assert options.get('domain_list', '').strip(), f'{name}: empty domain_list'
+        if name == 'AppleEcosystem':
+            assert not any(key in options for key in ('node', 'outbound', 'strategy')), \
+                'AppleEcosystem must follow the system default outbound strategy'
+    # Preserve the order of every baseline rule and keep TencentMediaDirect as
+    # the final legacy rule; the new groups are an additive block immediately
+    # before it. WeChatDirect remains the first rule.
+    rules=[]
+    for item in base_rules:
+        if item[0]=='TencentMediaDirect':
+            rules.extend(app_rules)
+        rules.append(item)
+    output_order=[name for name,_ in rules]
+else:
+    output_order=base_order
 pw1,pw2=map(Path,sys.argv[2:4])
 
 def sections(text):
@@ -90,25 +118,31 @@ for p in (pw1,pw2):
         s
     )
 
-    if len(actual_order) != 43:
+    if len(actual_order) != len(output_order):
         raise SystemExit(
-            f'ERROR: {p} has {len(actual_order)} shunt_rules after transform'
+            f'ERROR: {p} has {len(actual_order)} shunt_rules after transform; expected {len(output_order)}'
         )
 
     if actual_order != output_order:
-        raise SystemExit(
-            f'ERROR: {p} V1.1.1 shunt order mismatch: {actual_order}'
-        )
+        raise SystemExit(f'ERROR: {p} shunt order mismatch: {actual_order}')
 
     if actual_order[0] != 'WeChatDirect':
         raise SystemExit(
             f'ERROR: {p} first rules are not the V1.3.2 direct groups'
         )
 
-    if actual_order[-2:] != ['Dropbox', 'TencentMediaDirect']:
+    if actual_order[-1] != 'TencentMediaDirect':
         raise SystemExit(
-            f'ERROR: {p} last shunt rule is not Dropbox'
+            f'ERROR: {p} last shunt rule is not TencentMediaDirect'
         )
+
+    wechat_start = s.find("config shunt_rules 'WeChatDirect'")
+    wechat_end = s.find("\nconfig ", wechat_start + 1) if wechat_start >= 0 else -1
+    wechat_block = s[wechat_start:wechat_end if wechat_end >= 0 else len(s)]
+    if wechat_start < 0 or "option network 'tcp,udp'" not in wechat_block:
+        raise SystemExit(f'ERROR: {p} WeChatDirect is not explicitly TCP+UDP direct')
+    if 'domain:qq.com' in wechat_block or 'full:qq.com' in wechat_block:
+        raise SystemExit(f'ERROR: {p} contains forbidden broad qq.com WeChat rule')
 
     for required in [
         "config nodes 'myshunt'",
@@ -128,4 +162,4 @@ if generated_orders[0] != generated_orders[1]:
         'ERROR: PassWall and PassWall2 shunt rule order differs'
     )
 
-print('PassWall and PassWall2 V1.3.2 43-rule order verified, no legacy WeChatTencent rule.')
+print(f'PassWall and PassWall2 baseline {len(base_order)}-rule order verified, additive apps={len(output_order) - len(base_order)}, no legacy WeChatTencent rule.')

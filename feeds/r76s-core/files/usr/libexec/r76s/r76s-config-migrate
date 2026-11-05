@@ -5,6 +5,8 @@ uci -q get r76s.main >/dev/null 2>&1 || {
     [ -s /rom/etc/config/r76s ] || exit 1
     cp /rom/etc/config/r76s /etc/config/r76s
 }
+[ -x /usr/bin/lua ] && [ -s /usr/share/r76s/r76s-app-rules.json ] && \
+    lua /usr/libexec/r76s/r76s-rules-merge.lua || exit 1
 /usr/libexec/r76s/r76s-service-manager reconcile
 for service in passwall passwall2 smartdns; do
     if [ "$service" = smartdns ]; then key='smartdns.@smartdns[0].enabled'; pattern='[s]martdns'; else key="$service.@global[0].enabled"; pattern="/tmp/etc/$service/"; fi
@@ -12,5 +14,5 @@ for service in passwall passwall2 smartdns; do
         /etc/init.d/"$service" start || exit 1
     fi
 done
-uci -q set r76s.main.schema='1' 
+uci -q set r76s.main.schema='2'
 uci -q commit r76s
