@@ -82,9 +82,16 @@ def main() -> int:
         if result.returncode:
             failures.append(f"shell syntax: {path}: {result.stderr.strip()}")
     lua = shutil.which("lua")
-    if lua:
+    luac = shutil.which("luac")
+    if luac or lua:
         for path in sorted((repo / "feeds").rglob("*.lua")):
-            result = subprocess.run([lua, "-p", str(path)], capture_output=True, text=True)
+            if luac:
+                command = [luac, "-p", str(path)]
+            else:
+                # Lua 5.1 has no `lua -p`; loadfile performs syntax-only
+                # parsing without executing the module body.
+                command = [lua, "-e", "assert(loadfile(arg[1]))", str(path)]
+            result = subprocess.run(command, capture_output=True, text=True)
             if result.returncode:
                 failures.append(f"Lua syntax: {path}: {result.stderr.strip()}")
 
