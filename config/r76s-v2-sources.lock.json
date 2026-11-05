@@ -20,6 +20,13 @@
     "passwall_packages": "9178f2e627a1a104b0b35d1c47a7672dff42c970",
     "passwall2": "2de5aee7a4c704a5b689fdab47b97a18ad11c1a2"
   },
+  "third_party_overrides": {
+    "dns2socks": {
+      "source": "@SF/dns2socks/SourceCode.zip",
+      "sha256": "406b5003523577d39da66767adfe54f7af9b701374363729386f32f6a3a995f4",
+      "reason": "Pinned PassWall package URL returns 404; SourceForge archive and hash remain valid."
+    }
+  },
   "smartdns": {
     "release": "Release48.4",
     "asset_sha256": "d769cff42af9b8e76823aca130ddfd174cf24cbe56f702bc95f1ef20eb5fcf02"
