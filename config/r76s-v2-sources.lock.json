@@ -31,5 +31,11 @@
     "release": "Release48.4",
     "asset_sha256": "d769cff42af9b8e76823aca130ddfd174cf24cbe56f702bc95f1ef20eb5fcf02"
   },
+  "cargo_network": {
+    "http_multiplexing": false,
+    "net_retry": 10,
+    "http_timeout_seconds": 120,
+    "reason": "Run #16 shadowsocks-rust dependency download failed with curl HTTP2 framing error; retain the package and use HTTP/1.1-compatible Cargo transport with bounded retries."
+  },
   "audit_note": "Third-party refs are inherited from the V1.4.6 baseline and are not release-approved until APK/25.12 compatibility checks pass."
 }
