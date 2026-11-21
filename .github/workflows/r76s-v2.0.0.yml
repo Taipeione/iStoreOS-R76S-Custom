@@ -322,27 +322,41 @@ jobs:
           test -s "$RELEASE/Version"
           test -s "$RELEASE/SHA256SUMS"
           (cd "$RELEASE" && sha256sum -c SHA256SUMS)
-          test -n "$(find "$RELEASE" -maxdepth 1 -type f -name '*.img*' -size +1M -size -1G -print -quit)"
-          grep -E -q 'nanopi-r76s|friendlyarm' < <(find "$RELEASE" -maxdepth 1 -type f -name '*.img*' -printf '%f\n')
           python3 - "$RELEASE" <<'PY'
           import json, sys
           from pathlib import Path
           release = Path(sys.argv[1])
+          images = sorted(release.glob('*.img*'))
+          eligible = [p for p in images if 1024 * 1024 < p.stat().st_size < 1024 * 1024 * 1024]
+          if not eligible:
+              raise SystemExit(f"RELEASE_GATE=FAIL no firmware image in 1MiB..1GiB; candidates={[(p.name, p.stat().st_size) for p in images]}")
+          if not any(('nanopi-r76s' in p.name or 'friendlyarm' in p.name) for p in eligible):
+              raise SystemExit(f"RELEASE_GATE=FAIL image filename does not identify NanoPi R76S; candidates={[p.name for p in eligible]}")
           info = json.loads((release / 'BuildInfo.json').read_text())
-          assert info['version'] == 'R76S-V2.0.0'
-          assert info['target'] == 'rockchip/armv8'
-          assert info['device'] == 'friendlyarm_nanopi-r76s'
-          assert info['openwrt_version'] == '25.12.6'
-          assert info['apk'] is True
-          assert info['hardware_boot_tested'] == 'NOT TESTED'
+          checks = {
+              'version': info.get('version') == 'R76S-V2.0.0',
+              'target': info.get('target') == 'rockchip/armv8',
+              'device': info.get('device') == 'friendlyarm_nanopi-r76s',
+              'openwrt_version': info.get('openwrt_version') == '25.12.6',
+              'apk': info.get('apk') is True,
+              'hardware_boot_tested': info.get('hardware_boot_tested') == 'NOT TESTED',
+          }
+          failed = [name for name, passed in checks.items() if not passed]
+          if failed:
+              values = {name: info.get(name) for name in checks}
+              raise SystemExit(f"RELEASE_GATE=FAIL BuildInfo fields={failed}; values={values}")
           manifest = json.loads((release / 'r76s-app-rules.json').read_text())
           rules = {r['name']: r for r in manifest['rules']}
-          assert len(rules) == 11
-          assert len(rules['AppleEcosystem']['options']['domain_list'].splitlines()) == 85
-          assert not any(k in rules['AppleEcosystem']['options'] for k in ('node', 'outbound', 'strategy'))
+          if len(rules) != 11:
+              raise SystemExit(f"RELEASE_GATE=FAIL rule_count={len(rules)} expected=11")
+          if 'AppleEcosystem' not in rules or len(rules['AppleEcosystem']['options']['domain_list'].splitlines()) != 85:
+              raise SystemExit('RELEASE_GATE=FAIL AppleEcosystem domain count is not 85')
+          if any(k in rules['AppleEcosystem']['options'] for k in ('node', 'outbound', 'strategy')):
+              raise SystemExit('RELEASE_GATE=FAIL AppleEcosystem has a forced outbound option')
           for name in ('AmazonPrime', 'ChatGPT', 'DisneyApp', 'Emby', 'HBO Max', 'NetflixApp', 'NintendoApp', 'TelegramApp', 'TikTokApp', 'YouTubeYouTubeTV'):
-              assert name in rules and rules[name]['options']['domain_list'].strip(), name
-          print('RELEASE_GATE=PASS target=RK3576 device=NanoPi-R76S apple=85 user_apps=10')
+              if name not in rules or not rules[name]['options']['domain_list'].strip():
+                  raise SystemExit(f'RELEASE_GATE=FAIL missing application rule {name}')
+          print(f'RELEASE_GATE=PASS target=RK3576 device=NanoPi-R76S apple=85 user_apps=10 image={eligible[0].name} bytes={eligible[0].stat().st_size}')
           PY
           python3 scripts/r76s-v2-rules-audit.py \
             "$RELEASE/baseline-rules.json" "$RELEASE/r76s-app-rules.json" \
