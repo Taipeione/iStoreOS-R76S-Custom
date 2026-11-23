@@ -7,6 +7,12 @@ on:
       - main
       - codex/r76s-v2.0.0-openwrt-25.12
   workflow_dispatch:
+    inputs:
+      tf_boot_test:
+        description: 'Build the isolated R76S-V2.0.0 TF boot-test artifact'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -292,6 +298,92 @@ jobs:
             ${{ runner.temp }}/cloud-build.log
           if-no-files-found: warn
           retention-days: 30
+
+  tf-boot-test-artifact:
+    name: TF Boot Test Artifact
+    needs: openwrt-build
+    if: needs.openwrt-build.result == 'success' && github.event_name == 'workflow_dispatch' && inputs.tf_boot_test == true
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact source and TF audit tools
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install TF image inspection tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends python3 squashfs-tools file
+
+      - name: Fetch locked OpenWrt source for image provenance audit
+        run: |
+          set -Eeuo pipefail
+          git clone --filter=blob:none https://github.com/openwrt/openwrt.git "$RUNNER_TEMP/openwrt"
+          git -C "$RUNNER_TEMP/openwrt" fetch --depth 1 origin "$OPENWRT_COMMIT"
+          git -C "$RUNNER_TEMP/openwrt" checkout --detach "$OPENWRT_COMMIT"
+          test "$(git -C "$RUNNER_TEMP/openwrt" rev-parse HEAD)" = "$OPENWRT_COMMIT"
+
+      - name: Download cloud-built firmware and create TF-only artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: R76S-V2.0.0-cloud-build-${{ github.run_number }}
+          path: ${{ runner.temp }}/cloud-build
+
+      - name: Audit boot chain and package isolated TF artifact
+        run: |
+          set -Eeuo pipefail
+          RELEASE=$(find "$RUNNER_TEMP/cloud-build" -name BuildInfo.json -printf '%h\n' | head -1)
+          IMAGE=$(find "$RELEASE" -maxdepth 1 -type f -name '*friendlyarm_nanopi-r76s*.img.gz' -print -quit)
+          test -n "$RELEASE" -a -s "$IMAGE"
+          TF_OUT="$RUNNER_TEMP/tf-boot-test"
+          mkdir -p "$TF_OUT"
+          python3 scripts/r76s-tf-boot-audit.py \
+            --image "$IMAGE" \
+            --source-root "$RUNNER_TEMP/openwrt" \
+            --output-dir "$TF_OUT"
+          cp docs/R76S-V2.0.0-TF-BOOT-TESTPLAN.md "$TF_OUT/TF-BOOT-TESTPLAN.md"
+          export RELEASE IMAGE TF_OUT
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+
+          def sha(path):
+              h = hashlib.sha256()
+              with path.open('rb') as f:
+                  for block in iter(lambda: f.read(1024 * 1024), b''):
+                      h.update(block)
+              return h.hexdigest()
+
+          release = Path(os.environ['RELEASE'])
+          image = Path(os.environ['IMAGE'])
+          out = Path(os.environ['TF_OUT'])
+          info = json.loads((release / 'BuildInfo.json').read_text())
+          tf_image = out / 'openwrt-rockchip-armv8-friendlyarm_nanopi-r76s-squashfs-tf-boot-test.img.gz'
+          info.update({
+              'artifact_kind': 'R76S-V2.0.0-TF-BOOT-TEST',
+              'source_image': image.name,
+              'source_image_sha256': sha(image),
+              'tf_image': tf_image.name,
+              'tf_image_sha256': sha(tf_image),
+              'hardware_boot_tested': 'NOT TESTED',
+              'emmc_write_performed': False,
+              'spi_write_performed': False,
+              'eflasher_included': False,
+          })
+          (out / 'BuildInfo.json').write_text(json.dumps(info, ensure_ascii=False, indent=2) + '\n')
+          PY
+          (cd "$TF_OUT" && find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+          (cd "$TF_OUT" && sha256sum -c SHA256SUMS)
+
+      - name: Upload isolated TF boot-test artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: R76S-V2.0.0-TF-BOOT-TEST
+          path: ${{ runner.temp }}/tf-boot-test
+          if-no-files-found: error
+          retention-days: 90
 
   firmware-audit:
     name: Firmware Audit
