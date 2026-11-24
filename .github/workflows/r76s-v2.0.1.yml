@@ -268,7 +268,7 @@ jobs:
           cp "$GITHUB_WORKSPACE/config/rules/r76s-rules.json" "$RELEASE/baseline-rules.json"
           cp "$PW1" "$RELEASE/PassWall-default.config"
           cp "$PW2" "$RELEASE/PassWall2-default.config"
-          cp "$GITHUB_WORKSPACE/docs/R76S-V2.0.1-TEST-PLAN.md" "$RELEASE/TestPlan.md"
+          cp "$GITHUB_WORKSPACE/docs/R76S-V2.0.1-TESTPLAN.md" "$RELEASE/TestPlan.md"
           cp "$GITHUB_WORKSPACE/docs/R76S-V2.0.1-OTA-GUIDE.md" "$RELEASE/OTA-GUIDE.md"
           cp "$GITHUB_WORKSPACE/docs/R76S-V2.0.1-OTA-COMPATIBILITY.md" "$RELEASE/OTA-COMPATIBILITY.md"
           cp "$GITHUB_WORKSPACE/docs/R76S-V2.0.1-RECOVERY-GUIDE.md" "$RELEASE/RECOVERY-GUIDE.md"
