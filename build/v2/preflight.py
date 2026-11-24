@@ -31,6 +31,10 @@ def main() -> int:
         repo / "scripts/r76s-generate-rules.py",
         repo / "feeds/r76s-core/files/usr/libexec/r76s/r76s-rules-merge.lua",
         repo / "feeds/r76s-core/files/usr/share/r76s/r76s-app-rules.json",
+            repo / "scripts/r76s-v2.0.1-ota-audit.py",
+            repo / "files/etc/uci-defaults/95-r76s-initial-root-password",
+            repo / "files/usr/share/r76s/ota-public.pem",
+            repo / "feeds/r76s-core/files/usr/libexec/r76s/r76s-config-restore-selective",
     ):
         need(path, failures)
 
@@ -41,9 +45,10 @@ def main() -> int:
             "CONFIG_TARGET_rockchip_armv8=y",
             "CONFIG_TARGET_rockchip_armv8_DEVICE_friendlyarm_nanopi-r76s=y",
             "CONFIG_USE_APK=y",
+            "CONFIG_PACKAGE_luci-mod-system=y",
             "CONFIG_PACKAGE_apk-mbedtls=y",
             'CONFIG_VERSION_NUMBER="25.12.6"',
-            'CONFIG_VERSION_CODE="R76S-V2.0.0"',
+            'CONFIG_VERSION_CODE="R76S-V2.0.1"',
         )
         for item in required:
             if item not in text:
@@ -75,6 +80,16 @@ def main() -> int:
     updater = repo / "feeds/luci-app-r76s-updater/files/root/usr/libexec/r76s/r76s-component-updater"
     if updater.is_file() and re.search(r"\bopkg\b", updater.read_text(), re.I):
         failures.append("component updater still references opkg")
+
+    password = repo / "files/etc/uci-defaults/95-r76s-initial-root-password"
+    if password.is_file():
+        text = password.read_text()
+        if "$6$" not in text or "passwd root" in text or "password\npassword" in text:
+            failures.append("initial root credential is not a hashed-only policy")
+
+    auth = repo / "files/etc/uci-defaults/99-r76s-root-auth"
+    if auth.is_file() and "Interface='lan'" not in auth.read_text():
+        failures.append("Dropbear is not explicitly LAN-only")
 
     for path in sorted((repo / "feeds").rglob("*.sh")) + sorted((repo / "files").rglob("*.sh")) + sorted((repo / "build/v2").glob("*.sh")):
         interpreter = "bash" if path.read_text(errors="replace").startswith("#!" ) and "bash" in path.read_text(errors="replace").splitlines()[0] else "sh"

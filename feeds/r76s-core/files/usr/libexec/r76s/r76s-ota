@@ -7,7 +7,7 @@ local sys=require 'luci.sys'
 local json=require 'luci.jsonc'
 
 local run='/tmp/r76s-ota'
-local repository='https://github.com/Taipeione/iStoreOS-R76S-Custom/releases/download/'
+local repository='https://github.com/Taipeione/iStoreOS-R76S-Custom/releases/'
 local image='/tmp/firmware.img'
 local progress='/tmp/firmware.img.progress'
 local transaction=nil
@@ -93,17 +93,36 @@ end
 
 local function release_tag(channel)
     assert(channel=='stable','只支持正式稳定 OTA 通道')
-    return 'R76S-stable'
+    -- The latest-release assets are the signed stable pointer.  The manifest
+    -- itself carries the immutable versioned release URL for the image.
+    return 'latest'
 end
 
 local function channel_url(channel,name)
-    return repository..release_tag(channel)..'/'..name
+    return repository..release_tag(channel)..'/download/'..name
 end
 
 local function revision(s)
     local a,b,c=s:match('^R76S%-V(%d+)%.(%d+)%.(%d+)$')
     if not a then return nil end
     return tonumber(a)*100000000+tonumber(b)*10000+tonumber(c)
+end
+
+local function current_info()
+    local text=read('/etc/openwrt_release')
+    return {
+        release=text:match("DISTRIB_RELEASE='([^']+)'") or '',
+        revision=text:match("DISTRIB_REVISION='([^']+)'") or ''
+    }
+end
+
+local function assert_direct_ota_supported()
+    local current=current_info()
+    -- V1.4.6 is deliberately blocked: its 256 MiB rootfs/OPKG layout and
+    -- 24.10 kernel ABI do not match the V2.x 512 MiB/APK image.  Only the
+    -- same-layout V2.0.x family may use ordinary LuCI/SSH sysupgrade.
+    assert(current.release=='25.12.6' and current.revision:match('^R76S%-V2%.0%.%d+$'),
+        '当前系统不是 R76S-V2.0.x 同分区布局；V1.4.6 到 V2.x 必须先做一次 TF/完整镜像迁移和选择性配置恢复')
 end
 
 local function fetch(url,dst)
@@ -123,7 +142,9 @@ local function manifest()
     local supported=false
     for _,d in ipairs(m.supported_devices or {}) do if d=='friendlyarm,nanopi-r76s' then supported=true end end
     assert(supported,'OTA 固件不支持 friendlyarm,nanopi-r76s')
-    assert(m.url==repository..m.version..'/'..m.version..'-TF-squashfs.img.gz','OTA 镜像地址不规范')
+    assert(m.release_tag:match('^R76S%-V%d+%.%d+%.%d+$'),'OTA release tag 无效')
+    assert(m.image=='openwrt-rockchip-armv8-friendlyarm_nanopi-r76s-squashfs-sysupgrade.img.gz','OTA 镜像文件名不规范')
+    assert(m.url==repository..'download/'..m.release_tag..'/'..m.image,'OTA 镜像地址不规范')
     assert(type(m.sha256)=='string' and #m.sha256==64 and m.sha256:match('^%x+$'),'OTA SHA256 无效')
     assert(type(m.size)=='number' and m.size>0 and m.size<1024*1024*1024,'OTA 镜像大小无效')
     return m
@@ -173,7 +194,7 @@ local function transaction_body()
     reject_flashing_state()
     acquire_lock(phase)
     if phase=='channel' then
-        assert((arg[2] or 'stable')=='stable','V2.0.0 不支持测试 OTA 通道')
+        assert((arg[2] or 'stable')=='stable','R76S-V2.0.1 不支持测试 OTA 通道')
         local uci=require 'uci'.cursor()
         assert(uci:set('r76s','main','channel','stable'))
         assert(uci:commit('r76s'))
@@ -191,7 +212,7 @@ local function transaction_body()
         local m=manifest()
         assert(revision(m.version or ''),'OTA metadata 未提供有效版本')
         fs.mkdirr('/var/run/ota')
-        assert(fs.writefile('/var/run/ota/ota.latest','[25.12.6-'..m.version..']('..m.version..'-TF-squashfs.img.gz)\nSHA256: '..m.sha256..'\n'))
+        assert(fs.writefile('/var/run/ota/ota.latest','[25.12.6-'..m.version..']('..m.image..')\nSHA256: '..m.sha256..'\n'))
         persist({phase='checked',channel='stable',release=m.version,version=m.version,size=m.size})
     elseif phase=='download' then
         local m=manifest()
@@ -211,9 +232,12 @@ local function transaction_body()
     elseif phase=='verify' or phase=='install' then
         local m=manifest()
         local current=read('/etc/openwrt_release'):match("DISTRIB_REVISION='([^']+)'")
+        assert_direct_ota_supported()
         assert(revision(current or '') and revision(m.version)>revision(current),'当前版本相同或更新，已阻止重复升级')
         local stat=fs.stat(image)
         assert(stat and stat.size==m.size,'本地镜像大小不匹配')
+        local free=tonumber(sys.exec("df -Pk /tmp | awk 'END {print $4}'")) or 0
+        assert(free*1024>m.size*2+16*1024*1024,'/tmp 空间不足，至少需要镜像两倍空间')
         assert(sys.exec('sha256sum '..q(image)..' 2>/dev/null'):match('^(%x+)')==m.sha256,'本地镜像 SHA256 不匹配')
         assert(call('fwtool -q -i '..q(run..'/image.meta')..' '..q(image)),'固件 metadata 校验失败')
         local meta=json.parse(read(run..'/image.meta'))

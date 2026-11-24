@@ -1,0 +1,41 @@
+#!/bin/sh
+# Restore only application/network configuration from an OpenWrt backup.
+# Never restore package databases, passwd/shadow, init scripts, boot files or
+# the old OTA state when migrating V1.4.6 OPKG to V2.x APK.
+set -eu
+
+ARCHIVE="${1:-}"
+[ -n "$ARCHIVE" ] && [ -s "$ARCHIVE" ] || { echo 'configuration archive missing' >&2; exit 1; }
+
+WORK="$(mktemp -d /tmp/r76s-selective-restore.XXXXXX)"
+trap 'rm -rf "$WORK"' EXIT
+
+LIST="$WORK/allowed.list"
+tar -tzf "$ARCHIVE" | awk '
+    $0 ~ /^etc\/config\/(network|firewall|dhcp|ddns|dockerd|ttyd|passwall|passwall2|smartdns|ucitrack)$/ { print }
+    $0 ~ /^etc\/config\/r76s_ip_policy$/ { print }
+    $0 ~ /^etc\/(passwall|passwall2|smartdns)\// { print }
+    $0 ~ /^etc\/adguardhome(\.yaml|\/)/ { print }
+    $0 ~ /^etc\/r76s(\/|$)/ { print }
+    $0 ~ /^etc\/r76s-ip6-guard(\/|$)/ { print }
+' > "$LIST"
+
+[ -s "$LIST" ] || { echo 'no supported configuration entries found' >&2; exit 1; }
+while IFS= read -r path; do
+    case "$path" in
+        etc/*) ;;
+        *) echo "unsafe archive path: $path" >&2; exit 1 ;;
+    esac
+done < "$LIST"
+
+tar -xzf "$ARCHIVE" -C "$WORK" -T "$LIST"
+while IFS= read -r path; do
+    [ -e "$WORK/$path" ] || continue
+    mkdir -p "/$(dirname "$path")"
+    cp -a "$WORK/$path" "/$path"
+done < "$LIST"
+
+if [ -x /usr/libexec/r76s/r76s-config-migrate ]; then
+    /usr/libexec/r76s/r76s-config-migrate
+fi
+echo 'SELECTIVE_CONFIG_RESTORE=PASS'

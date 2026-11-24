@@ -408,7 +408,7 @@ end
 function api_channel()
     local channel = http.formvalue("channel") or ""
     if channel ~= "stable" then
-        json_reply({ok=false, message="R76S-V1.4.6 只支持正式稳定 OTA 通道。", status=build_status()})
+        json_reply({ok=false, message="R76S-V2.0.1 只支持正式稳定 OTA 通道。", status=build_status()})
         return
     end
 
@@ -570,7 +570,7 @@ function api_restore()
         json_reply({ok=false, message="恢复前保护性备份失败，未修改当前配置。"})
         return
     end
-    local restore_rc, restore_out = run_with_rc("/sbin/sysupgrade -r " .. archive .. " 2>&1")
+    local restore_rc, restore_out = run_with_rc("/usr/libexec/r76s/r76s-config-restore-selective " .. archive .. " 2>&1")
     fs.remove(archive)
     if restore_rc ~= 0 then
         json_reply({ok=false, message="恢复失败，当前配置保护备份保留在 " .. current .. "。" .. (restore_out ~= "" and (" " .. restore_out) or "")})

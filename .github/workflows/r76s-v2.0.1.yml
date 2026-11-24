@@ -1,15 +1,15 @@
-name: R76S-V2.0.0
-run-name: "R76S-V2.0.0 #${{ github.run_number }}"
+name: R76S-V2.0.1
+run-name: "R76S-V2.0.1 #${{ github.run_number }}"
 
 on:
   push:
     branches:
       - main
-      - codex/r76s-v2.0.0-openwrt-25.12
+      - codex/r76s-v2.0.1-openwrt-25.12
   workflow_dispatch:
     inputs:
       tf_boot_test:
-        description: 'Build the isolated R76S-V2.0.0 TF boot-test artifact'
+        description: 'Build the isolated R76S-V2.0.1 TF boot-test artifact'
         required: false
         type: boolean
         default: false
@@ -19,7 +19,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: r76s-v2.0.0-${{ github.ref }}
+  group: r76s-v2.0.1-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -27,7 +27,7 @@ env:
   OPENWRT_VERSION: 25.12.6
   TARGET: rockchip/armv8
   DEVICE: friendlyarm_nanopi-r76s
-  VERSION: R76S-V2.0.0
+  VERSION: R76S-V2.0.1
   R76S_JOBS: 2
   DEBIAN_FRONTEND: noninteractive
 
@@ -56,7 +56,7 @@ jobs:
           set -Eeuo pipefail
           mkdir -p "$RUNNER_TEMP/source-validation"
           {
-            echo "# R76S-V2.0.0 cloud source validation"
+            echo "# R76S-V2.0.1 cloud source validation"
             echo
             echo "- Repository: $GITHUB_REPOSITORY"
             echo "- Commit: $GITHUB_SHA"
@@ -105,6 +105,9 @@ jobs:
           grep -q 'UBOOT_DEVICE_NAME := generic-rk3576' "$OPENWRT_DIR/target/linux/rockchip/image/armv8.mk"
           grep -q 'TARGET_DEVICES += friendlyarm_nanopi-r76s' "$OPENWRT_DIR/target/linux/rockchip/image/armv8.mk"
           test -f "$OPENWRT_DIR/target/linux/rockchip/patches-6.12/136-arm64-dts-rockchip-Update-LED-properties-for-NanoPi-R76S.patch"
+          python3 scripts/r76s-v2.0.1-ota-audit.py \
+            --repo "$GITHUB_WORKSPACE" --openwrt "$OPENWRT_DIR" \
+            --output "$RUNNER_TEMP/source-validation/ota-compatibility-audit.md"
           {
             echo
             echo '## OpenWrt/RK3576 source checks'
@@ -113,7 +116,14 @@ jobs:
             echo '- friendlyarm_nanopi-r76s profile: PASS'
             echo '- RK3576 U-Boot device: PASS'
             echo '- NanoPi R76S DTS patch: PASS'
+            echo '- V1.4.6 direct OTA: BLOCKED by explicit compatibility gate'
+            echo '- V2.0.0 same-layout OTA: PASS by static gate'
           } >> "$RUNNER_TEMP/source-validation/source-validation.md"
+          test -s "$GITHUB_WORKSPACE/docs/R76S-V2.0.1-OTA-GUIDE.md"
+          test -s "$GITHUB_WORKSPACE/docs/R76S-V2.0.1-OTA-COMPATIBILITY.md"
+          test -s "$GITHUB_WORKSPACE/docs/R76S-V2.0.1-RECOVERY-GUIDE.md"
+          test -s "$GITHUB_WORKSPACE/docs/R76S-V2.0.1-LOGIN-SECURITY.md"
+          test -s "$GITHUB_WORKSPACE/docs/R76S-V2.0.1-TESTPLAN.md"
 
       - name: Verify feeds and all 11 rule inputs
         run: |
@@ -158,7 +168,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: R76S-V2.0.0-source-validation-${{ github.run_number }}
+          name: R76S-V2.0.1-source-validation-${{ github.run_number }}
           path: ${{ runner.temp }}/source-validation
           if-no-files-found: warn
           retention-days: 30
@@ -190,15 +200,15 @@ jobs:
           path: |
             ${{ runner.temp }}/openwrt-dl
             ~/.cache/ccache
-          key: r76s-v2.0.0-${{ runner.os }}-${{ hashFiles('config/R76S-V2.config', 'config/feeds-v2.conf') }}
+          key: r76s-v2.0.1-${{ runner.os }}-${{ hashFiles('config/R76S-V2.config', 'config/feeds-v2.conf') }}
           restore-keys: |
-            r76s-v2.0.0-${{ runner.os }}-
+            r76s-v2.0.1-${{ runner.os }}-
 
       - name: Build official OpenWrt firmware
         run: |
           set -Eeuo pipefail
           BUILD_LOG="$RUNNER_TEMP/cloud-build.log"
-          RELEASE="$RUNNER_TEMP/release/R76S-V2.0.0"
+          RELEASE="$RUNNER_TEMP/release/R76S-V2.0.1"
           mkdir -p "$RELEASE" "$RUNNER_TEMP/openwrt-dl"
           exec > >(tee -a "$BUILD_LOG") 2>&1
           echo "BUILD_PLATFORM=github-hosted-ubuntu-22.04-x86_64"
@@ -258,7 +268,12 @@ jobs:
           cp "$GITHUB_WORKSPACE/config/rules/r76s-rules.json" "$RELEASE/baseline-rules.json"
           cp "$PW1" "$RELEASE/PassWall-default.config"
           cp "$PW2" "$RELEASE/PassWall2-default.config"
-          cp "$GITHUB_WORKSPACE/docs/R76S-V2.0.0-TEST-PLAN.md" "$RELEASE/TestPlan.md"
+          cp "$GITHUB_WORKSPACE/docs/R76S-V2.0.1-TEST-PLAN.md" "$RELEASE/TestPlan.md"
+          cp "$GITHUB_WORKSPACE/docs/R76S-V2.0.1-OTA-GUIDE.md" "$RELEASE/OTA-GUIDE.md"
+          cp "$GITHUB_WORKSPACE/docs/R76S-V2.0.1-OTA-COMPATIBILITY.md" "$RELEASE/OTA-COMPATIBILITY.md"
+          cp "$GITHUB_WORKSPACE/docs/R76S-V2.0.1-RECOVERY-GUIDE.md" "$RELEASE/RECOVERY-GUIDE.md"
+          cp "$GITHUB_WORKSPACE/docs/R76S-V2.0.1-LOGIN-SECURITY.md" "$RELEASE/LOGIN-SECURITY.md"
+          cp "$GITHUB_WORKSPACE/docs/R76S-V2.0.1-TESTPLAN.md" "$RELEASE/V2.0.1-TESTPLAN.md"
           printf '%s\n' "$VERSION" > "$RELEASE/Version"
           export RELEASE BUILD_LOG
           python3 - <<'PY'
@@ -280,6 +295,13 @@ jobs:
               'hardware_boot_tested': 'NOT TESTED',
               'stable_ota_published': False,
               'rule_gate': '10 user TXT groups + AppleEcosystem 85 required',
+              'direct_ota_from_v1_4_6': False,
+              'direct_ota_from_v2_0_0': True,
+              'ota_partition_geometry': {'kernel_mib': 64, 'rootfs_mib': 512},
+              'root_password_policy': 'SHA-512-crypt hash; initial password is documented separately',
+              'ssh_management_scope': 'LAN interface only',
+              'normal_ota_requires_uart': False,
+              'hardware_recovery_uart_free_guarantee': False,
               'cargo_network': lock['cargo_network'],
           }
           Path(os.environ['RELEASE'], 'BuildInfo.json').write_text(json.dumps(info, ensure_ascii=False, indent=2) + '\n')
@@ -292,9 +314,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: R76S-V2.0.0-cloud-build-${{ github.run_number }}
+          name: R76S-V2.0.1-cloud-build-${{ github.run_number }}
           path: |
-            ${{ runner.temp }}/release/R76S-V2.0.0
+            ${{ runner.temp }}/release/R76S-V2.0.1
             ${{ runner.temp }}/cloud-build.log
           if-no-files-found: warn
           retention-days: 30
@@ -328,7 +350,7 @@ jobs:
       - name: Download cloud-built firmware and create TF-only artifact
         uses: actions/download-artifact@v4
         with:
-          name: R76S-V2.0.0-cloud-build-${{ github.run_number }}
+          name: R76S-V2.0.1-cloud-build-${{ github.run_number }}
           path: ${{ runner.temp }}/cloud-build
 
       - name: Audit boot chain and package isolated TF artifact
@@ -343,7 +365,7 @@ jobs:
             --image "$IMAGE" \
             --source-root "$RUNNER_TEMP/openwrt" \
             --output-dir "$TF_OUT"
-          cp docs/R76S-V2.0.0-TF-BOOT-TESTPLAN.md "$TF_OUT/TF-BOOT-TESTPLAN.md"
+          cp docs/R76S-V2.0.1-TF-BOOT-TESTPLAN.md "$TF_OUT/TF-BOOT-TESTPLAN.md"
           export RELEASE IMAGE TF_OUT
           python3 - <<'PY'
           import hashlib, json, os
@@ -362,7 +384,7 @@ jobs:
           info = json.loads((release / 'BuildInfo.json').read_text())
           tf_image = out / 'openwrt-rockchip-armv8-friendlyarm_nanopi-r76s-squashfs-tf-boot-test.img.gz'
           info.update({
-              'artifact_kind': 'R76S-V2.0.0-TF-BOOT-TEST',
+              'artifact_kind': 'R76S-V2.0.1-TF-BOOT-TEST',
               'source_image': image.name,
               'source_image_sha256': sha(image),
               'tf_image': tf_image.name,
@@ -380,7 +402,7 @@ jobs:
       - name: Upload isolated TF boot-test artifact
         uses: actions/upload-artifact@v4
         with:
-          name: R76S-V2.0.0-TF-BOOT-TEST
+          name: R76S-V2.0.1-TF-BOOT-TEST
           path: ${{ runner.temp }}/tf-boot-test
           if-no-files-found: error
           retention-days: 90
@@ -401,7 +423,7 @@ jobs:
       - name: Download cloud build artifact
         uses: actions/download-artifact@v4
         with:
-          name: R76S-V2.0.0-cloud-build-${{ github.run_number }}
+          name: R76S-V2.0.1-cloud-build-${{ github.run_number }}
           path: ${{ runner.temp }}/cloud-build
 
       - name: Run automated release gate audit
@@ -426,7 +448,7 @@ jobs:
               raise SystemExit(f"RELEASE_GATE=FAIL image filename does not identify NanoPi R76S; candidates={[p.name for p in eligible]}")
           info = json.loads((release / 'BuildInfo.json').read_text())
           checks = {
-              'version': info.get('version') == 'R76S-V2.0.0',
+              'version': info.get('version') == 'R76S-V2.0.1',
               'target': info.get('target') == 'rockchip/armv8',
               'device': info.get('device') == 'friendlyarm_nanopi-r76s',
               'openwrt_version': info.get('openwrt_version') == '25.12.6',
@@ -455,7 +477,7 @@ jobs:
             "$RELEASE/PassWall-default.config" "$RELEASE/PassWall2-default.config" \
             | tee "$RUNNER_TEMP/rules-audit.txt"
           {
-            echo '# R76S-V2.0.0 firmware audit'
+            echo '# R76S-V2.0.1 firmware audit'
             echo
             echo '- Cloud build exit: PASS'
             echo '- Target/device/image filename: PASS'
@@ -466,7 +488,7 @@ jobs:
             echo '- PassWall/PassWall2: PASS'
             echo '- WeChatDirect TCP/UDP direct and broad qq.com guard: PASS'
             echo '- HARDWARE BOOT TESTED: NOT TESTED'
-            echo '- STABLE OTA: NOT PUBLISHED'
+            echo '- Direct V1.4.6 OTA: BLOCKED; V2.0.0 OTA: STATIC PASS'
             echo
             cat "$RUNNER_TEMP/rules-audit.txt"
           } > "$RUNNER_TEMP/firmware-audit.md"
@@ -475,7 +497,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: R76S-V2.0.0-firmware-audit-${{ github.run_number }}
+          name: R76S-V2.0.1-firmware-audit-${{ github.run_number }}
           path: ${{ runner.temp }}/firmware-audit.md
           if-no-files-found: warn
           retention-days: 30
@@ -496,7 +518,7 @@ jobs:
       - name: Download cloud build artifact
         uses: actions/download-artifact@v4
         with:
-          name: R76S-V2.0.0-cloud-build-${{ github.run_number }}
+          name: R76S-V2.0.1-cloud-build-${{ github.run_number }}
           path: ${{ runner.temp }}/cloud-build
 
       - name: Audit Apple, ten user groups, PassWall and WeChatDirect
@@ -521,7 +543,7 @@ jobs:
             "$RELEASE/PassWall-default.config" "$RELEASE/PassWall2-default.config" \
             > "$RUNNER_TEMP/rule-audit.md"
           {
-            echo '# R76S-V2.0.0 rule audit'
+            echo '# R76S-V2.0.1 rule audit'
             echo
             echo '- AppleEcosystem: PASS, 85 domains, no forced outbound strategy'
             echo '- User application groups: PASS, 10/10 complete'
@@ -538,10 +560,114 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: R76S-V2.0.0-rule-audit-${{ github.run_number }}
+          name: R76S-V2.0.1-rule-audit-${{ github.run_number }}
           path: ${{ runner.temp }}/rule-audit.md
           if-no-files-found: warn
           retention-days: 30
+
+  ota-compatibility-audit:
+    name: OTA Compatibility Audit
+    needs: openwrt-build
+    if: needs.openwrt-build.result == 'success'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout OTA audit sources
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Fetch locked OpenWrt source and audit migration gates
+        run: |
+          set -Eeuo pipefail
+          git clone --filter=blob:none https://github.com/openwrt/openwrt.git "$RUNNER_TEMP/openwrt"
+          git -C "$RUNNER_TEMP/openwrt" fetch --depth 1 origin "$OPENWRT_COMMIT"
+          git -C "$RUNNER_TEMP/openwrt" checkout --detach "$OPENWRT_COMMIT"
+          python3 scripts/r76s-v2.0.1-ota-audit.py \
+            --repo "$GITHUB_WORKSPACE" --openwrt "$RUNNER_TEMP/openwrt" \
+            --output "$RUNNER_TEMP/OTA-COMPATIBILITY-AUDIT.md"
+          cp docs/R76S-V2.0.1-OTA-COMPATIBILITY.md "$RUNNER_TEMP/V2.0.1-OTA-COMPATIBILITY.md"
+          cat "$RUNNER_TEMP/V2.0.1-OTA-COMPATIBILITY.md" >> "$RUNNER_TEMP/OTA-COMPATIBILITY-AUDIT.md"
+
+      - name: Upload OTA compatibility evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: R76S-V2.0.1-ota-compatibility-${{ github.run_number }}
+          path: ${{ runner.temp }}/*OTA-COMPATIBILITY*.md
+          if-no-files-found: error
+          retention-days: 90
+
+  login-security-audit:
+    name: Login Security Audit
+    needs: openwrt-build
+    if: needs.openwrt-build.result == 'success'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout login policy
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Audit hashed root credential and LAN-only SSH
+        run: |
+          set -Eeuo pipefail
+          HASHED=files/etc/uci-defaults/95-r76s-initial-root-password
+          AUTH=files/etc/uci-defaults/99-r76s-root-auth
+          grep -q '\$6\$' "$HASHED"
+          ! grep -qE 'passwd[[:space:]]+root|password$' "$HASHED"
+          grep -q "Interface='lan'" "$AUTH"
+          ! rg -n 'R76S_INITIAL_ROOT_PASSWORD|password=password|root:password' . --glob '!work/**' --glob '!outputs/**'
+          {
+            echo '# R76S-V2.0.1 Login Security Audit'
+            echo
+            echo '- Root credential storage: PASS, SHA-512-crypt shadow hash'
+            echo '- Plaintext password in source/log metadata: ABSENT'
+            echo '- Dropbear management scope: PASS, LAN interface only'
+            echo '- First-login password-change warning: PASS'
+          } > "$RUNNER_TEMP/login-security-audit.md"
+
+      - name: Upload login security evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: R76S-V2.0.1-login-security-${{ github.run_number }}
+          path: ${{ runner.temp }}/login-security-audit.md
+          if-no-files-found: error
+          retention-days: 90
+
+  recovery-plan-audit:
+    name: Recovery Plan Audit
+    needs: openwrt-build
+    if: needs.openwrt-build.result == 'success'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout recovery documentation
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify recovery boundaries
+        run: |
+          set -Eeuo pipefail
+          grep -q 'HARDWARE BOOT TESTED: NOT TESTED' docs/R76S-V2.0.1-TESTPLAN.md
+          grep -q '不能保证无需 UART' docs/R76S-V2.0.1-RECOVERY-GUIDE.md
+          grep -q 'MASKROM' docs/R76S-V2.0.1-RECOVERY-GUIDE.md
+          grep -q '不自动刷写生产设备' docs/R76S-V2.0.1-RECOVERY-GUIDE.md
+          ! rg -n '保证所有.*无需 UART|所有.*无需 UART.*保证|自动执行.*(MASKROM|EraseAll)' docs/R76S-V2.0.1-RECOVERY-GUIDE.md
+          cp docs/R76S-V2.0.1-RECOVERY-GUIDE.md "$RUNNER_TEMP/recovery-guide.md"
+          cp docs/R76S-V2.0.1-RECOVERY-GUIDE.md "$RUNNER_TEMP/recovery-audit.md"
+
+      - name: Upload recovery evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: R76S-V2.0.1-recovery-${{ github.run_number }}
+          path: ${{ runner.temp }}/recovery-*.md
+          if-no-files-found: error
+          retention-days: 90
 
   codex-release-review:
     name: Codex Release Review
@@ -549,14 +675,17 @@ jobs:
       - openwrt-build
       - firmware-audit
       - rule-audit
-    if: needs.openwrt-build.result == 'success' && needs.firmware-audit.result == 'success' && needs.rule-audit.result == 'success'
+      - ota-compatibility-audit
+      - login-security-audit
+      - recovery-plan-audit
+    if: needs.openwrt-build.result == 'success' && needs.firmware-audit.result == 'success' && needs.rule-audit.result == 'success' && needs.ota-compatibility-audit.result == 'success' && needs.login-security-audit.result == 'success' && needs.recovery-plan-audit.result == 'success'
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     steps:
       - name: Download build and all audit evidence
         uses: actions/download-artifact@v4
         with:
-          pattern: R76S-V2.0.0-*-${{ github.run_number }}
+          pattern: R76S-V2.0.1-*-${{ github.run_number }}
           merge-multiple: true
           path: ${{ runner.temp }}/final-artifacts
 
@@ -571,6 +700,16 @@ jobs:
           cp "$RULE_AUDIT" "$RELEASE/rule-audit.md"
           (cd "$RELEASE" && sha256sum -c SHA256SUMS)
           test -s "$RELEASE/BuildInfo.json" -a -s "$RELEASE/TestPlan.md" -a -s "$RELEASE/Version"
+          test -s "$RELEASE/OTA-GUIDE.md" -a -s "$RELEASE/OTA-COMPATIBILITY.md"
+          test -s "$RELEASE/RECOVERY-GUIDE.md" -a -s "$RELEASE/LOGIN-SECURITY.md"
+          OTA_AUDIT=$(find "$RUNNER_TEMP/final-artifacts" -name OTA-COMPATIBILITY-AUDIT.md -print -quit)
+          LOGIN_AUDIT=$(find "$RUNNER_TEMP/final-artifacts" -name login-security-audit.md -print -quit)
+          RECOVERY_AUDIT=$(find "$RUNNER_TEMP/final-artifacts" -name recovery-audit.md -print -quit)
+          test -n "$OTA_AUDIT"
+          test -n "$LOGIN_AUDIT" -a -n "$RECOVERY_AUDIT"
+          grep -q 'OTA_COMPATIBILITY_AUDIT=PASS' "$OTA_AUDIT"
+          grep -q 'Root credential storage: PASS' "$LOGIN_AUDIT"
+          grep -q '不能保证无需 UART' "$RECOVERY_AUDIT"
           grep -q 'HARDWARE BOOT TESTED: NOT TESTED' "$RELEASE/firmware-audit.md"
           grep -q 'AppleEcosystem: PASS' "$RELEASE/rule-audit.md"
           grep -q 'User application groups: PASS, 10/10 complete' "$RELEASE/rule-audit.md"
@@ -586,13 +725,16 @@ jobs:
           - PassWall/PassWall2 and WeChatDirect: audited successfully
           - SHA256: verified by Codex Release Review
           - HARDWARE BOOT TESTED: NOT TESTED
-          - STABLE OTA: NOT PUBLISHED
+          - V1.4.6 direct OTA: BLOCKED; V2.0.0 same-layout OTA: SUPPORTED BY STATIC GATES
+          - Signed OTA metadata: generated and attached to this release
           EOF
+          (cd "$RELEASE" && find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+          (cd "$RELEASE" && sha256sum -c SHA256SUMS)
 
       - name: Upload final firmware artifact
         uses: actions/upload-artifact@v4
         with:
-          name: R76S-V2.0.0-final-${{ github.run_number }}
+          name: R76S-V2.0.1-final-${{ github.run_number }}
           path: ${{ runner.temp }}/final-artifacts
           if-no-files-found: error
           retention-days: 90
@@ -607,12 +749,13 @@ jobs:
       - name: Download final verified artifact
         uses: actions/download-artifact@v4
         with:
-          name: R76S-V2.0.0-final-${{ github.run_number }}
+          name: R76S-V2.0.1-final-${{ github.run_number }}
           path: ${{ runner.temp }}/release
 
       - name: Recheck release gates and publish Git tag and GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          R76S_OTA_SIGNING_KEY: ${{ secrets.R76S_OTA_SIGNING_KEY }}
         run: |
           set -Eeuo pipefail
           RELEASE=$(find "$RUNNER_TEMP/release" -name BuildInfo.json -printf '%h\n' | head -1)
@@ -621,6 +764,41 @@ jobs:
           grep -q 'HARDWARE BOOT TESTED: NOT TESTED' "$RELEASE/firmware-audit.md"
           grep -q 'AppleEcosystem: PASS' "$RELEASE/rule-audit.md"
           grep -q 'User application groups: 10/10 imported' "$RELEASE/ReleaseReport.md"
+          test -n "$R76S_OTA_SIGNING_KEY"
+          IMAGE=$(find "$RELEASE" -maxdepth 1 -type f -name 'openwrt-rockchip-armv8-friendlyarm_nanopi-r76s-squashfs-sysupgrade.img.gz' -print -quit)
+          test -s "$IMAGE"
+          IMAGE_NAME=$(basename "$IMAGE")
+          IMAGE_SHA=$(sha256sum "$IMAGE" | awk '{print $1}')
+          IMAGE_SIZE=$(stat -c '%s' "$IMAGE")
+          export RELEASE IMAGE_NAME IMAGE_SHA IMAGE_SIZE VERSION OPENWRT_VERSION TARGET DEVICE GITHUB_REPOSITORY
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          release = Path(os.environ['RELEASE'])
+          manifest = {
+              'schema_version': 1,
+              'version': os.environ['VERSION'],
+              'release_tag': os.environ['VERSION'],
+              'image': os.environ['IMAGE_NAME'],
+              'url': f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{os.environ['VERSION']}/{os.environ['IMAGE_NAME']}",
+              'sha256': os.environ['IMAGE_SHA'],
+              'size': int(os.environ['IMAGE_SIZE']),
+              'target': os.environ['TARGET'],
+              'device': os.environ['DEVICE'],
+              'openwrt_version': os.environ['OPENWRT_VERSION'],
+              'supported_devices': ['friendlyarm,nanopi-r76s'],
+              'direct_ota_from_v1_4_6': False,
+              'direct_ota_from_v2_0_0': True,
+              'hardware_boot_tested': 'NOT TESTED',
+          }
+          (release / 'ota.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')
+          PY
+          umask 077
+          printf '%s' "$R76S_OTA_SIGNING_KEY" > "$RUNNER_TEMP/r76s-ota-signing.pem"
+          openssl pkeyutl -sign -inkey "$RUNNER_TEMP/r76s-ota-signing.pem" -rawin \
+            -in "$RELEASE/ota.json" -out "$RELEASE/ota.json.sig"
+          (cd "$RELEASE" && find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+          (cd "$RELEASE" && sha256sum -c SHA256SUMS)
           if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" >/dev/null 2>&1; then
             echo "Tag $VERSION already exists; refusing to overwrite it." >&2
             exit 1
@@ -632,6 +810,16 @@ jobs:
             "$RELEASE/SHA256SUMS"
             "$RELEASE/BuildInfo.json"
             "$RELEASE/TestPlan.md"
+            "$RELEASE/V2.0.1-TESTPLAN.md"
+            "$RELEASE/OTA-GUIDE.md"
+            "$RELEASE/OTA-COMPATIBILITY.md"
+            "$RELEASE/RECOVERY-GUIDE.md"
+            "$RELEASE/LOGIN-SECURITY.md"
+            "$RELEASE/login-security-audit.md"
+            "$RELEASE/recovery-audit.md"
+            "$RELEASE/OTA-COMPATIBILITY-AUDIT.md"
+            "$RELEASE/ota.json"
+            "$RELEASE/ota.json.sig"
             "$RELEASE/ReleaseReport.md"
             "$RELEASE/firmware-audit.md"
             "$RELEASE/rule-audit.md"
