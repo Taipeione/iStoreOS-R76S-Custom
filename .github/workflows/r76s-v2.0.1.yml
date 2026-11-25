@@ -707,6 +707,9 @@ jobs:
           RECOVERY_AUDIT=$(find "$RUNNER_TEMP/final-artifacts" -name recovery-audit.md -print -quit)
           test -n "$OTA_AUDIT"
           test -n "$LOGIN_AUDIT" -a -n "$RECOVERY_AUDIT"
+          cp "$OTA_AUDIT" "$RELEASE/OTA-COMPATIBILITY-AUDIT.md"
+          cp "$LOGIN_AUDIT" "$RELEASE/login-security-audit.md"
+          cp "$RECOVERY_AUDIT" "$RELEASE/recovery-audit.md"
           grep -q 'OTA_COMPATIBILITY_AUDIT=PASS' "$OTA_AUDIT"
           grep -q 'Root credential storage: PASS' "$LOGIN_AUDIT"
           grep -q '不能保证无需串口' "$RECOVERY_AUDIT"
@@ -799,12 +802,17 @@ jobs:
             -in "$RELEASE/ota.json" -out "$RELEASE/ota.json.sig"
           (cd "$RELEASE" && find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
           (cd "$RELEASE" && sha256sum -c SHA256SUMS)
-          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" >/dev/null 2>&1; then
-            echo "Tag $VERSION already exists; refusing to overwrite it." >&2
-            exit 1
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" > "$RUNNER_TEMP/existing-tag.json" 2>/dev/null; then
+            EXISTING_TAG_SHA=$(jq -r '.object.sha' "$RUNNER_TEMP/existing-tag.json")
+            if [[ "$EXISTING_TAG_SHA" != "$GITHUB_SHA" ]]; then
+              echo "Tag $VERSION exists at $EXISTING_TAG_SHA, not current commit $GITHUB_SHA; refusing to overwrite it." >&2
+              exit 1
+            fi
+            echo "Reusing existing tag $VERSION at current commit $GITHUB_SHA."
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f "ref=refs/tags/$VERSION" -f "sha=$GITHUB_SHA"
           fi
-          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
-            -f "ref=refs/tags/$VERSION" -f "sha=$GITHUB_SHA"
           assets=(
             "$RELEASE"/*.img.gz
             "$RELEASE/SHA256SUMS"
