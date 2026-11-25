@@ -654,7 +654,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           grep -q 'HARDWARE BOOT TESTED: NOT TESTED' docs/R76S-V2.0.1-TESTPLAN.md
-          grep -q '不能保证无需 UART' docs/R76S-V2.0.1-RECOVERY-GUIDE.md
+          grep -q '不能保证无需串口' docs/R76S-V2.0.1-RECOVERY-GUIDE.md
           grep -q 'MASKROM' docs/R76S-V2.0.1-RECOVERY-GUIDE.md
           grep -q '不自动刷写生产设备' docs/R76S-V2.0.1-RECOVERY-GUIDE.md
           ! rg -n '保证所有.*无需 UART|所有.*无需 UART.*保证|自动执行.*(MASKROM|EraseAll)' docs/R76S-V2.0.1-RECOVERY-GUIDE.md
