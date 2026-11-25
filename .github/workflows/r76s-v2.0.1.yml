@@ -709,7 +709,7 @@ jobs:
           test -n "$LOGIN_AUDIT" -a -n "$RECOVERY_AUDIT"
           grep -q 'OTA_COMPATIBILITY_AUDIT=PASS' "$OTA_AUDIT"
           grep -q 'Root credential storage: PASS' "$LOGIN_AUDIT"
-          grep -q '不能保证无需 UART' "$RECOVERY_AUDIT"
+          grep -q '不能保证无需串口' "$RECOVERY_AUDIT"
           grep -q 'HARDWARE BOOT TESTED: NOT TESTED' "$RELEASE/firmware-audit.md"
           grep -q 'AppleEcosystem: PASS' "$RELEASE/rule-audit.md"
           grep -q 'User application groups: PASS, 10/10 complete' "$RELEASE/rule-audit.md"
