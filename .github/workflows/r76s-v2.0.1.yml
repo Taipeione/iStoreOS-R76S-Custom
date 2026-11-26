@@ -749,6 +749,24 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
+      - name: Wait for final artifact registration
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          expected="R76S-V2.0.1-final-${GITHUB_RUN_NUMBER}"
+          for attempt in $(seq 1 12); do
+            if gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100" \
+              --jq '.artifacts[].name' | grep -Fxq "$expected"; then
+              echo "Final artifact is visible: $expected"
+              exit 0
+            fi
+            echo "Waiting for final artifact registration ($attempt/12): $expected"
+            sleep 10
+          done
+          echo "Final artifact did not become visible: $expected" >&2
+          exit 1
+
       - name: Download final verified artifact
         uses: actions/download-artifact@v4
         with:
