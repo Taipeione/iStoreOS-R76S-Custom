@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static OTA compatibility gates for R76S V2.0.1.
+"""Static OTA compatibility gates for R76S V2.0.2.
 
 This audit never opens a block device and never runs sysupgrade.  It proves
 which migration paths are supported by the locked configs and OpenWrt's
@@ -35,10 +35,10 @@ def main() -> int:
 
     require('CONFIG_TARGET_ROOTFS_PARTSIZE=256' in old, "V1.4.6 baseline is not recorded as 256 MiB", failures)
     require('CONFIG_PACKAGE_opkg=y' in old, "V1.4.6 baseline is not recorded as OPKG", failures)
-    require('CONFIG_TARGET_ROOTFS_PARTSIZE=512' in new, "V2.0.1 target is not 512 MiB", failures)
-    require('CONFIG_USE_APK=y' in new, "V2.0.1 target does not enable APK", failures)
-    require('CONFIG_PACKAGE_opkg=y' not in new, "legacy OPKG is enabled in V2.0.1", failures)
-    require('CONFIG_VERSION_CODE="R76S-V2.0.1"' in new, "V2.0.1 version identity is missing", failures)
+    require('CONFIG_TARGET_ROOTFS_PARTSIZE=512' in new, "V2.0.2 target is not 512 MiB", failures)
+    require('CONFIG_USE_APK=y' in new, "V2.0.2 target does not enable APK", failures)
+    require('CONFIG_PACKAGE_opkg=y' not in new, "legacy OPKG is enabled in V2.0.2", failures)
+    require('CONFIG_VERSION_CODE="R76S-V2.0.2"' in new, "V2.0.2 version identity is missing", failures)
 
     require('REQUIRE_IMAGE_METADATA=1' in platform, "sysupgrade metadata gate is missing", failures)
     require('get_partitions /tmp/image.bs image' in platform, "sysupgrade does not inspect image partitions", failures)
@@ -49,9 +49,9 @@ def main() -> int:
 
     require(old != new, "old and new configs unexpectedly identical", failures)
     direct_v146 = False
-    direct_v200 = True
+    direct_v2x = True
     require(not direct_v146, "V1.4.6 direct OTA was accidentally enabled", failures)
-    require(direct_v200, "V2.0.0 same-layout OTA was not enabled", failures)
+    require(direct_v2x, "V2.0.x same-layout OTA was not enabled", failures)
 
     public_key = repo / "files/usr/share/r76s/ota-public.pem"
     config_key = repo / "config/ota-public.pem"
@@ -72,10 +72,10 @@ def main() -> int:
     require("r76s-config-migrate" in selective_text, "selective migration does not invoke V2 normalization", failures)
 
     report = [
-        "# R76S-V2.0.1 OTA Compatibility Audit",
+        "# R76S-V2.0.2 OTA Compatibility Audit",
         "",
-        "- V1.4.6 → V2.0.1 direct sysupgrade: **BLOCKED** (256 MiB/OPKG/old ABI versus 512 MiB/APK/new ABI).",
-        "- V2.0.0 → V2.0.1 standard sysupgrade: **SUPPORTED BY STATIC GATES** (same target and partition geometry).",
+        "- V1.4.6 → V2.0.2 direct sysupgrade: **BLOCKED** (256 MiB/OPKG/old ABI versus 512 MiB/APK/new ABI).",
+        "- V2.0.x → V2.0.2 standard sysupgrade: **SUPPORTED BY STATIC GATES ONLY** (same target and partition geometry; hardware not tested).",
         "- U-Boot/SPL/SPI rewrite in same-layout path: **not requested by the platform branch; hardware not tested**.",
         "- Configuration backup: required before install; selective migration excludes package databases and credentials.",
         "- Initial root credential: SHA-512-crypt shadow entry; existing preserved password wins.",
@@ -85,7 +85,7 @@ def main() -> int:
     if failures:
         report += ["## FAIL", ""] + [f"- {item}" for item in failures]
     else:
-        report += ["## PASS", "", "All static V2.0.1 OTA gates passed."]
+        report += ["## PASS", "", "All static V2.0.2 OTA gates passed."]
 
     text = "OTA_COMPATIBILITY_AUDIT=" + ("FAIL" if failures else "PASS") + "\n\n" + "\n".join(report) + "\n"
     if args.output:

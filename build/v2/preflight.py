@@ -31,7 +31,7 @@ def main() -> int:
         repo / "scripts/r76s-generate-rules.py",
         repo / "feeds/r76s-core/files/usr/libexec/r76s/r76s-rules-merge.lua",
         repo / "feeds/r76s-core/files/usr/share/r76s/r76s-app-rules.json",
-            repo / "scripts/r76s-v2.0.1-ota-audit.py",
+            repo / "scripts/r76s-v2.0.2-ota-audit.py",
             repo / "files/etc/uci-defaults/95-r76s-initial-root-password",
             repo / "files/usr/share/r76s/ota-public.pem",
             repo / "feeds/r76s-core/files/usr/libexec/r76s/r76s-config-restore-selective",
@@ -48,7 +48,7 @@ def main() -> int:
             "CONFIG_PACKAGE_luci-mod-system=y",
             "CONFIG_PACKAGE_apk-mbedtls=y",
             'CONFIG_VERSION_NUMBER="25.12.6"',
-            'CONFIG_VERSION_CODE="R76S-V2.0.1"',
+            'CONFIG_VERSION_CODE="R76S-V2.0.2"',
         )
         for item in required:
             if item not in text:
